@@ -1,0 +1,834 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Situation Monitor</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg: #0a0a0a;
+            --surface: #141414;
+            --border: #2a2a2a;
+            --text: #e8e8e8;
+            --text-dim: #888;
+            --accent: #fff;
+            --red: #ff4444;
+            --green: #44ff88;
+            --yellow: #ffaa00;
+        }
+
+        body {
+            font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', monospace;
+            background: var(--bg);
+            color: var(--text);
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
+        .header {
+            position: sticky;
+            top: 0;
+            background: var(--bg);
+            border-bottom: 1px solid var(--border);
+            padding: 0.75rem 1.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 100;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 2rem;
+        }
+
+        .title {
+            font-size: 0.8rem;
+            font-weight: bold;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+        }
+
+        .status {
+            font-size: 0.7rem;
+            color: var(--text-dim);
+        }
+
+        .status.loading {
+            color: var(--accent);
+        }
+
+        .refresh-btn {
+            background: var(--accent);
+            color: var(--bg);
+            border: none;
+            padding: 0.4rem 1.2rem;
+            font-family: inherit;
+            font-size: 0.7rem;
+            font-weight: bold;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+
+        .refresh-btn:hover {
+            opacity: 0.8;
+        }
+
+        .refresh-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .dashboard {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            grid-template-rows: auto auto;
+            gap: 1px;
+            background: var(--border);
+        }
+
+        .panel {
+            background: var(--bg);
+            display: flex;
+            flex-direction: column;
+            min-height: 300px;
+        }
+
+        .panel.wide {
+            grid-column: span 2;
+        }
+
+        .panel-header {
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .panel-title {
+            font-size: 0.65rem;
+            font-weight: bold;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--text-dim);
+        }
+
+        .panel-count {
+            font-size: 0.65rem;
+            color: var(--text-dim);
+        }
+
+        .panel-content {
+            flex: 1;
+            overflow-y: auto;
+            max-height: 380px;
+        }
+
+        .item {
+            padding: 0.6rem 1rem;
+            border-bottom: 1px solid var(--border);
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .item:hover {
+            background: var(--surface);
+        }
+
+        .item.alert {
+            border-left: 2px solid var(--yellow);
+        }
+
+        .item-source {
+            font-size: 0.55rem;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.15rem;
+        }
+
+        .item-title {
+            font-size: 0.75rem;
+            font-weight: normal;
+            color: var(--text);
+            text-decoration: none;
+            display: block;
+        }
+
+        .item-title:hover {
+            color: var(--accent);
+        }
+
+        .item-time {
+            font-size: 0.55rem;
+            color: var(--text-dim);
+            margin-top: 0.3rem;
+        }
+
+        .alert-tag {
+            font-size: 0.5rem;
+            background: var(--yellow);
+            color: var(--bg);
+            padding: 0.1rem 0.3rem;
+            margin-left: 0.5rem;
+            font-weight: bold;
+        }
+
+        /* Markets Panel */
+        .market-item {
+            padding: 0.5rem 1rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .market-name {
+            font-size: 0.7rem;
+            font-weight: bold;
+        }
+
+        .market-symbol {
+            font-size: 0.55rem;
+            color: var(--text-dim);
+        }
+
+        .market-data {
+            text-align: right;
+        }
+
+        .market-price {
+            font-size: 0.75rem;
+            font-weight: bold;
+        }
+
+        .market-change {
+            font-size: 0.65rem;
+        }
+
+        .market-change.up {
+            color: var(--green);
+        }
+
+        .market-change.down {
+            color: var(--red);
+        }
+
+        /* Sector Heatmap */
+        .heatmap {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 2px;
+            padding: 0.5rem;
+        }
+
+        .heatmap-cell {
+            padding: 0.6rem 0.4rem;
+            text-align: center;
+            font-size: 0.6rem;
+            font-weight: bold;
+            border-radius: 2px;
+        }
+
+        .heatmap-cell .sector-name {
+            font-size: 0.55rem;
+            opacity: 0.9;
+            margin-bottom: 0.2rem;
+        }
+
+        .heatmap-cell .sector-change {
+            font-size: 0.7rem;
+        }
+
+        .heatmap-cell.up-3 { background: #0d5a2d; color: #fff; }
+        .heatmap-cell.up-2 { background: #157a3c; color: #fff; }
+        .heatmap-cell.up-1 { background: #1d9a4b; color: #fff; }
+        .heatmap-cell.up-0 { background: #2a4a35; color: #fff; }
+        .heatmap-cell.down-0 { background: #4a2a2a; color: #fff; }
+        .heatmap-cell.down-1 { background: #8a3a3a; color: #fff; }
+        .heatmap-cell.down-2 { background: #aa3333; color: #fff; }
+        .heatmap-cell.down-3 { background: #cc2222; color: #fff; }
+
+        .error-msg {
+            padding: 1rem;
+            color: var(--text-dim);
+            font-size: 0.7rem;
+        }
+
+        .loading-msg {
+            padding: 1rem;
+            color: var(--text-dim);
+            font-size: 0.7rem;
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
+        }
+
+        .section-divider {
+            padding: 0.4rem 1rem;
+            background: var(--surface);
+            font-size: 0.55rem;
+            font-weight: bold;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--text-dim);
+        }
+
+        @media (max-width: 1400px) {
+            .dashboard {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            .panel.wide {
+                grid-column: span 1;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .dashboard {
+                grid-template-columns: 1fr;
+            }
+
+            .header {
+                padding: 0.75rem 1rem;
+            }
+
+            .panel-content {
+                max-height: 350px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="header-left">
+            <h1 class="title">Situation Monitor</h1>
+            <span class="status" id="status">Ready</span>
+        </div>
+        <button class="refresh-btn" id="refreshBtn" onclick="refreshAll()">Refresh</button>
+    </header>
+
+    <main class="dashboard">
+        <!-- Political / World News -->
+        <section class="panel">
+            <div class="panel-header">
+                <span class="panel-title">World / Geopolitical</span>
+                <span class="panel-count" id="politicsCount">-</span>
+            </div>
+            <div class="panel-content" id="politicsPanel">
+                <div class="loading-msg">Loading...</div>
+            </div>
+        </section>
+
+        <!-- Technology News -->
+        <section class="panel">
+            <div class="panel-header">
+                <span class="panel-title">Technology / AI</span>
+                <span class="panel-count" id="techCount">-</span>
+            </div>
+            <div class="panel-content" id="techPanel">
+                <div class="loading-msg">Loading...</div>
+            </div>
+        </section>
+
+        <!-- Financial News -->
+        <section class="panel">
+            <div class="panel-header">
+                <span class="panel-title">Financial</span>
+                <span class="panel-count" id="financeCount">-</span>
+            </div>
+            <div class="panel-content" id="financePanel">
+                <div class="loading-msg">Loading...</div>
+            </div>
+        </section>
+
+        <!-- Government / Policy -->
+        <section class="panel">
+            <div class="panel-header">
+                <span class="panel-title">Government / Policy</span>
+                <span class="panel-count" id="govCount">-</span>
+            </div>
+            <div class="panel-content" id="govPanel">
+                <div class="loading-msg">Loading...</div>
+            </div>
+        </section>
+
+        <!-- Sector Heatmap -->
+        <section class="panel">
+            <div class="panel-header">
+                <span class="panel-title">Sector Heatmap</span>
+            </div>
+            <div class="panel-content" id="heatmapPanel">
+                <div class="loading-msg">Loading...</div>
+            </div>
+        </section>
+
+        <!-- Markets -->
+        <section class="panel wide">
+            <div class="panel-header">
+                <span class="panel-title">Markets</span>
+                <span class="panel-count" id="marketsCount">-</span>
+            </div>
+            <div class="panel-content" id="marketsPanel">
+                <div class="loading-msg">Loading...</div>
+            </div>
+        </section>
+
+        <!-- Commodities -->
+        <section class="panel">
+            <div class="panel-header">
+                <span class="panel-title">Commodities / VIX</span>
+            </div>
+            <div class="panel-content" id="commoditiesPanel">
+                <div class="loading-msg">Loading...</div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        const CORS_PROXIES = [
+            'https://corsproxy.io/?',
+            'https://api.allorigins.win/raw?url='
+        ];
+
+        // Geopolitical alert keywords
+        const ALERT_KEYWORDS = [
+            'war', 'invasion', 'military', 'nuclear', 'sanctions', 'missile',
+            'attack', 'troops', 'conflict', 'strike', 'bomb', 'casualties',
+            'ceasefire', 'treaty', 'nato', 'coup', 'martial law', 'emergency',
+            'assassination', 'terrorist', 'hostage', 'evacuation'
+        ];
+
+        // RSS Feed sources
+        const FEEDS = {
+            politics: [
+                { name: 'BBC World', url: 'https://feeds.bbci.co.uk/news/world/rss.xml' },
+                { name: 'NPR News', url: 'https://feeds.npr.org/1001/rss.xml' },
+                { name: 'Guardian World', url: 'https://www.theguardian.com/world/rss' },
+                { name: 'Reuters World', url: 'https://www.reutersagency.com/feed/?taxonomy=best-sectors&post_type=best' }
+            ],
+            tech: [
+                { name: 'Hacker News', url: 'https://hnrss.org/frontpage' },
+                { name: 'Ars Technica', url: 'https://feeds.arstechnica.com/arstechnica/technology-lab' },
+                { name: 'The Verge', url: 'https://www.theverge.com/rss/index.xml' },
+                { name: 'MIT Tech Review', url: 'https://www.technologyreview.com/feed/' },
+                { name: 'ArXiv AI', url: 'https://rss.arxiv.org/rss/cs.AI' },
+                { name: 'OpenAI Blog', url: 'https://openai.com/blog/rss.xml' }
+            ],
+            finance: [
+                { name: 'CNBC', url: 'https://www.cnbc.com/id/100003114/device/rss/rss.html' },
+                { name: 'MarketWatch', url: 'https://feeds.marketwatch.com/marketwatch/topstories' },
+                { name: 'Yahoo Finance', url: 'https://finance.yahoo.com/news/rssindex' },
+                { name: 'Reuters Business', url: 'https://www.reutersagency.com/feed/?best-topics=business-finance&post_type=best' },
+                { name: 'FT', url: 'https://www.ft.com/rss/home' }
+            ],
+            gov: [
+                { name: 'White House', url: 'https://www.whitehouse.gov/feed/' },
+                { name: 'Federal Reserve', url: 'https://www.federalreserve.gov/feeds/press_all.xml' },
+                { name: 'SEC Announcements', url: 'https://www.sec.gov/news/pressreleases.rss' },
+                { name: 'Treasury', url: 'https://home.treasury.gov/system/files/136/treasury-rss.xml' },
+                { name: 'State Dept', url: 'https://www.state.gov/rss-feed/press-releases/feed/' }
+            ]
+        };
+
+        // Sector ETFs for heatmap
+        const SECTORS = [
+            { symbol: 'XLK', name: 'Tech' },
+            { symbol: 'XLF', name: 'Finance' },
+            { symbol: 'XLE', name: 'Energy' },
+            { symbol: 'XLV', name: 'Health' },
+            { symbol: 'XLY', name: 'Consumer' },
+            { symbol: 'XLI', name: 'Industrial' },
+            { symbol: 'XLP', name: 'Staples' },
+            { symbol: 'XLU', name: 'Utilities' },
+            { symbol: 'XLB', name: 'Materials' },
+            { symbol: 'XLRE', name: 'Real Est' },
+            { symbol: 'XLC', name: 'Comms' },
+            { symbol: 'SMH', name: 'Semis' }
+        ];
+
+        // Commodities and VIX
+        const COMMODITIES = [
+            { symbol: '^VIX', name: 'VIX', display: 'VIX' },
+            { symbol: 'GC=F', name: 'Gold', display: 'GOLD' },
+            { symbol: 'CL=F', name: 'Crude Oil', display: 'OIL' },
+            { symbol: 'NG=F', name: 'Natural Gas', display: 'NATGAS' },
+            { symbol: 'SI=F', name: 'Silver', display: 'SILVER' },
+            { symbol: 'HG=F', name: 'Copper', display: 'COPPER' }
+        ];
+
+        // Fetch with proxy
+        async function fetchWithProxy(url) {
+            for (let i = 0; i < CORS_PROXIES.length; i++) {
+                try {
+                    const proxy = CORS_PROXIES[i];
+                    const response = await fetch(proxy + encodeURIComponent(url), {
+                        headers: { 'Accept': 'application/rss+xml, application/xml, text/xml, */*' }
+                    });
+                    if (response.ok) {
+                        return await response.text();
+                    }
+                } catch (e) {
+                    console.log(`Proxy ${i} failed, trying next...`);
+                }
+            }
+            throw new Error('All proxies failed');
+        }
+
+        // Check for alert keywords
+        function hasAlertKeyword(title) {
+            const lower = title.toLowerCase();
+            return ALERT_KEYWORDS.some(kw => lower.includes(kw));
+        }
+
+        // Parse RSS feed
+        async function fetchFeed(source) {
+            try {
+                const text = await fetchWithProxy(source.url);
+                const parser = new DOMParser();
+                const xml = parser.parseFromString(text, 'text/xml');
+
+                const parseError = xml.querySelector('parsererror');
+                if (parseError) {
+                    console.error(`Parse error for ${source.name}`);
+                    return [];
+                }
+
+                let items = xml.querySelectorAll('item');
+                if (items.length === 0) {
+                    items = xml.querySelectorAll('entry');
+                }
+
+                return Array.from(items).slice(0, 5).map(item => {
+                    let link = '';
+                    const linkEl = item.querySelector('link');
+                    if (linkEl) {
+                        link = linkEl.getAttribute('href') || linkEl.textContent || '';
+                    }
+                    link = link.trim();
+
+                    const title = (item.querySelector('title')?.textContent || 'No title').trim();
+                    const pubDate = item.querySelector('pubDate')?.textContent ||
+                                   item.querySelector('published')?.textContent ||
+                                   item.querySelector('updated')?.textContent || '';
+
+                    return {
+                        source: source.name,
+                        title,
+                        link,
+                        pubDate,
+                        isAlert: hasAlertKeyword(title)
+                    };
+                });
+            } catch (error) {
+                console.error(`Error fetching ${source.name}:`, error);
+                return [];
+            }
+        }
+
+        // Fetch all feeds for a category
+        async function fetchCategory(feeds) {
+            const results = await Promise.all(feeds.map(fetchFeed));
+            const items = results.flat();
+
+            items.sort((a, b) => {
+                // Alerts first, then by date
+                if (a.isAlert && !b.isAlert) return -1;
+                if (!a.isAlert && b.isAlert) return 1;
+                const dateA = new Date(a.pubDate);
+                const dateB = new Date(b.pubDate);
+                return dateB - dateA;
+            });
+
+            return items.slice(0, 20);
+        }
+
+        // Fetch stock quote
+        async function fetchQuote(symbol) {
+            try {
+                const text = await fetchWithProxy(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}`);
+                const data = JSON.parse(text);
+                if (data.chart?.result?.[0]) {
+                    const meta = data.chart.result[0].meta;
+                    const change = ((meta.regularMarketPrice - meta.previousClose) / meta.previousClose) * 100;
+                    return { price: meta.regularMarketPrice, change };
+                }
+            } catch (error) {
+                console.error(`Error fetching ${symbol}:`, error);
+            }
+            return null;
+        }
+
+        // Fetch market data
+        async function fetchMarkets() {
+            const markets = [];
+
+            const symbols = [
+                { symbol: '^GSPC', name: 'S&P 500', display: 'SPX' },
+                { symbol: '^DJI', name: 'Dow Jones', display: 'DJI' },
+                { symbol: '^IXIC', name: 'NASDAQ', display: 'NDX' },
+                { symbol: 'AAPL', name: 'Apple', display: 'AAPL' },
+                { symbol: 'MSFT', name: 'Microsoft', display: 'MSFT' },
+                { symbol: 'NVDA', name: 'NVIDIA', display: 'NVDA' },
+                { symbol: 'GOOGL', name: 'Alphabet', display: 'GOOGL' },
+                { symbol: 'AMZN', name: 'Amazon', display: 'AMZN' },
+                { symbol: 'META', name: 'Meta', display: 'META' },
+                { symbol: 'BRK-B', name: 'Berkshire', display: 'BRK.B' },
+                { symbol: 'TSM', name: 'TSMC', display: 'TSM' },
+                { symbol: 'LLY', name: 'Eli Lilly', display: 'LLY' },
+                { symbol: 'TSLA', name: 'Tesla', display: 'TSLA' },
+                { symbol: 'AVGO', name: 'Broadcom', display: 'AVGO' },
+                { symbol: 'WMT', name: 'Walmart', display: 'WMT' },
+                { symbol: 'JPM', name: 'JPMorgan', display: 'JPM' },
+                { symbol: 'V', name: 'Visa', display: 'V' },
+                { symbol: 'UNH', name: 'UnitedHealth', display: 'UNH' },
+                { symbol: 'NVO', name: 'Novo Nordisk', display: 'NVO' },
+                { symbol: 'XOM', name: 'Exxon', display: 'XOM' },
+                { symbol: 'MA', name: 'Mastercard', display: 'MA' },
+                { symbol: 'ORCL', name: 'Oracle', display: 'ORCL' },
+                { symbol: 'PG', name: 'P&G', display: 'PG' },
+                { symbol: 'COST', name: 'Costco', display: 'COST' },
+                { symbol: 'JNJ', name: 'J&J', display: 'JNJ' },
+                { symbol: 'HD', name: 'Home Depot', display: 'HD' },
+                { symbol: 'NFLX', name: 'Netflix', display: 'NFLX' },
+                { symbol: 'BAC', name: 'BofA', display: 'BAC' }
+            ];
+
+            const fetchStock = async (s) => {
+                const quote = await fetchQuote(s.symbol);
+                if (quote) {
+                    return { name: s.name, symbol: s.display, price: quote.price, change: quote.change };
+                }
+                return null;
+            };
+
+            const stockResults = await Promise.all(symbols.map(fetchStock));
+            stockResults.forEach(r => { if (r) markets.push(r); });
+
+            // Crypto
+            try {
+                const cryptoResponse = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana&vs_currencies=usd&include_24hr_change=true');
+                const crypto = await cryptoResponse.json();
+
+                if (crypto.bitcoin) markets.push({ name: 'Bitcoin', symbol: 'BTC', price: crypto.bitcoin.usd, change: crypto.bitcoin.usd_24h_change });
+                if (crypto.ethereum) markets.push({ name: 'Ethereum', symbol: 'ETH', price: crypto.ethereum.usd, change: crypto.ethereum.usd_24h_change });
+                if (crypto.solana) markets.push({ name: 'Solana', symbol: 'SOL', price: crypto.solana.usd, change: crypto.solana.usd_24h_change });
+            } catch (error) {
+                console.error('Error fetching crypto:', error);
+            }
+
+            return markets;
+        }
+
+        // Fetch sector heatmap data
+        async function fetchSectors() {
+            const results = await Promise.all(SECTORS.map(async (s) => {
+                const quote = await fetchQuote(s.symbol);
+                if (quote) {
+                    return { name: s.name, symbol: s.symbol, change: quote.change };
+                }
+                return { name: s.name, symbol: s.symbol, change: 0 };
+            }));
+            return results;
+        }
+
+        // Fetch commodities and VIX
+        async function fetchCommodities() {
+            const results = [];
+            for (const c of COMMODITIES) {
+                const quote = await fetchQuote(c.symbol);
+                if (quote) {
+                    results.push({ name: c.name, symbol: c.display, price: quote.price, change: quote.change });
+                }
+            }
+            return results;
+        }
+
+        // Format relative time
+        function timeAgo(dateString) {
+            if (!dateString) return '';
+            const date = new Date(dateString);
+            const now = new Date();
+            const seconds = Math.floor((now - date) / 1000);
+
+            if (seconds < 60) return 'just now';
+            if (seconds < 3600) return Math.floor(seconds / 60) + 'm ago';
+            if (seconds < 86400) return Math.floor(seconds / 3600) + 'h ago';
+            return Math.floor(seconds / 86400) + 'd ago';
+        }
+
+        // Render news items
+        function renderNews(items, panelId, countId) {
+            const panel = document.getElementById(panelId);
+            const count = document.getElementById(countId);
+
+            if (items.length === 0) {
+                panel.innerHTML = '<div class="error-msg">Failed to load</div>';
+                count.textContent = '0';
+                return;
+            }
+
+            panel.innerHTML = items.map(item => `
+                <div class="item ${item.isAlert ? 'alert' : ''}">
+                    <div class="item-source">${item.source}${item.isAlert ? '<span class="alert-tag">ALERT</span>' : ''}</div>
+                    <a class="item-title" href="${item.link}" target="_blank">${item.title}</a>
+                    <div class="item-time">${timeAgo(item.pubDate)}</div>
+                </div>
+            `).join('');
+
+            count.textContent = items.length;
+        }
+
+        // Render markets
+        function renderMarkets(markets) {
+            const panel = document.getElementById('marketsPanel');
+            const count = document.getElementById('marketsCount');
+
+            if (markets.length === 0) {
+                panel.innerHTML = '<div class="error-msg">Failed to load</div>';
+                count.textContent = '0';
+                return;
+            }
+
+            panel.innerHTML = markets.map(m => {
+                const changeClass = m.change > 0 ? 'up' : m.change < 0 ? 'down' : '';
+                const changeText = m.change !== null ? `${m.change > 0 ? '+' : ''}${m.change.toFixed(2)}%` : '-';
+                const priceDisplay = typeof m.price === 'number' && m.price > 100
+                    ? m.price.toLocaleString('en-US', { maximumFractionDigits: 0 })
+                    : m.price?.toFixed(2);
+
+                return `
+                    <div class="market-item">
+                        <div>
+                            <div class="market-name">${m.name}</div>
+                            <div class="market-symbol">${m.symbol}</div>
+                        </div>
+                        <div class="market-data">
+                            <div class="market-price">$${priceDisplay}</div>
+                            <div class="market-change ${changeClass}">${changeText}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            count.textContent = markets.length;
+        }
+
+        // Render sector heatmap
+        function renderHeatmap(sectors) {
+            const panel = document.getElementById('heatmapPanel');
+
+            if (sectors.length === 0) {
+                panel.innerHTML = '<div class="error-msg">Failed to load</div>';
+                return;
+            }
+
+            panel.innerHTML = '<div class="heatmap">' + sectors.map(s => {
+                let colorClass = 'up-0';
+                const c = s.change;
+                if (c >= 2) colorClass = 'up-3';
+                else if (c >= 1) colorClass = 'up-2';
+                else if (c >= 0.5) colorClass = 'up-1';
+                else if (c >= 0) colorClass = 'up-0';
+                else if (c >= -0.5) colorClass = 'down-0';
+                else if (c >= -1) colorClass = 'down-1';
+                else if (c >= -2) colorClass = 'down-2';
+                else colorClass = 'down-3';
+
+                return `
+                    <div class="heatmap-cell ${colorClass}">
+                        <div class="sector-name">${s.name}</div>
+                        <div class="sector-change">${s.change >= 0 ? '+' : ''}${s.change.toFixed(2)}%</div>
+                    </div>
+                `;
+            }).join('') + '</div>';
+        }
+
+        // Render commodities
+        function renderCommodities(commodities) {
+            const panel = document.getElementById('commoditiesPanel');
+
+            if (commodities.length === 0) {
+                panel.innerHTML = '<div class="error-msg">Failed to load</div>';
+                return;
+            }
+
+            panel.innerHTML = commodities.map(m => {
+                const changeClass = m.change > 0 ? 'up' : m.change < 0 ? 'down' : '';
+                const changeText = `${m.change > 0 ? '+' : ''}${m.change.toFixed(2)}%`;
+                const priceDisplay = m.price?.toFixed(2);
+
+                return `
+                    <div class="market-item">
+                        <div>
+                            <div class="market-name">${m.name}</div>
+                            <div class="market-symbol">${m.symbol}</div>
+                        </div>
+                        <div class="market-data">
+                            <div class="market-price">${m.symbol === 'VIX' ? '' : '$'}${priceDisplay}</div>
+                            <div class="market-change ${changeClass}">${changeText}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Update status
+        function setStatus(text, loading = false) {
+            const status = document.getElementById('status');
+            status.textContent = text;
+            status.className = loading ? 'status loading' : 'status';
+        }
+
+        // Refresh all data
+        async function refreshAll() {
+            const btn = document.getElementById('refreshBtn');
+            btn.disabled = true;
+            setStatus('Fetching...', true);
+
+            try {
+                const [politics, tech, finance, gov, markets, sectors, commodities] = await Promise.all([
+                    fetchCategory(FEEDS.politics),
+                    fetchCategory(FEEDS.tech),
+                    fetchCategory(FEEDS.finance),
+                    fetchCategory(FEEDS.gov),
+                    fetchMarkets(),
+                    fetchSectors(),
+                    fetchCommodities()
+                ]);
+
+                renderNews(politics, 'politicsPanel', 'politicsCount');
+                renderNews(tech, 'techPanel', 'techCount');
+                renderNews(finance, 'financePanel', 'financeCount');
+                renderNews(gov, 'govPanel', 'govCount');
+                renderMarkets(markets);
+                renderHeatmap(sectors);
+                renderCommodities(commodities);
+
+                const now = new Date();
+                setStatus(`Updated ${now.toLocaleTimeString()}`);
+            } catch (error) {
+                console.error('Refresh error:', error);
+                setStatus('Error updating');
+            }
+
+            btn.disabled = false;
+        }
+
+        // Initial load
+        refreshAll();
+    </script>
+</body>
+</html>
