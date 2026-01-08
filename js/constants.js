@@ -62,7 +62,7 @@ export const FEEDS = {
         { name: 'The Verge', url: 'https://www.theverge.com/rss/index.xml' },
         { name: 'MIT Tech Review', url: 'https://www.technologyreview.com/feed/' },
         { name: 'ArXiv AI', url: 'https://rss.arxiv.org/rss/cs.AI' },
-        { name: 'OpenAI Blog', url: 'https://openai.com/blog/rss.xml' }
+        { name: 'OpenAI Blog', url: 'https://openai.com/news/rss.xml' }
     ],
     finance: [
         { name: 'CNBC', url: 'https://www.cnbc.com/id/100003114/device/rss/rss.html' },
@@ -72,7 +72,7 @@ export const FEEDS = {
         { name: 'FT', url: 'https://www.ft.com/rss/home' }
     ],
     gov: [
-        { name: 'White House', url: 'https://www.whitehouse.gov/feed/' },
+        { name: 'White House', url: 'https://www.whitehouse.gov/news/feed/' },
         { name: 'Federal Reserve', url: 'https://www.federalreserve.gov/feeds/press_all.xml' },
         { name: 'SEC Announcements', url: 'https://www.sec.gov/news/pressreleases.rss' },
         { name: 'Treasury', url: 'https://home.treasury.gov/system/files/136/treasury-rss.xml' },
@@ -1124,10 +1124,10 @@ export const SOURCE_TYPES = {
 
 // AI RSS feeds for arms race tracking
 export const AI_FEEDS = [
-    { name: 'OpenAI', url: 'https://openai.com/blog/rss.xml' },
-    { name: 'Anthropic', url: 'https://www.anthropic.com/rss.xml' },
+    { name: 'OpenAI', url: 'https://openai.com/news/rss.xml' },
     { name: 'Google AI', url: 'https://blog.google/technology/ai/rss/' },
     { name: 'DeepMind', url: 'https://deepmind.google/blog/rss.xml' },
-    { name: 'Meta AI', url: 'https://ai.meta.com/blog/rss/' },
-    { name: 'Hugging Face', url: 'https://huggingface.co/blog/feed.xml' }
+    { name: 'Hugging Face', url: 'https://huggingface.co/blog/feed.xml' },
+    { name: 'MIT AI News', url: 'https://news.mit.edu/topic/artificial-intelligence2-rss.xml' },
+    { name: 'VentureBeat AI', url: 'https://venturebeat.com/category/ai/feed' }
 ];
