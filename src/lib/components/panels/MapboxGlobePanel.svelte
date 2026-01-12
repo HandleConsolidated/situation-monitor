@@ -948,7 +948,7 @@
 			const feature = e.features[0];
 			const props = feature.properties;
 
-			let recentNews: string[] = [];
+			let recentNews: Array<{ title: string; link?: string }> = [];
 			try {
 				recentNews = props?.recentNews ? JSON.parse(props.recentNews) : [];
 			} catch {
@@ -974,7 +974,7 @@
 			const feature = e.features[0];
 			const props = feature.properties;
 
-			let recentNews: string[] = [];
+			let recentNews: Array<{ title: string; link?: string }> = [];
 			try {
 				recentNews = props?.recentNews ? JSON.parse(props.recentNews) : [];
 			} catch {
@@ -1035,7 +1035,7 @@
 		const feature = e.features[0];
 		const props = feature.properties;
 
-		let recentNews: string[] = [];
+		let recentNews: Array<{ title: string; link?: string }> = [];
 		try {
 			recentNews = props?.recentNews ? JSON.parse(props.recentNews) : [];
 		} catch {

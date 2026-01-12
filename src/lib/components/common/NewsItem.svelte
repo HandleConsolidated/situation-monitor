@@ -19,14 +19,24 @@
 	}: Props = $props();
 
 	const isAlertItem = $derived(showAlert && item.isAlert);
+
+	// Check if item is "new" (fetched within the last 60 seconds)
+	const isNewItem = $derived(() => {
+		if (!item.isNew) return false;
+		if (!item.fetchedAt) return item.isNew;
+		// Item stays "new" for 60 seconds after fetch
+		return Date.now() - item.fetchedAt < 60000;
+	});
 </script>
 
 <div
-	class="cursor-pointer transition-colors hover:bg-white/5 {compact
+	class="cursor-pointer transition-all hover:bg-white/5 {compact
 		? 'py-1.5'
 		: 'py-2'} {isAlertItem
 		? 'bg-red-950/50 border-l-2 border-red-500 -mx-2 px-2 rounded-sm'
-		: 'border-b border-slate-800 last:border-b-0'}"
+		: isNewItem()
+			? 'bg-cyan-950/30 border-l-2 border-cyan-400 -mx-2 px-2 rounded-sm animate-fade-in'
+			: 'border-b border-slate-800 last:border-b-0'}"
 >
 	{#if showSource}
 		<div
@@ -38,6 +48,12 @@
 					class="bg-red-600 text-white text-[9px] px-1.5 py-0.5 rounded-sm font-bold tracking-wide"
 				>
 					ALERT
+				</span>
+			{:else if isNewItem()}
+				<span
+					class="bg-cyan-600 text-white text-[9px] px-1.5 py-0.5 rounded-sm font-bold tracking-wide animate-pulse"
+				>
+					NEW
 				</span>
 			{/if}
 		</div>
@@ -71,3 +87,20 @@
 		{/if}
 	</div>
 </div>
+
+<style>
+	@keyframes fade-in {
+		from {
+			opacity: 0;
+			transform: translateY(-4px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
+	}
+
+	:global(.animate-fade-in) {
+		animation: fade-in 0.3s ease-out;
+	}
+</style>
