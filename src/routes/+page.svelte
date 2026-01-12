@@ -30,6 +30,7 @@
 		settings,
 		refresh,
 		allNewsItems,
+		categorizedNewsItems,
 		layoutSettings,
 		leftPanels,
 		rightPanels,
@@ -342,7 +343,7 @@
 					<div class="corner-bl"></div>
 					<div class="corner-br"></div>
 
-					<GlobePanel monitors={$monitors.monitors} news={$allNewsItems} />
+					<GlobePanel monitors={$monitors.monitors} news={$allNewsItems} categorizedNews={$categorizedNewsItems} />
 
 					<!-- Globe overlay controls and info -->
 					<div class="globe-info-overlay">

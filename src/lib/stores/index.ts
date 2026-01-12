@@ -35,6 +35,7 @@ export {
 	aiNews,
 	intelNews,
 	allNewsItems,
+	categorizedNewsItems,
 	alerts,
 	isLoading as isNewsLoading,
 	hasErrors as hasNewsErrors,
