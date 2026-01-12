@@ -816,9 +816,9 @@
 					type: 'circle',
 					source: 'news-events',
 					paint: {
-						'circle-radius': ['get', 'size'],
-						'circle-color': ['get', 'color'],
-						'circle-opacity': ['get', 'opacity'],
+						'circle-radius': ['coalesce', ['get', 'size'], 8],
+						'circle-color': ['coalesce', ['get', 'color'], '#3b82f6'],
+						'circle-opacity': ['coalesce', ['get', 'opacity'], 0.8],
 						'circle-stroke-color': '#ffffff',
 						'circle-stroke-width': 1,
 						'circle-stroke-opacity': 0.5
@@ -830,8 +830,8 @@
 					type: 'circle',
 					source: 'points',
 					paint: {
-						'circle-radius': ['*', ['get', 'size'], 1.5],
-						'circle-color': ['get', 'color'],
+						'circle-radius': ['*', ['coalesce', ['get', 'size'], 8], 1.5],
+						'circle-color': ['coalesce', ['get', 'color'], '#06b6d4'],
 						'circle-opacity': 0.3,
 						'circle-blur': 1
 					}
@@ -842,8 +842,8 @@
 					type: 'circle',
 					source: 'points',
 					paint: {
-						'circle-radius': ['get', 'size'],
-						'circle-color': ['get', 'color'],
+						'circle-radius': ['coalesce', ['get', 'size'], 8],
+						'circle-color': ['coalesce', ['get', 'color'], '#06b6d4'],
 						'circle-stroke-color': '#ffffff',
 						'circle-stroke-width': 1,
 						'circle-stroke-opacity': 0.5
@@ -859,7 +859,9 @@
 						'text-size': 10,
 						'text-offset': [0, 1.5],
 						'text-anchor': 'top',
-						'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular']
+						'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
+						'text-allow-overlap': true,
+						'text-ignore-placement': true
 					},
 					paint: {
 						'text-color': ['get', 'color'],
@@ -867,6 +869,10 @@
 						'text-halo-width': 1
 					}
 				});
+
+				// Ensure labels layer doesn't capture pointer events
+				map.on('mouseenter', 'labels-layer', () => {});
+				map.on('mouseleave', 'labels-layer', () => {});
 
 				setupInteractivity();
 				startRotation();
@@ -1389,11 +1395,18 @@
 		inset: 0;
 		pointer-events: none;
 		background: radial-gradient(ellipse at center, transparent 50%, rgba(0, 0, 0, 0.4) 100%);
-		z-index: 1;
+		z-index: 10;
+	}
+
+	.globe-container :global(.mapboxgl-canvas-container) {
+		position: relative;
+		z-index: 0;
 	}
 
 	.globe-container :global(.mapboxgl-canvas) {
 		cursor: grab;
+		position: relative;
+		z-index: 1;
 	}
 
 	.globe-container :global(.mapboxgl-canvas:active) {
