@@ -28,7 +28,8 @@
 		if (s.includes('bellingcat')) return 'osint';
 		if (s.includes('defense') || s.includes('war') || s.includes('military')) return 'defense';
 		if (s.includes('diplomat') || s.includes('monitor')) return 'regional';
-		if (s.includes('white house') || s.includes('fed') || s.includes('sec') || s.includes('dod')) return 'govt';
+		if (s.includes('white house') || s.includes('fed') || s.includes('sec') || s.includes('dod'))
+			return 'govt';
 		return 'think-tank';
 	}
 
@@ -88,7 +89,7 @@
 					<a href={item.link} target="_blank" rel="noopener noreferrer" class="intel-title">
 						{item.title}
 					</a>
-					{#if item.pubDate}
+					{#if item.pubDate && getRelativeTime(item.pubDate)}
 						<div class="intel-meta">
 							<span>{getRelativeTime(item.pubDate)}</span>
 						</div>
