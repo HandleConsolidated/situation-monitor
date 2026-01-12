@@ -123,6 +123,23 @@
 	let outageData = $state<OutageData[]>([]);
 	let outageDataLoading = $state(false);
 
+	// Arc particle animation state
+	// Each particle has a progress value (0-1) along its arc
+	let arcParticles = $state<{ arcIndex: number; progress: number }[]>([
+		{ arcIndex: 0, progress: 0 },
+		{ arcIndex: 0, progress: 0.33 },
+		{ arcIndex: 0, progress: 0.66 },
+		{ arcIndex: 1, progress: 0.15 },
+		{ arcIndex: 1, progress: 0.48 },
+		{ arcIndex: 1, progress: 0.81 },
+		{ arcIndex: 2, progress: 0.1 },
+		{ arcIndex: 2, progress: 0.4 },
+		{ arcIndex: 2, progress: 0.7 },
+		{ arcIndex: 3, progress: 0.2 },
+		{ arcIndex: 3, progress: 0.55 },
+		{ arcIndex: 3, progress: 0.88 }
+	]);
+
 	// Get effective news (frozen if paused, otherwise live)
 	const effectiveNews = $derived(dataLayers.news.paused ? frozenNews : news);
 	const effectiveCategorizedNews = $derived(
@@ -220,7 +237,7 @@
 			});
 		}
 
-		// Add chokepoints - cyan for maritime routes with ship wheel icon
+		// Add chokepoints - cyan for maritime routes
 		if (dataLayers.chokepoints.visible) {
 			CHOKEPOINTS.forEach((cp) => {
 				features.push({
@@ -231,7 +248,7 @@
 						type: 'chokepoint',
 						desc: cp.desc,
 						color: '#06b6d4', // Cyan-500 - bright and visible
-						icon: '⛵', // Sailboat - clear maritime symbol
+						icon: 'CH', // Simple text that renders reliably in Mapbox fonts
 						size: 10
 					}
 				});
@@ -249,7 +266,7 @@
 						type: 'cable',
 						desc: cl.desc,
 						color: '#10b981', // Emerald-500 - data/connectivity
-						icon: '◈', // Diamond with dot - represents network node
+						icon: 'CB', // Simple text - cable landing
 						size: 8
 					}
 				});
@@ -267,7 +284,7 @@
 						type: 'nuclear',
 						desc: ns.desc,
 						color: '#fb923c', // Orange-400 - high visibility warning
-						icon: '☢', // Radiation symbol for nuclear - classic and recognizable
+						icon: 'N', // Simple text - nuclear
 						size: 11
 					}
 				});
@@ -285,7 +302,7 @@
 						type: 'military',
 						desc: mb.desc,
 						color: '#60a5fa', // Blue-400 - military blue (brighter)
-						icon: '✦', // Four-pointed star - military designation
+						icon: 'M', // Simple text - military
 						size: 10
 					}
 				});
@@ -458,15 +475,14 @@
 	function getArcsGeoJSON(): GeoJSON.FeatureCollection {
 		if (!dataLayers.arcs.visible) return { type: 'FeatureCollection', features: [] };
 
-		const arcConnections = [
-			{ from: 'Moscow', to: 'Kyiv', color: '#ef4444', glowColor: 'rgba(239, 68, 68, 0.4)' },
-			{ from: 'Tehran', to: 'Tel Aviv', color: '#ef4444', glowColor: 'rgba(239, 68, 68, 0.4)' },
-			{ from: 'Beijing', to: 'Taipei', color: '#fbbf24', glowColor: 'rgba(251, 191, 36, 0.4)' },
-			{ from: 'Pyongyang', to: 'Tokyo', color: '#fbbf24', glowColor: 'rgba(251, 191, 36, 0.4)' }
-		];
-
 		const hotspotMap = new Map(HOTSPOTS.map((h) => [h.name, h]));
 		const features: GeoJSON.Feature[] = [];
+
+		// Glow colors for each arc
+		const glowColors: Record<string, string> = {
+			'#ef4444': 'rgba(239, 68, 68, 0.4)',
+			'#fbbf24': 'rgba(251, 191, 36, 0.4)'
+		};
 
 		arcConnections.forEach((conn, index) => {
 			const from = hotspotMap.get(conn.from);
@@ -479,7 +495,7 @@
 					geometry: { type: 'LineString', coordinates: coords },
 					properties: {
 						color: conn.color,
-						glowColor: conn.glowColor,
+						glowColor: glowColors[conn.color] || 'rgba(255, 255, 255, 0.4)',
 						from: conn.from,
 						to: conn.to,
 						id: index
@@ -536,6 +552,72 @@
 		}
 
 		return coords;
+	}
+
+	// Arc connection definitions (used by both arcs and particles)
+	const arcConnections = [
+		{ from: 'Moscow', to: 'Kyiv', color: '#ef4444' },
+		{ from: 'Tehran', to: 'Tel Aviv', color: '#ef4444' },
+		{ from: 'Beijing', to: 'Taipei', color: '#fbbf24' },
+		{ from: 'Pyongyang', to: 'Tokyo', color: '#fbbf24' }
+	];
+
+	// Generate moving particles along arc paths
+	function getArcParticlesGeoJSON(): GeoJSON.FeatureCollection {
+		if (!dataLayers.arcs.visible) return { type: 'FeatureCollection', features: [] };
+
+		const hotspotMap = new Map(HOTSPOTS.map((h) => [h.name, h]));
+		const features: GeoJSON.Feature[] = [];
+
+		arcParticles.forEach((particle) => {
+			const conn = arcConnections[particle.arcIndex];
+			if (!conn) return;
+
+			const from = hotspotMap.get(conn.from);
+			const to = hotspotMap.get(conn.to);
+			if (!from || !to) return;
+
+			// Get position along the arc at this progress
+			const pos = getArcPointAtProgress(
+				[from.lon, from.lat],
+				[to.lon, to.lat],
+				particle.progress
+			);
+
+			features.push({
+				type: 'Feature',
+				geometry: { type: 'Point', coordinates: pos },
+				properties: {
+					color: conn.color,
+					arcIndex: particle.arcIndex,
+					progress: particle.progress
+				}
+			});
+		});
+
+		return { type: 'FeatureCollection', features };
+	}
+
+	// Get a single point along an arc at a given progress (0-1)
+	function getArcPointAtProgress(
+		start: [number, number],
+		end: [number, number],
+		progress: number
+	): [number, number] {
+		const dx = end[0] - start[0];
+		const dy = end[1] - start[1];
+		const distance = Math.sqrt(dx * dx + dy * dy);
+
+		const perpX = -dy / distance;
+		const perpY = dx / distance;
+		const arcHeight = Math.min(distance * 0.35, 15);
+
+		const t = progress;
+		const baseLon = start[0] + dx * t;
+		const baseLat = start[1] + dy * t;
+		const arcFactor = Math.sin(t * Math.PI);
+
+		return [baseLon + perpX * arcHeight * arcFactor, baseLat + perpY * arcHeight * arcFactor];
 	}
 
 	// Generate outage events overlay GeoJSON - now uses real API data
@@ -735,6 +817,9 @@
 			const arcsSource = map.getSource('arcs') as mapboxgl.GeoJSONSource;
 			if (arcsSource) arcsSource.setData(getArcsGeoJSON());
 
+			const arcParticlesSource = map.getSource('arc-particles') as mapboxgl.GeoJSONSource;
+			if (arcParticlesSource) arcParticlesSource.setData(getArcParticlesGeoJSON());
+
 			const ringsSource = map.getSource('pulsing-rings') as mapboxgl.GeoJSONSource;
 			if (ringsSource) ringsSource.setData(getPulsingRingsGeoJSON());
 
@@ -915,6 +1000,7 @@
 				// Add all sources
 				map.addSource('points', { type: 'geojson', data: getPointsGeoJSON() });
 				map.addSource('arcs', { type: 'geojson', data: getArcsGeoJSON() });
+				map.addSource('arc-particles', { type: 'geojson', data: getArcParticlesGeoJSON() });
 				map.addSource('pulsing-rings', { type: 'geojson', data: getPulsingRingsGeoJSON() });
 				map.addSource('labels', { type: 'geojson', data: getLabelsGeoJSON() });
 				map.addSource('news-events', { type: 'geojson', data: getNewsEventsGeoJSON() });
@@ -970,6 +1056,33 @@
 						'line-color': '#ffffff',
 						'line-width': 1,
 						'line-opacity': 0.6
+					}
+				});
+
+				// Arc particles - moving dots that travel along the arcs
+				map.addLayer({
+					id: 'arc-particles-glow',
+					type: 'circle',
+					source: 'arc-particles',
+					paint: {
+						'circle-radius': 8,
+						'circle-color': ['get', 'color'],
+						'circle-opacity': 0.4,
+						'circle-blur': 1
+					}
+				});
+
+				map.addLayer({
+					id: 'arc-particles-layer',
+					type: 'circle',
+					source: 'arc-particles',
+					paint: {
+						'circle-radius': 5,
+						'circle-color': '#ffffff',
+						'circle-opacity': 1,
+						'circle-stroke-color': ['get', 'color'],
+						'circle-stroke-width': 2,
+						'circle-stroke-opacity': 1
 					}
 				});
 
@@ -1452,17 +1565,15 @@
 		return () => clearInterval(pulseInterval);
 	});
 
-	// Animate threat corridor arcs with flowing dash effect
+	// Animate threat corridor arcs with flowing dash effect and moving particles
 	$effect(() => {
 		if (!map || !isInitialized) return;
 
 		let arcPhase = 0;
-		let dashOffset = 0;
 
 		const arcInterval = setInterval(() => {
 			if (!map) return;
 			arcPhase = (arcPhase + 3) % 360;
-			dashOffset = (dashOffset + 0.5) % 12; // Animate dash offset for flow effect
 
 			try {
 				// Pulsing glow that breathes - more dramatic
@@ -1474,12 +1585,6 @@
 				// Main arc line pulsing
 				const mainWidth = 2.5 + Math.sin((arcPhase / 180) * Math.PI) * 1.5;
 				map.setPaintProperty('arcs-layer', 'line-width', mainWidth);
-
-				// Flowing dash animation - key for visible movement
-				// Cycle through different dash patterns to simulate movement
-				const dashLength = 2 + Math.sin((arcPhase / 90) * Math.PI) * 1;
-				const gapLength = 4 - Math.sin((arcPhase / 90) * Math.PI) * 1;
-				map.setPaintProperty('arcs-flow', 'line-dasharray', [dashLength, gapLength]);
 
 				// Flow layer opacity pulsing
 				const flowOpacity = 0.6 + Math.sin((arcPhase / 60) * Math.PI) * 0.4;
@@ -1493,7 +1598,31 @@
 			}
 		}, 30);
 
-		return () => clearInterval(arcInterval);
+		// Animate particles moving along arcs - this creates visible flowing movement
+		const particleInterval = setInterval(() => {
+			if (!map || !dataLayers.arcs.visible) return;
+
+			// Move each particle forward along its arc
+			arcParticles = arcParticles.map((p) => ({
+				...p,
+				progress: (p.progress + 0.008) % 1 // Move forward, wrap at end
+			}));
+
+			// Update the particle source with new positions
+			try {
+				const arcParticlesSource = map.getSource('arc-particles') as mapboxgl.GeoJSONSource;
+				if (arcParticlesSource) {
+					arcParticlesSource.setData(getArcParticlesGeoJSON());
+				}
+			} catch {
+				// Source might not exist yet
+			}
+		}, 40); // ~25fps for smooth particle movement
+
+		return () => {
+			clearInterval(arcInterval);
+			clearInterval(particleInterval);
+		};
 	});
 
 	// Animate outage markers with flickering/pulsing effect
