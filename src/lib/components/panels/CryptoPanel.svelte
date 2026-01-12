@@ -9,7 +9,7 @@
 	const count = $derived(items.length);
 </script>
 
-<Panel id="whales" title="Crypto" {count} {loading} {error}>
+<Panel id="crypto" title="Crypto" {count} {loading} {error}>
 	{#if items.length === 0 && !loading && !error}
 		<div class="text-center text-slate-500 text-[10px] uppercase tracking-widest py-4">
 			No crypto data available

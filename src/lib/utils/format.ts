@@ -3,15 +3,43 @@
  */
 
 /**
+ * Parse a date string that might be in GDELT format (20251202T224500Z)
+ */
+function parseDate(dateInput: string | number | Date | undefined | null): Date | null {
+	if (!dateInput) return null;
+
+	// If it's already a number (timestamp), convert directly
+	if (typeof dateInput === 'number') {
+		const date = new Date(dateInput);
+		return isNaN(date.getTime()) ? null : date;
+	}
+
+	// If it's already a Date, return it if valid
+	if (dateInput instanceof Date) {
+		return isNaN(dateInput.getTime()) ? null : dateInput;
+	}
+
+	// Try GDELT format: 20251202T224500Z
+	const gdeltMatch = dateInput.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/);
+	if (gdeltMatch) {
+		const [, year, month, day, hour, min, sec] = gdeltMatch;
+		const date = new Date(`${year}-${month}-${day}T${hour}:${min}:${sec}Z`);
+		if (!isNaN(date.getTime())) {
+			return date;
+		}
+	}
+
+	// Try standard date parsing
+	const date = new Date(dateInput);
+	return isNaN(date.getTime()) ? null : date;
+}
+
+/**
  * Format relative time from a date
  */
 export function timeAgo(dateInput: string | number | Date | undefined | null): string {
-	if (!dateInput) return '';
-
-	const date = new Date(dateInput);
-
-	// Check if date is valid
-	if (isNaN(date.getTime())) return '';
+	const date = parseDate(dateInput);
+	if (!date) return '';
 
 	const now = new Date();
 	const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
@@ -29,12 +57,8 @@ export function timeAgo(dateInput: string | number | Date | undefined | null): s
  * Get relative time with more detail
  */
 export function getRelativeTime(dateInput: string | number | Date | undefined | null): string {
-	if (!dateInput) return '';
-
-	const date = new Date(dateInput);
-
-	// Check if date is valid
-	if (isNaN(date.getTime())) return '';
+	const date = parseDate(dateInput);
+	if (!date) return '';
 
 	const now = new Date();
 	const diff = now.getTime() - date.getTime();
@@ -42,10 +66,12 @@ export function getRelativeTime(dateInput: string | number | Date | undefined | 
 	// Handle future dates
 	if (diff < 0) return 'Just now';
 
+	const minutes = Math.floor(diff / (1000 * 60));
 	const hours = Math.floor(diff / (1000 * 60 * 60));
 	const days = Math.floor(hours / 24);
 
-	if (hours < 1) return 'Just now';
+	if (minutes < 1) return 'Just now';
+	if (minutes < 60) return `${minutes}m ago`;
 	if (hours < 24) return `${hours}h ago`;
 	if (days < 7) return `${days}d ago`;
 	return date.toLocaleDateString();

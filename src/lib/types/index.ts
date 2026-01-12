@@ -22,6 +22,8 @@ export interface NewsItem {
 	alertKeyword?: string;
 	region?: string;
 	topics?: string[];
+	isNew?: boolean; // Flag for newly-fetched items (not in previous refresh)
+	fetchedAt?: number; // When this item was fetched from API
 }
 
 /**

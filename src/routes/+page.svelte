@@ -885,10 +885,18 @@
 	}
 
 	:global(.bottom-panels) > :global(*) {
-		flex: 0 0 320px;
+		flex: 0 0 auto;
+		width: 320px;
+		min-width: 200px;
+		max-width: 600px;
 		min-height: var(--bottom-height, 200px);
 		max-height: var(--bottom-height, 280px);
 		overflow: hidden;
+	}
+
+	/* Allow panel's explicit width to take precedence when resized */
+	:global(.bottom-panels) > :global([style*="width"]) {
+		flex-basis: auto !important;
 	}
 
 	/* Custom scrollbar for bottom panels */
@@ -928,7 +936,8 @@
 		}
 
 		:global(.bottom-panels) > :global(*) {
-			flex: 0 0 260px;
+			width: 260px;
+			min-width: 180px;
 		}
 	}
 
@@ -951,7 +960,8 @@
 		}
 
 		:global(.bottom-panels) > :global(*) {
-			flex: 0 0 240px;
+			width: 240px;
+			min-width: 160px;
 		}
 	}
 

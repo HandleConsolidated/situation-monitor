@@ -27,7 +27,7 @@ export interface PanelLayoutState {
 
 // Default panel positions - matching the current hardcoded layout
 const DEFAULT_POSITIONS: Record<PanelId, PanelPosition> = {
-	// Left column
+	// Left column - News feeds
 	politics: { zone: 'left', index: 0 },
 	tech: { zone: 'left', index: 1 },
 	finance: { zone: 'left', index: 2 },
@@ -35,25 +35,25 @@ const DEFAULT_POSITIONS: Record<PanelId, PanelPosition> = {
 	correlation: { zone: 'left', index: 4 },
 	narrative: { zone: 'left', index: 5 },
 
-	// Right column
-	markets: { zone: 'right', index: 0 },
-	heatmap: { zone: 'right', index: 1 },
-	crypto: { zone: 'right', index: 2 },
-	commodities: { zone: 'right', index: 3 },
-	whales: { zone: 'right', index: 4 },
-	polymarket: { zone: 'right', index: 5 },
-	contracts: { zone: 'right', index: 6 },
-	layoffs: { zone: 'right', index: 7 },
+	// Right column - Analysis and situational panels
+	gov: { zone: 'right', index: 0 },
+	ai: { zone: 'right', index: 1 },
+	polymarket: { zone: 'right', index: 2 },
+	contracts: { zone: 'right', index: 3 },
+	layoffs: { zone: 'right', index: 4 },
+	leaders: { zone: 'right', index: 5 },
 
-	// Bottom row
-	gov: { zone: 'bottom', index: 0 },
-	ai: { zone: 'bottom', index: 1 },
-	leaders: { zone: 'bottom', index: 2 },
-	venezuela: { zone: 'bottom', index: 3 },
-	greenland: { zone: 'bottom', index: 4 },
-	iran: { zone: 'bottom', index: 5 },
-	printer: { zone: 'bottom', index: 6 },
-	monitors: { zone: 'bottom', index: 7 },
+	// Bottom row - Financial panels (Money Printer, Whale Watch, Markets, Sector Heatmap, Crypto, Commodities)
+	printer: { zone: 'bottom', index: 0 },
+	whales: { zone: 'bottom', index: 1 },
+	markets: { zone: 'bottom', index: 2 },
+	heatmap: { zone: 'bottom', index: 3 },
+	crypto: { zone: 'bottom', index: 4 },
+	commodities: { zone: 'bottom', index: 5 },
+	venezuela: { zone: 'bottom', index: 6 },
+	greenland: { zone: 'bottom', index: 7 },
+	iran: { zone: 'bottom', index: 8 },
+	monitors: { zone: 'bottom', index: 9 },
 
 	// Special panels (not in the drag-drop system)
 	map: { zone: 'left', index: -1 },

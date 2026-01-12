@@ -104,22 +104,39 @@ function createNewsStore() {
 
 		/**
 		 * Set items for a category
+		 * Marks items as "new" if they weren't in the previous set
 		 */
 		setItems(category: NewsCategory, items: NewsItem[]) {
-			const enrichedItems = items.map(enrichNewsItem);
+			const now = Date.now();
 
-			update((state) => ({
-				...state,
-				categories: {
-					...state.categories,
-					[category]: {
-						items: enrichedItems,
-						loading: false,
-						error: null,
-						lastUpdated: Date.now()
+			update((state) => {
+				// Get existing item IDs to detect new items
+				const existingIds = new Set(state.categories[category].items.map((i) => i.id));
+
+				// Enrich items and mark new ones
+				const enrichedItems = items.map((item) => {
+					const enriched = enrichNewsItem(item);
+					const isNewItem = !existingIds.has(item.id);
+					return {
+						...enriched,
+						isNew: isNewItem,
+						fetchedAt: now
+					};
+				});
+
+				return {
+					...state,
+					categories: {
+						...state.categories,
+						[category]: {
+							items: enrichedItems,
+							loading: false,
+							error: null,
+							lastUpdated: now
+						}
 					}
-				}
-			}));
+				};
+			});
 		},
 
 		/**

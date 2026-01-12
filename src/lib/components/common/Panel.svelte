@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import type { PanelId } from '$lib/config';
-	import { panelLayout, draggedPanelId } from '$lib/stores';
+	import { panelLayout, draggedPanelId, settings } from '$lib/stores';
 
 	interface Props {
 		id: PanelId;
@@ -14,6 +14,7 @@
 		draggable?: boolean;
 		collapsible?: boolean;
 		collapsed?: boolean;
+		resizable?: boolean;
 		onCollapse?: () => void;
 		header?: Snippet;
 		actions?: Snippet;
@@ -31,6 +32,7 @@
 		draggable = true,
 		collapsible = false,
 		collapsed = false,
+		resizable = true,
 		onCollapse,
 		header,
 		actions,
@@ -40,15 +42,115 @@
 	// Drag state
 	const isBeingDragged = $derived($draggedPanelId === id);
 
+	// Resize state
+	let isResizing = $state(false);
+	let resizeDirection = $state<'width' | 'height' | 'both' | null>(null);
+	let panelElement: HTMLDivElement;
+	let startX = 0;
+	let startY = 0;
+	let startWidth = 0;
+	let startHeight = 0;
+
+	// Get saved panel size from settings store
+	const panelSize = $derived($settings.sizes[id] || {});
+
+	// Computed panel style
+	const panelStyle = $derived(() => {
+		const styles: string[] = [];
+		if (panelSize.width && panelSize.width > 0) {
+			styles.push(`width: ${panelSize.width}px`);
+		}
+		if (panelSize.height && panelSize.height > 0) {
+			styles.push(`height: ${panelSize.height}px`);
+		}
+		return styles.join('; ');
+	});
+
 	function handleCollapse() {
 		if (collapsible && onCollapse) {
 			onCollapse();
 		}
 	}
 
+	// Resize handlers
+	function handleResizeStart(event: MouseEvent, direction: 'width' | 'height' | 'both') {
+		if (!resizable) return;
+
+		event.preventDefault();
+		event.stopPropagation();
+
+		isResizing = true;
+		resizeDirection = direction;
+		startX = event.clientX;
+		startY = event.clientY;
+
+		const rect = panelElement.getBoundingClientRect();
+		startWidth = rect.width;
+		startHeight = rect.height;
+
+		document.addEventListener('mousemove', handleResizeMove);
+		document.addEventListener('mouseup', handleResizeEnd);
+		document.body.style.cursor = direction === 'both' ? 'nwse-resize' : direction === 'width' ? 'ew-resize' : 'ns-resize';
+		document.body.style.userSelect = 'none';
+	}
+
+	function handleResizeMove(event: MouseEvent) {
+		if (!isResizing || !resizeDirection) return;
+
+		const deltaX = event.clientX - startX;
+		const deltaY = event.clientY - startY;
+
+		const newSize: { width?: number; height?: number } = {};
+
+		if (resizeDirection === 'width' || resizeDirection === 'both') {
+			const newWidth = Math.max(200, Math.min(800, startWidth + deltaX));
+			newSize.width = newWidth;
+			panelElement.style.width = `${newWidth}px`;
+		}
+
+		if (resizeDirection === 'height' || resizeDirection === 'both') {
+			const newHeight = Math.max(150, Math.min(800, startHeight + deltaY));
+			newSize.height = newHeight;
+			panelElement.style.height = `${newHeight}px`;
+		}
+	}
+
+	function handleResizeEnd() {
+		if (!isResizing) return;
+
+		const rect = panelElement.getBoundingClientRect();
+		const newSize: { width?: number; height?: number } = {};
+
+		if (resizeDirection === 'width' || resizeDirection === 'both') {
+			newSize.width = rect.width;
+		}
+		if (resizeDirection === 'height' || resizeDirection === 'both') {
+			newSize.height = rect.height;
+		}
+
+		// Save the new size to settings store
+		if (Object.keys(newSize).length > 0) {
+			settings.updateSize(id, newSize);
+		}
+
+		isResizing = false;
+		resizeDirection = null;
+		document.removeEventListener('mousemove', handleResizeMove);
+		document.removeEventListener('mouseup', handleResizeEnd);
+		document.body.style.cursor = '';
+		document.body.style.userSelect = '';
+	}
+
+	// Reset panel size to default
+	function resetSize() {
+		settings.updateSize(id, { width: undefined, height: undefined });
+		panelElement.style.width = '';
+		panelElement.style.height = '';
+	}
+
 	// Drag handlers
 	function handleDragStart(event: DragEvent) {
-		if (!draggable) return;
+		if (!draggable || isResizing) return;
 
 		panelLayout.startDrag(id);
 
@@ -92,8 +194,12 @@
 	class:draggable
 	class:collapsed
 	class:dragging={isBeingDragged}
+	class:resizing={isResizing}
+	class:resizable
 	data-panel-id={id}
-	draggable={draggable ? 'true' : 'false'}
+	bind:this={panelElement}
+	style={panelStyle()}
+	draggable={draggable && !isResizing ? 'true' : 'false'}
 	ondragstart={handleDragStart}
 	ondragend={handleDragEnd}
 	role={draggable ? 'listitem' : undefined}
@@ -103,6 +209,39 @@
 	<div class="tech-corner top-right"></div>
 	<div class="tech-corner bottom-left"></div>
 	<div class="tech-corner bottom-right"></div>
+
+	<!-- Resize Handles (using button role for accessibility) -->
+	{#if resizable}
+		<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+		<div
+			class="resize-handle resize-right"
+			onmousedown={(e) => handleResizeStart(e, 'width')}
+			role="slider"
+			aria-orientation="vertical"
+			aria-label="Resize panel width"
+			aria-valuenow={panelSize.width || 0}
+			tabindex="-1"
+		></div>
+		<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+		<div
+			class="resize-handle resize-bottom"
+			onmousedown={(e) => handleResizeStart(e, 'height')}
+			role="slider"
+			aria-orientation="horizontal"
+			aria-label="Resize panel height"
+			aria-valuenow={panelSize.height || 0}
+			tabindex="-1"
+		></div>
+		<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+		<div
+			class="resize-handle resize-corner"
+			onmousedown={(e) => handleResizeStart(e, 'both')}
+			role="slider"
+			aria-label="Resize panel"
+			aria-valuenow={(panelSize.width || 0) + (panelSize.height || 0)}
+			tabindex="-1"
+		></div>
+	{/if}
 
 	<div class="panel-header" class:drag-handle={draggable}>
 		<div class="panel-title-row">
@@ -125,6 +264,11 @@
 		<div class="panel-actions">
 			{#if actions}
 				{@render actions()}
+			{/if}
+			{#if resizable && (panelSize.width || panelSize.height)}
+				<button class="panel-reset-btn" onclick={resetSize} aria-label="Reset panel size" title="Reset size">
+					⟲
+				</button>
 			{/if}
 			{#if collapsible}
 				<button class="panel-collapse-btn" onclick={handleCollapse} aria-label="Toggle panel">
@@ -247,6 +391,70 @@
 		border-right: 2px solid rgb(34 211 238 / 0.6);
 	}
 
+	/* Resize Handles */
+	.resize-handle {
+		position: absolute;
+		z-index: 20;
+		opacity: 0;
+		transition: opacity 0.15s ease;
+	}
+
+	.panel.resizable:hover .resize-handle,
+	.panel.resizing .resize-handle {
+		opacity: 1;
+	}
+
+	.resize-right {
+		right: 0;
+		top: 40px; /* Below header */
+		bottom: 0;
+		width: 6px;
+		cursor: ew-resize;
+		background: linear-gradient(to right, transparent, rgb(34 211 238 / 0.3));
+	}
+
+	.resize-bottom {
+		bottom: 0;
+		left: 0;
+		right: 0;
+		height: 6px;
+		cursor: ns-resize;
+		background: linear-gradient(to bottom, transparent, rgb(34 211 238 / 0.3));
+	}
+
+	.resize-corner {
+		right: 0;
+		bottom: 0;
+		width: 16px;
+		height: 16px;
+		cursor: nwse-resize;
+		background: rgb(34 211 238 / 0.3);
+		border-top-left-radius: 4px;
+	}
+
+	.resize-corner::before {
+		content: '';
+		position: absolute;
+		bottom: 3px;
+		right: 3px;
+		width: 8px;
+		height: 8px;
+		border-right: 2px solid rgb(34 211 238 / 0.6);
+		border-bottom: 2px solid rgb(34 211 238 / 0.6);
+	}
+
+	.panel.resizing {
+		user-select: none;
+	}
+
+	.panel.resizing .resize-handle {
+		opacity: 1;
+	}
+
+	.panel.resizing .resize-corner {
+		background: rgb(34 211 238 / 0.5);
+	}
+
 	.panel-header {
 		display: flex;
 		align-items: center;
@@ -349,6 +557,23 @@
 
 	.panel-collapse-btn:hover {
 		color: rgb(34 211 238); /* cyan-400 */
+	}
+
+	.panel-reset-btn {
+		background: none;
+		border: none;
+		color: rgb(100 116 139); /* slate-500 */
+		cursor: pointer;
+		padding: 0.25rem;
+		font-size: 0.75rem; /* 12px */
+		line-height: 1;
+		transition: color 0.15s;
+		opacity: 0.6;
+	}
+
+	.panel-reset-btn:hover {
+		color: rgb(251 191 36); /* amber-400 */
+		opacity: 1;
 	}
 
 	.panel-content {
