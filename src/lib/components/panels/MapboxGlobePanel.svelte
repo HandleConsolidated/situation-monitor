@@ -123,9 +123,9 @@
 	let outageData = $state<OutageData[]>([]);
 	let outageDataLoading = $state(false);
 
-	// Arc particle animation state
+	// Arc particle animation - stored as mutable array for direct manipulation
 	// Each particle has a progress value (0-1) along its arc
-	let arcParticles = $state<{ arcIndex: number; progress: number }[]>([
+	const arcParticlePositions = [
 		{ arcIndex: 0, progress: 0 },
 		{ arcIndex: 0, progress: 0.33 },
 		{ arcIndex: 0, progress: 0.66 },
@@ -138,7 +138,7 @@
 		{ arcIndex: 3, progress: 0.2 },
 		{ arcIndex: 3, progress: 0.55 },
 		{ arcIndex: 3, progress: 0.88 }
-	]);
+	];
 
 	// Get effective news (frozen if paused, otherwise live)
 	const effectiveNews = $derived(dataLayers.news.paused ? frozenNews : news);
@@ -237,7 +237,7 @@
 			});
 		}
 
-		// Add chokepoints - cyan for maritime routes
+		// Add chokepoints - cyan diamonds for maritime routes
 		if (dataLayers.chokepoints.visible) {
 			CHOKEPOINTS.forEach((cp) => {
 				features.push({
@@ -247,15 +247,14 @@
 						label: cp.name,
 						type: 'chokepoint',
 						desc: cp.desc,
-						color: '#06b6d4', // Cyan-500 - bright and visible
-						icon: 'CH', // Simple text that renders reliably in Mapbox fonts
-						size: 10
+						color: '#06b6d4', // Cyan-500
+						size: 7
 					}
 				});
 			});
 		}
 
-		// Add cable landings - bright emerald for connectivity
+		// Add cable landings - emerald small circles
 		if (dataLayers.cables.visible) {
 			CABLE_LANDINGS.forEach((cl) => {
 				features.push({
@@ -265,15 +264,14 @@
 						label: cl.name,
 						type: 'cable',
 						desc: cl.desc,
-						color: '#10b981', // Emerald-500 - data/connectivity
-						icon: 'CB', // Simple text - cable landing
-						size: 8
+						color: '#10b981', // Emerald-500
+						size: 5
 					}
 				});
 			});
 		}
 
-		// Add nuclear sites - bright warning orange
+		// Add nuclear sites - orange warning circles
 		if (dataLayers.nuclear.visible) {
 			NUCLEAR_SITES.forEach((ns) => {
 				features.push({
@@ -283,15 +281,14 @@
 						label: ns.name,
 						type: 'nuclear',
 						desc: ns.desc,
-						color: '#fb923c', // Orange-400 - high visibility warning
-						icon: 'N', // Simple text - nuclear
-						size: 11
+						color: '#f97316', // Orange-500
+						size: 8
 					}
 				});
 			});
 		}
 
-		// Add military bases - bright blue with star
+		// Add military bases - blue circles
 		if (dataLayers.military.visible) {
 			MILITARY_BASES.forEach((mb) => {
 				features.push({
@@ -301,9 +298,8 @@
 						label: mb.name,
 						type: 'military',
 						desc: mb.desc,
-						color: '#60a5fa', // Blue-400 - military blue (brighter)
-						icon: 'M', // Simple text - military
-						size: 10
+						color: '#3b82f6', // Blue-500
+						size: 6
 					}
 				});
 			});
@@ -569,7 +565,7 @@
 		const hotspotMap = new Map(HOTSPOTS.map((h) => [h.name, h]));
 		const features: GeoJSON.Feature[] = [];
 
-		arcParticles.forEach((particle) => {
+		arcParticlePositions.forEach((particle) => {
 			const conn = arcConnections[particle.arcIndex];
 			if (!conn) return;
 
@@ -1247,30 +1243,6 @@
 					}
 				});
 
-				// Symbol layer for infrastructure marker icons
-				// Note: Using larger text and ensuring visibility above circle layers
-				map.addLayer({
-					id: 'points-icons',
-					type: 'symbol',
-					source: 'points',
-					filter: ['has', 'icon'], // Only show icons for features that have an icon property
-					layout: {
-						'text-field': ['get', 'icon'],
-						'text-size': 16,
-						'text-allow-overlap': true,
-						'text-ignore-placement': true,
-						'text-anchor': 'center',
-						'text-offset': [0, 0],
-						'symbol-z-order': 'source'
-					},
-					paint: {
-						'text-color': '#ffffff',
-						'text-halo-color': 'rgba(0, 0, 0, 0.9)',
-						'text-halo-width': 2,
-						'text-opacity': 1
-					}
-				});
-
 				map.addLayer({
 					id: 'labels-layer',
 					type: 'symbol',
@@ -1598,15 +1570,14 @@
 			}
 		}, 30);
 
-		// Animate particles moving along arcs - this creates visible flowing movement
+		// Animate particles moving along arcs - directly mutate and update source
 		const particleInterval = setInterval(() => {
 			if (!map || !dataLayers.arcs.visible) return;
 
-			// Move each particle forward along its arc
-			arcParticles = arcParticles.map((p) => ({
-				...p,
-				progress: (p.progress + 0.008) % 1 // Move forward, wrap at end
-			}));
+			// Directly mutate each particle's progress (faster, no reactivity needed)
+			for (let i = 0; i < arcParticlePositions.length; i++) {
+				arcParticlePositions[i].progress = (arcParticlePositions[i].progress + 0.012) % 1;
+			}
 
 			// Update the particle source with new positions
 			try {
@@ -1617,7 +1588,7 @@
 			} catch {
 				// Source might not exist yet
 			}
-		}, 40); // ~25fps for smooth particle movement
+		}, 50); // 20fps for smooth particle movement
 
 		return () => {
 			clearInterval(arcInterval);

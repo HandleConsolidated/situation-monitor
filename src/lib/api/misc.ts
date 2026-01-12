@@ -772,16 +772,19 @@ function getCountryCoordinates(
 
 /**
  * Fetch layoffs data from real sources
- * Uses multiple sources: Hacker News, Google News RSS, and layoffs tracking
+ * Uses Hacker News Algolia API - most reliable free source for tech news
  */
 export async function fetchLayoffs(): Promise<Layoff[]> {
 	const layoffs: Layoff[] = [];
 
-	// Try Hacker News API for layoff stories (most reliable)
+	// Try Hacker News API - search for layoffs in the past month
 	try {
-		// Search for recent layoff-related stories with better query
+		// Get Unix timestamp for 30 days ago
+		const thirtyDaysAgo = Math.floor((Date.now() - 30 * 24 * 60 * 60 * 1000) / 1000);
+
+		// Search HN for layoff stories from the past month
 		const response = await fetch(
-			'https://hn.algolia.com/api/v1/search_by_date?query=layoffs+OR+layoff+OR+"laying+off"&tags=story&hitsPerPage=20'
+			`https://hn.algolia.com/api/v1/search?query=layoffs&tags=story&numericFilters=created_at_i>${thirtyDaysAgo}&hitsPerPage=30`
 		);
 
 		if (response.ok) {
@@ -789,41 +792,54 @@ export async function fetchLayoffs(): Promise<Layoff[]> {
 			if (data.hits && Array.isArray(data.hits)) {
 				for (const hit of data.hits) {
 					const title = hit.title || '';
+					const lowerTitle = title.toLowerCase();
 
-					// Skip if not actually about layoffs
-					if (!title.toLowerCase().match(/layoff|laying off|cut.*(jobs|staff|employees)|job cuts/i)) {
+					// Must contain layoff-related terms
+					if (!lowerTitle.match(/layoff|laying off|laid off|job cut|workforce reduction|downsiz/i)) {
 						continue;
 					}
 
-					// Try to extract company name - look for capitalized words at start or after "at"
-					let company = 'Tech Company';
-					const companyAtMatch = title.match(/at\s+([A-Z][a-zA-Z0-9]+)/);
-					const companyStartMatch = title.match(/^([A-Z][a-zA-Z0-9]+)/);
-					const companyIsMatch = title.match(/([A-Z][a-zA-Z0-9]+)\s+(is|to|will|announces?|laying)/);
+					// Extract company name with multiple patterns
+					let company = 'Company';
 
-					if (companyAtMatch) {
-						company = companyAtMatch[1];
-					} else if (companyIsMatch) {
-						company = companyIsMatch[1];
-					} else if (companyStartMatch) {
-						company = companyStartMatch[1];
+					// Pattern: "Company lays off" or "Company is laying off"
+					const companyVerbMatch = title.match(/^([A-Z][a-zA-Z0-9]+(?:\s+[A-Z][a-zA-Z0-9]+)?)\s+(?:lays?|is laying|laying|to lay|will lay|cuts?|cutting|announces?)/i);
+					// Pattern: "at Company"
+					const atCompanyMatch = title.match(/at\s+([A-Z][a-zA-Z0-9]+)/);
+					// Pattern: "Company's layoffs" or "Company layoffs"
+					const possessiveMatch = title.match(/([A-Z][a-zA-Z0-9]+)(?:'s)?\s+(?:layoffs?|job cuts)/i);
+
+					if (companyVerbMatch) {
+						company = companyVerbMatch[1].trim();
+					} else if (possessiveMatch) {
+						company = possessiveMatch[1];
+					} else if (atCompanyMatch) {
+						company = atCompanyMatch[1];
 					}
 
-					// Try to extract count from title
-					const countMatch = title.match(/(\d+[,\d]*)\s*(employees|workers|jobs|people|staff|%)/i);
+					// Skip generic words that might match
+					if (['The', 'This', 'More', 'Why', 'How', 'Tech', 'Big'].includes(company)) {
+						company = 'Tech Company';
+					}
+
+					// Extract count
 					let count = 0;
+					const countMatch = title.match(/(\d{1,3}(?:,\d{3})*|\d+)\s*(?:k|K|thousand)?\s*(?:employees?|workers?|jobs?|people|staff|positions?)/i);
+					const percentMatch = title.match(/(\d+)%/);
+
 					if (countMatch) {
-						const numStr = countMatch[1].replace(/,/g, '');
+						let numStr = countMatch[1].replace(/,/g, '');
 						count = parseInt(numStr, 10);
-						// If percentage, estimate based on typical company sizes
-						if (countMatch[2] === '%' && count < 100) {
-							count = count * 50; // rough estimate
+						if (title.toLowerCase().includes('k ') || title.toLowerCase().includes('thousand')) {
+							count = count * 1000;
 						}
+					} else if (percentMatch) {
+						count = parseInt(percentMatch[1], 10) * 50; // Estimate
 					}
 
 					layoffs.push({
 						company,
-						count: count || 100, // Default estimate if not specified
+						count: count || 0,
 						title: title.substring(0, 100),
 						date: hit.created_at || new Date().toISOString()
 					});
@@ -836,67 +852,15 @@ export async function fetchLayoffs(): Promise<Layoff[]> {
 		console.warn('HN layoffs search failed:', error);
 	}
 
-	// If HN didn't return enough results, try Google News RSS
-	if (layoffs.length < 3) {
-		try {
-			const response = await fetch(
-				'https://news.google.com/rss/search?q=tech+layoffs+2025&hl=en-US&gl=US&ceid=US:en',
-				{ headers: { Accept: 'application/rss+xml, application/xml, text/xml' } }
-			);
-
-			if (response.ok) {
-				const text = await response.text();
-				const newsLayoffs = parseLayoffsFromRSS(text);
-				// Add unique ones
-				for (const l of newsLayoffs) {
-					if (!layoffs.some(existing => existing.title.toLowerCase().includes(l.company.toLowerCase()))) {
-						layoffs.push(l);
-						if (layoffs.length >= 8) break;
-					}
-				}
-			}
-		} catch (error) {
-			console.warn('Google News layoffs feed failed:', error);
-		}
-	}
-
-	// Sort by date (newest first)
+	// Sort by points/relevance (HN already returns by relevance) then by date
 	layoffs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-	// Return empty if no real data available - no sample data
+	// Return what we have - no sample data fallback
 	if (layoffs.length === 0) {
-		console.warn('All layoff APIs failed, returning empty');
+		console.warn('Layoffs API returned no results');
 	}
 
 	return layoffs.slice(0, 6);
 }
 
-// Parse layoffs from RSS feed
-function parseLayoffsFromRSS(xml: string): Layoff[] {
-	const layoffs: Layoff[] = [];
-	const items = xml.match(/<item>([\s\S]*?)<\/item>/g) || [];
-
-	for (const item of items.slice(0, 5)) {
-		const titleMatch = item.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/) ||
-			item.match(/<title>(.*?)<\/title>/);
-		const pubDateMatch = item.match(/<pubDate>(.*?)<\/pubDate>/);
-
-		if (titleMatch) {
-			const title = titleMatch[1].replace(/<[^>]*>/g, '');
-			const companyMatch = title.match(/^([A-Z][a-zA-Z]+)/);
-			const countMatch = title.match(/(\d+,?\d*)\s*(employees|workers|jobs|people|staff|cut)/i);
-
-			if (title.toLowerCase().includes('layoff') || countMatch) {
-				layoffs.push({
-					company: companyMatch ? companyMatch[1] : 'Company',
-					count: countMatch ? parseInt(countMatch[1].replace(',', '')) : 100,
-					title: title.substring(0, 80),
-					date: pubDateMatch ? new Date(pubDateMatch[1]).toISOString() : new Date().toISOString()
-				});
-			}
-		}
-	}
-
-	return layoffs;
-}
 
