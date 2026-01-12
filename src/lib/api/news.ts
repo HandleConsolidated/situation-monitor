@@ -104,8 +104,8 @@ export async function fetchCategoryNews(category: NewsCategory): Promise<NewsIte
 		// Add English language filter and timespan for fresh results
 		const baseQuery = categoryQueries[category];
 		const fullQuery = `${baseQuery} sourcelang:english`;
-		// Build the raw GDELT URL with timespan=7d to get recent articles
-		const gdeltUrl = `https://api.gdeltproject.org/api/v2/doc/doc?query=${fullQuery}&timespan=7d&mode=artlist&maxrecords=20&format=json&sort=date`;
+		// Build the raw GDELT URL with timespan=24h to get recent articles, sorted by newest first
+		const gdeltUrl = `https://api.gdeltproject.org/api/v2/doc/doc?query=${fullQuery}&timespan=24h&mode=artlist&maxrecords=25&format=json&sort=datedesc`;
 
 		logger.log('News API', `Fetching ${category} from GDELT`);
 

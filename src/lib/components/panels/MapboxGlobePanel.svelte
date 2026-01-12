@@ -90,7 +90,7 @@
 
 	// Interaction state
 	let tooltipLocked = $state(false);
-	let isRotating = $state(true);
+	let isRotating = $state(false); // Default to not rotating
 	let rotationAnimationId: number | null = null;
 
 	// Tooltip state
@@ -212,7 +212,7 @@
 			});
 		}
 
-		// Add chokepoints
+		// Add chokepoints - more muted teal/slate
 		if (dataLayers.chokepoints.visible) {
 			CHOKEPOINTS.forEach((cp) => {
 				features.push({
@@ -222,14 +222,15 @@
 						label: cp.name,
 						type: 'chokepoint',
 						desc: cp.desc,
-						color: '#06b6d4',
+						color: '#5b8a8a', // Muted teal
+						icon: '⚓',
 						size: 7
 					}
 				});
 			});
 		}
 
-		// Add cable landings
+		// Add cable landings - muted blue-gray
 		if (dataLayers.cables.visible) {
 			CABLE_LANDINGS.forEach((cl) => {
 				features.push({
@@ -239,14 +240,15 @@
 						label: cl.name,
 						type: 'cable',
 						desc: cl.desc,
-						color: '#a855f7',
+						color: '#6b7a99', // Muted blue-gray
+						icon: '📡',
 						size: 6
 					}
 				});
 			});
 		}
 
-		// Add nuclear sites
+		// Add nuclear sites - muted amber/ochre
 		if (dataLayers.nuclear.visible) {
 			NUCLEAR_SITES.forEach((ns) => {
 				features.push({
@@ -256,14 +258,15 @@
 						label: ns.name,
 						type: 'nuclear',
 						desc: ns.desc,
-						color: '#f59e0b',
+						color: '#b8860b', // Dark goldenrod / muted amber
+						icon: '☢',
 						size: 8
 					}
 				});
 			});
 		}
 
-		// Add military bases
+		// Add military bases - muted slate/steel
 		if (dataLayers.military.visible) {
 			MILITARY_BASES.forEach((mb) => {
 				features.push({
@@ -273,7 +276,8 @@
 						label: mb.name,
 						type: 'military',
 						desc: mb.desc,
-						color: '#ec4899',
+						color: '#708090', // Slate gray
+						icon: '🎖',
 						size: 8
 					}
 				});
@@ -830,10 +834,10 @@
 					type: 'circle',
 					source: 'points',
 					paint: {
-						'circle-radius': ['*', ['coalesce', ['get', 'size'], 8], 1.5],
-						'circle-color': ['coalesce', ['get', 'color'], '#06b6d4'],
-						'circle-opacity': 0.3,
-						'circle-blur': 1
+						'circle-radius': ['*', ['coalesce', ['get', 'size'], 8], 1.3],
+						'circle-color': ['coalesce', ['get', 'color'], '#5b8a8a'],
+						'circle-opacity': 0.15, // Reduced glow for less neon effect
+						'circle-blur': 0.8
 					}
 				});
 
@@ -875,7 +879,7 @@
 				map.on('mouseleave', 'labels-layer', () => {});
 
 				setupInteractivity();
-				startRotation();
+				// Globe starts paused - user must click play to start rotation
 				isInitialized = true;
 			});
 
@@ -1137,11 +1141,13 @@
 			>
 				<span class="control-icon">&#9881;</span>
 			</button>
-			<button class="control-btn" onclick={() => resumeRotation()} title="Resume rotation">
-				<span class="control-icon">&#8635;</span>
-			</button>
-			<button class="control-btn" onclick={() => pauseRotation()} title="Pause rotation">
-				<span class="control-icon">&#9208;</span>
+			<button
+				class="control-btn"
+				class:active={isRotating}
+				onclick={() => (isRotating ? pauseRotation() : resumeRotation())}
+				title={isRotating ? 'Pause rotation' : 'Start rotation'}
+			>
+				<span class="control-icon">{isRotating ? '⏸' : '▶'}</span>
 			</button>
 		</div>
 	{/if}
@@ -1298,20 +1304,20 @@
 						<span class="legend-section-title">INFRASTRUCTURE</span>
 						<div class="legend-items">
 							<div class="legend-item">
-								<span class="legend-marker chokepoint"></span>
+								<span class="legend-icon">⚓</span>
 								<span class="legend-label">Chokepoint</span>
 							</div>
 							<div class="legend-item">
-								<span class="legend-marker cable"></span>
-								<span class="legend-label">Cable</span>
+								<span class="legend-icon">📡</span>
+								<span class="legend-label">Cable Landing</span>
 							</div>
 							<div class="legend-item">
-								<span class="legend-marker nuclear"></span>
-								<span class="legend-label">Nuclear</span>
+								<span class="legend-icon">☢</span>
+								<span class="legend-label">Nuclear Site</span>
 							</div>
 							<div class="legend-item">
-								<span class="legend-marker military"></span>
-								<span class="legend-label">Military</span>
+								<span class="legend-icon">🎖</span>
+								<span class="legend-label">Military Base</span>
 							</div>
 						</div>
 					</div>
@@ -1788,30 +1794,13 @@
 		flex-shrink: 0;
 	}
 
-	.legend-marker.news-alert {
-		background: #ef4444;
-		box-shadow: 0 0 4px #ef4444;
-	}
+	/* Infrastructure markers now use icons - see .legend-icon */
 
-	.legend-marker.news {
-		background: #3b82f6;
-		box-shadow: 0 0 4px #3b82f6;
-	}
-
-	.legend-marker.chokepoint {
-		background: #06b6d4;
-	}
-
-	.legend-marker.cable {
-		background: #a855f7;
-	}
-
-	.legend-marker.nuclear {
-		background: #f59e0b;
-	}
-
-	.legend-marker.military {
-		background: #ec4899;
+	.legend-icon {
+		font-size: 0.625rem;
+		width: 14px;
+		text-align: center;
+		flex-shrink: 0;
 	}
 
 	.legend-label {
