@@ -720,7 +720,7 @@
 		min-height: 400px;
 		position: relative;
 		background: radial-gradient(ellipse at center, #0a0f1a 0%, #020305 70%);
-		overflow: hidden;
+		overflow: visible; /* Allow tooltip to display outside bounds */
 		display: flex;
 		align-items: center;
 		justify-content: center;
