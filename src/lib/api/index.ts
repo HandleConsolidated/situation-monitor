@@ -11,6 +11,6 @@ export {
 	fetchCommodities,
 	fetchAllMarkets
 } from './markets';
-export { fetchPolymarket, fetchWhaleTransactions, fetchGovContracts, fetchLayoffs } from './misc';
-export type { Prediction, WhaleTransaction, Contract, Layoff } from './misc';
+export { fetchPolymarket, fetchWhaleTransactions, fetchGovContracts, fetchLayoffs, fetchOutageData } from './misc';
+export type { Prediction, WhaleTransaction, Contract, Layoff, OutageData } from './misc';
 export { fetchWorldLeaders } from './leaders';

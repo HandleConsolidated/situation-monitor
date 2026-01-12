@@ -215,7 +215,7 @@
 			});
 		}
 
-		// Add chokepoints - more muted teal/slate with distinct shape
+		// Add chokepoints - cyan/teal for maritime routes
 		if (dataLayers.chokepoints.visible) {
 			CHOKEPOINTS.forEach((cp) => {
 				features.push({
@@ -225,15 +225,15 @@
 						label: cp.name,
 						type: 'chokepoint',
 						desc: cp.desc,
-						color: '#5b8a8a', // Muted teal
-						icon: '◆', // Diamond shape for maritime chokepoints
-						size: 7
+						color: '#14b8a6', // Teal-500 - bright and visible
+						icon: '⚓', // Anchor for maritime chokepoints
+						size: 9
 					}
 				});
 			});
 		}
 
-		// Add cable landings - muted blue-gray with distinct shape
+		// Add cable landings - bright green for infrastructure
 		if (dataLayers.cables.visible) {
 			CABLE_LANDINGS.forEach((cl) => {
 				features.push({
@@ -243,15 +243,15 @@
 						label: cl.name,
 						type: 'cable',
 						desc: cl.desc,
-						color: '#6b7a99', // Muted blue-gray
-						icon: '◎', // Double circle for cable landings
-						size: 6
+						color: '#22c55e', // Green-500 - data/connectivity
+						icon: '●', // Solid circle for cable landings
+						size: 7
 					}
 				});
 			});
 		}
 
-		// Add nuclear sites - muted amber/ochre with distinct shape
+		// Add nuclear sites - bright orange/red for warning
 		if (dataLayers.nuclear.visible) {
 			NUCLEAR_SITES.forEach((ns) => {
 				features.push({
@@ -261,15 +261,15 @@
 						label: ns.name,
 						type: 'nuclear',
 						desc: ns.desc,
-						color: '#b8860b', // Dark goldenrod / muted amber
-						icon: '⚠', // Warning triangle for nuclear
-						size: 8
+						color: '#f97316', // Orange-500 - high visibility warning
+						icon: '☢', // Radiation symbol for nuclear
+						size: 10
 					}
 				});
 			});
 		}
 
-		// Add military bases - muted slate/steel with distinct shape
+		// Add military bases - bright blue for military
 		if (dataLayers.military.visible) {
 			MILITARY_BASES.forEach((mb) => {
 				features.push({
@@ -279,9 +279,9 @@
 						label: mb.name,
 						type: 'military',
 						desc: mb.desc,
-						color: '#708090', // Slate gray
+						color: '#3b82f6', // Blue-500 - military blue
 						icon: '★', // Star for military bases
-						size: 8
+						size: 9
 					}
 				});
 			});
@@ -758,6 +758,10 @@
 									MAPBOX_TOKEN
 							],
 							tileSize: 256
+						},
+						'mapbox-streets': {
+							type: 'vector',
+							url: 'mapbox://mapbox.mapbox-streets-v8'
 						}
 					},
 					layers: [
@@ -771,6 +775,53 @@
 								'raster-brightness-min': 0.0,
 								'raster-saturation': -0.3,
 								'raster-contrast': 0.2
+							}
+						},
+						// Country borders
+						{
+							id: 'admin-0-boundary',
+							type: 'line',
+							source: 'mapbox-streets',
+							'source-layer': 'admin',
+							filter: ['all', ['==', ['get', 'admin_level'], 0], ['==', ['get', 'disputed'], 'false'], ['==', ['get', 'maritime'], 'false']],
+							paint: {
+								'line-color': 'rgba(100, 116, 139, 0.6)',
+								'line-width': 1,
+								'line-dasharray': [2, 1]
+							}
+						},
+						// Disputed borders
+						{
+							id: 'admin-0-boundary-disputed',
+							type: 'line',
+							source: 'mapbox-streets',
+							'source-layer': 'admin',
+							filter: ['all', ['==', ['get', 'admin_level'], 0], ['==', ['get', 'disputed'], 'true']],
+							paint: {
+								'line-color': 'rgba(239, 68, 68, 0.4)',
+								'line-width': 1,
+								'line-dasharray': [3, 2]
+							}
+						},
+						// Country labels
+						{
+							id: 'country-labels',
+							type: 'symbol',
+							source: 'mapbox-streets',
+							'source-layer': 'place_label',
+							filter: ['==', ['get', 'class'], 'country'],
+							layout: {
+								'text-field': ['get', 'name_en'],
+								'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
+								'text-size': ['interpolate', ['linear'], ['zoom'], 1, 8, 4, 12, 8, 16],
+								'text-transform': 'uppercase',
+								'text-letter-spacing': 0.1,
+								'text-max-width': 8
+							},
+							paint: {
+								'text-color': 'rgba(148, 163, 184, 0.7)',
+								'text-halo-color': 'rgba(0, 0, 0, 0.8)',
+								'text-halo-width': 1.5
 							}
 						}
 					],
@@ -1296,35 +1347,38 @@
 		return () => clearInterval(pulseInterval);
 	});
 
-	// Animate threat corridor arcs with traveling pulse effect
+	// Animate threat corridor arcs with dramatic pulsing effect
 	$effect(() => {
 		if (!map || !isInitialized) return;
 
 		let arcPhase = 0;
-		const dashLength = 4;
-		const gapLength = 8;
-		const totalLength = dashLength + gapLength;
 
 		const arcInterval = setInterval(() => {
 			if (!map) return;
-			arcPhase = (arcPhase + 0.5) % totalLength;
+			arcPhase = (arcPhase + 2) % 360; // Smooth continuous rotation
 
 			try {
-				// Animate the main arc with a traveling dash pattern
-				map.setPaintProperty('arcs-layer', 'line-dasharray', [dashLength, gapLength]);
-				map.setPaintProperty('arcs-layer', 'line-offset', arcPhase);
-
-				// Pulse the glow opacity for dramatic effect
-				const glowOpacity = 0.4 + Math.sin((arcPhase / totalLength) * Math.PI * 2) * 0.3;
+				// Pulsing glow that breathes - dramatic size changes
+				const glowOpacity = 0.35 + Math.sin((arcPhase / 180) * Math.PI) * 0.35;
+				const glowWidth = 6 + Math.sin((arcPhase / 180) * Math.PI) * 6;
 				map.setPaintProperty('arcs-glow', 'line-opacity', glowOpacity);
+				map.setPaintProperty('arcs-glow', 'line-width', glowWidth);
 
-				// Animate the highlight with pulsing width
-				const highlightWidth = 0.6 + Math.sin((arcPhase / totalLength) * Math.PI * 4) * 0.4;
+				// Main arc line pulsing width and opacity
+				const mainWidth = 2 + Math.sin((arcPhase / 180) * Math.PI) * 1.5;
+				const mainOpacity = 0.6 + Math.sin((arcPhase / 180) * Math.PI) * 0.4;
+				map.setPaintProperty('arcs-layer', 'line-width', mainWidth);
+				map.setPaintProperty('arcs-layer', 'line-opacity', mainOpacity);
+
+				// Highlight pulse with faster frequency for shimmer effect
+				const highlightWidth = 0.4 + Math.sin((arcPhase / 60) * Math.PI) * 0.8;
+				const highlightOpacity = 0.2 + Math.sin((arcPhase / 60) * Math.PI) * 0.6;
 				map.setPaintProperty('arcs-highlight', 'line-width', highlightWidth);
+				map.setPaintProperty('arcs-highlight', 'line-opacity', highlightOpacity);
 			} catch {
 				// Layers might not exist yet
 			}
-		}, 40);
+		}, 25);
 
 		return () => clearInterval(arcInterval);
 	});
@@ -1569,19 +1623,19 @@
 						<span class="legend-section-title">INFRASTRUCTURE</span>
 						<div class="legend-items">
 							<div class="legend-item">
-								<span class="legend-icon" style="color: #5b8a8a;">◆</span>
+								<span class="legend-icon" style="color: #14b8a6;">⚓</span>
 								<span class="legend-label">Chokepoint</span>
 							</div>
 							<div class="legend-item">
-								<span class="legend-icon" style="color: #6b7a99;">◎</span>
+								<span class="legend-icon" style="color: #22c55e;">●</span>
 								<span class="legend-label">Cable Landing</span>
 							</div>
 							<div class="legend-item">
-								<span class="legend-icon" style="color: #b8860b;">⚠</span>
+								<span class="legend-icon" style="color: #f97316;">☢</span>
 								<span class="legend-label">Nuclear Site</span>
 							</div>
 							<div class="legend-item">
-								<span class="legend-icon" style="color: #708090;">★</span>
+								<span class="legend-icon" style="color: #3b82f6;">★</span>
 								<span class="legend-label">Military Base</span>
 							</div>
 						</div>
