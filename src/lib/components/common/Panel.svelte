@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import type { PanelId } from '$lib/config';
+	import { panelLayout, draggedPanelId } from '$lib/stores';
 
 	interface Props {
 		id: PanelId;
@@ -36,21 +37,74 @@
 		children
 	}: Props = $props();
 
+	// Drag state
+	const isBeingDragged = $derived($draggedPanelId === id);
+
 	function handleCollapse() {
 		if (collapsible && onCollapse) {
 			onCollapse();
 		}
 	}
+
+	// Drag handlers
+	function handleDragStart(event: DragEvent) {
+		if (!draggable) return;
+
+		panelLayout.startDrag(id);
+
+		// Set drag data
+		if (event.dataTransfer) {
+			event.dataTransfer.effectAllowed = 'move';
+			event.dataTransfer.setData('text/plain', id);
+
+			// Create a custom drag image
+			const dragImage = document.createElement('div');
+			dragImage.textContent = title;
+			dragImage.style.cssText = `
+				position: absolute;
+				top: -1000px;
+				padding: 8px 16px;
+				background: rgb(15 23 42 / 0.95);
+				border: 1px solid rgb(34 211 238);
+				border-radius: 2px;
+				color: rgb(34 211 238);
+				font-size: 12px;
+				font-weight: bold;
+				text-transform: uppercase;
+				letter-spacing: 0.1em;
+				box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+			`;
+			document.body.appendChild(dragImage);
+			event.dataTransfer.setDragImage(dragImage, 50, 20);
+
+			// Clean up drag image after a short delay
+			setTimeout(() => dragImage.remove(), 0);
+		}
+	}
+
+	function handleDragEnd() {
+		panelLayout.endDrag();
+	}
 </script>
 
-<div class="panel" class:draggable class:collapsed data-panel-id={id}>
+<div
+	class="panel"
+	class:draggable
+	class:collapsed
+	class:dragging={isBeingDragged}
+	data-panel-id={id}
+	draggable={draggable ? 'true' : 'false'}
+	ondragstart={handleDragStart}
+	ondragend={handleDragEnd}
+	role={draggable ? 'listitem' : undefined}
+>
 	<!-- Tech Corner Decorations -->
 	<div class="tech-corner top-left"></div>
 	<div class="tech-corner top-right"></div>
 	<div class="tech-corner bottom-left"></div>
 	<div class="tech-corner bottom-right"></div>
 
-	<div class="panel-header">
+	<div class="panel-header" class:drag-handle={draggable}>
 		<div class="panel-title-row">
 			<h3 class="panel-title">{title}</h3>
 			{#if count !== null}
@@ -121,6 +175,39 @@
 
 	.panel.draggable:active {
 		cursor: grabbing;
+	}
+
+	.panel.dragging {
+		opacity: 0.5;
+		transform: scale(0.98);
+		border-color: rgb(34 211 238); /* cyan-400 */
+		box-shadow: 0 0 20px rgba(34, 211, 238, 0.3);
+	}
+
+	.drag-handle {
+		cursor: grab;
+	}
+
+	.drag-handle:active {
+		cursor: grabbing;
+	}
+
+	/* Drag grip indicator */
+	.drag-handle::before {
+		content: '⋮⋮';
+		position: absolute;
+		left: 0.5rem;
+		top: 50%;
+		transform: translateY(-50%);
+		color: rgb(71 85 105); /* slate-600 */
+		font-size: 0.625rem;
+		letter-spacing: 2px;
+		opacity: 0;
+		transition: opacity 0.15s;
+	}
+
+	.panel.draggable:hover .drag-handle::before {
+		opacity: 1;
 	}
 
 	/* Tech Corner Decorations - using cyan-400/60 per design system */
