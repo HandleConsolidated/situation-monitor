@@ -22,6 +22,7 @@ export interface Contract {
 	description: string;
 	vendor: string;
 	amount: number;
+	url?: string;
 }
 
 export interface Layoff {
@@ -78,37 +79,42 @@ export async function fetchWhaleTransactions(): Promise<WhaleTransaction[]> {
  * Note: Would use USASpending.gov API - returning sample data
  */
 export async function fetchGovContracts(): Promise<Contract[]> {
-	// Sample government contract data
+	// Sample government contract data with USASpending.gov links
 	return [
 		{
 			agency: 'DOD',
 			description: 'Advanced radar systems development and integration',
 			vendor: 'Raytheon',
-			amount: 2500000000
+			amount: 2500000000,
+			url: 'https://www.usaspending.gov/search/?hash=d40c99e7f2f6e7d4e7f2a1b3c5d7e9f1'
 		},
 		{
 			agency: 'NASA',
 			description: 'Artemis program lunar lander support services',
 			vendor: 'SpaceX',
-			amount: 1800000000
+			amount: 1800000000,
+			url: 'https://www.usaspending.gov/search/?hash=a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6'
 		},
 		{
 			agency: 'DHS',
 			description: 'Border security technology modernization',
 			vendor: 'Palantir',
-			amount: 450000000
+			amount: 450000000,
+			url: 'https://www.usaspending.gov/search/?hash=b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7'
 		},
 		{
 			agency: 'VA',
 			description: 'Electronic health records system upgrade',
 			vendor: 'Oracle Cerner',
-			amount: 320000000
+			amount: 320000000,
+			url: 'https://www.usaspending.gov/search/?hash=c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8'
 		},
 		{
 			agency: 'DOE',
 			description: 'Clean energy grid infrastructure',
 			vendor: 'General Electric',
-			amount: 275000000
+			amount: 275000000,
+			url: 'https://www.usaspending.gov/search/?hash=d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9'
 		}
 	];
 }

@@ -6,6 +6,7 @@
 		description: string;
 		vendor: string;
 		amount: number;
+		url?: string;
 	}
 
 	interface Props {
@@ -32,13 +33,16 @@
 	{:else}
 		<div class="flex flex-col">
 			{#each contracts as contract, i (contract.vendor + i)}
-				<div
-					class="py-2 border-b border-slate-800 last:border-b-0 hover:bg-white/5 transition-colors"
+				<a
+					href={contract.url || 'https://www.usaspending.gov'}
+					target="_blank"
+					rel="noopener noreferrer"
+					class="py-2 border-b border-slate-800 last:border-b-0 hover:bg-white/5 transition-colors cursor-pointer block no-underline"
 				>
 					<div class="text-[10px] font-mono text-slate-400 uppercase tracking-wide mb-1">
 						{contract.agency}
 					</div>
-					<div class="text-xs text-white leading-tight mb-1.5">
+					<div class="text-xs text-white leading-tight mb-1.5 hover:text-cyan-400 transition-colors">
 						{contract.description.length > 100
 							? contract.description.substring(0, 100) + '...'
 							: contract.description}
@@ -49,7 +53,7 @@
 							>{formatValue(contract.amount)}</span
 						>
 					</div>
-				</div>
+				</a>
 			{/each}
 		</div>
 	{/if}

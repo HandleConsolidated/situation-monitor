@@ -213,7 +213,7 @@
 			});
 		}
 
-		// Add chokepoints - more muted teal/slate
+		// Add chokepoints - more muted teal/slate with distinct shape
 		if (dataLayers.chokepoints.visible) {
 			CHOKEPOINTS.forEach((cp) => {
 				features.push({
@@ -224,14 +224,14 @@
 						type: 'chokepoint',
 						desc: cp.desc,
 						color: '#5b8a8a', // Muted teal
-						icon: '⚓',
+						icon: '◆', // Diamond shape for maritime chokepoints
 						size: 7
 					}
 				});
 			});
 		}
 
-		// Add cable landings - muted blue-gray
+		// Add cable landings - muted blue-gray with distinct shape
 		if (dataLayers.cables.visible) {
 			CABLE_LANDINGS.forEach((cl) => {
 				features.push({
@@ -242,14 +242,14 @@
 						type: 'cable',
 						desc: cl.desc,
 						color: '#6b7a99', // Muted blue-gray
-						icon: '📡',
+						icon: '◎', // Double circle for cable landings
 						size: 6
 					}
 				});
 			});
 		}
 
-		// Add nuclear sites - muted amber/ochre
+		// Add nuclear sites - muted amber/ochre with distinct shape
 		if (dataLayers.nuclear.visible) {
 			NUCLEAR_SITES.forEach((ns) => {
 				features.push({
@@ -260,14 +260,14 @@
 						type: 'nuclear',
 						desc: ns.desc,
 						color: '#b8860b', // Dark goldenrod / muted amber
-						icon: '☢',
+						icon: '⚠', // Warning triangle for nuclear
 						size: 8
 					}
 				});
 			});
 		}
 
-		// Add military bases - muted slate/steel
+		// Add military bases - muted slate/steel with distinct shape
 		if (dataLayers.military.visible) {
 			MILITARY_BASES.forEach((mb) => {
 				features.push({
@@ -278,7 +278,7 @@
 						type: 'military',
 						desc: mb.desc,
 						color: '#708090', // Slate gray
-						icon: '🎖',
+						icon: '★', // Star for military bases
 						size: 8
 					}
 				});
@@ -870,6 +870,7 @@
 				});
 
 				// Symbol layer for infrastructure marker icons
+				// Note: Using larger text and ensuring visibility above circle layers
 				map.addLayer({
 					id: 'points-icons',
 					type: 'symbol',
@@ -877,15 +878,18 @@
 					filter: ['has', 'icon'], // Only show icons for features that have an icon property
 					layout: {
 						'text-field': ['get', 'icon'],
-						'text-size': 12,
+						'text-size': 16,
 						'text-allow-overlap': true,
 						'text-ignore-placement': true,
-						'text-anchor': 'center'
+						'text-anchor': 'center',
+						'text-offset': [0, 0],
+						'symbol-z-order': 'source'
 					},
 					paint: {
 						'text-color': '#ffffff',
-						'text-halo-color': 'rgba(0, 0, 0, 0.8)',
-						'text-halo-width': 1
+						'text-halo-color': 'rgba(0, 0, 0, 0.9)',
+						'text-halo-width': 2,
+						'text-opacity': 1
 					}
 				});
 
@@ -1372,19 +1376,19 @@
 						<span class="legend-section-title">INFRASTRUCTURE</span>
 						<div class="legend-items">
 							<div class="legend-item">
-								<span class="legend-icon">⚓</span>
+								<span class="legend-icon" style="color: #5b8a8a;">◆</span>
 								<span class="legend-label">Chokepoint</span>
 							</div>
 							<div class="legend-item">
-								<span class="legend-icon">📡</span>
+								<span class="legend-icon" style="color: #6b7a99;">◎</span>
 								<span class="legend-label">Cable Landing</span>
 							</div>
 							<div class="legend-item">
-								<span class="legend-icon">☢</span>
+								<span class="legend-icon" style="color: #b8860b;">⚠</span>
 								<span class="legend-label">Nuclear Site</span>
 							</div>
 							<div class="legend-item">
-								<span class="legend-icon">🎖</span>
+								<span class="legend-icon" style="color: #708090;">★</span>
 								<span class="legend-label">Military Base</span>
 							</div>
 						</div>

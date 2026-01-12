@@ -43,7 +43,8 @@
 			sourceType: inferSourceType(item.source),
 			regions: item.region ? [item.region] : [],
 			topics: item.topics || [],
-			pubDate: item.pubDate,
+			// Use numeric timestamp for reliable time display (already parsed correctly)
+			pubDate: item.timestamp ? String(item.timestamp) : item.pubDate,
 			isPriority: item.isAlert
 		};
 	}
