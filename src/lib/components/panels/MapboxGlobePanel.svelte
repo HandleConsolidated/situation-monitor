@@ -11,14 +11,43 @@
 		THREAT_COLORS,
 		HOTSPOT_KEYWORDS
 	} from '$lib/config/map';
-	import type { CustomMonitor, NewsItem } from '$lib/types';
+	import type { CustomMonitor, NewsItem, NewsCategory } from '$lib/types';
+
+	// Feed category colors for map visualization
+	const FEED_COLORS: Record<NewsCategory, string> = {
+		politics: '#ef4444', // Red - geopolitical importance
+		tech: '#8b5cf6', // Purple - tech/innovation
+		finance: '#10b981', // Green - money/markets
+		gov: '#f59e0b', // Amber - government/policy
+		ai: '#06b6d4', // Cyan - AI/future tech
+		intel: '#ec4899' // Pink - intelligence/security
+	};
+
+	const FEED_LABELS: Record<NewsCategory, string> = {
+		politics: 'Politics Feed',
+		tech: 'Tech Feed',
+		finance: 'Finance Feed',
+		gov: 'Government Feed',
+		ai: 'AI Feed',
+		intel: 'Intel Feed'
+	};
+
+	interface CategorizedNews {
+		politics: NewsItem[];
+		tech: NewsItem[];
+		finance: NewsItem[];
+		gov: NewsItem[];
+		ai: NewsItem[];
+		intel: NewsItem[];
+	}
 
 	interface Props {
 		monitors?: CustomMonitor[];
 		news?: NewsItem[];
+		categorizedNews?: CategorizedNews;
 	}
 
-	let { monitors = [], news = [] }: Props = $props();
+	let { monitors = [], news = [], categorizedNews }: Props = $props();
 
 	// Mapbox access token
 	const MAPBOX_TOKEN =
@@ -44,6 +73,16 @@
 		arcs: { visible: true, paused: false }
 	});
 
+	// Individual feed category visibility
+	let feedLayers = $state({
+		politics: { visible: true },
+		tech: { visible: true },
+		finance: { visible: true },
+		gov: { visible: true },
+		ai: { visible: true },
+		intel: { visible: true }
+	});
+
 	// News display settings
 	let newsTTL = $state(30); // Minutes until news expires from map
 	let newsTimeFilter = $state(60); // Only show news from last X minutes
@@ -67,14 +106,20 @@
 		recentNews?: string[];
 		isAlert?: boolean;
 		timestamp?: number;
+		category?: string;
+		categoryLabel?: string;
 	} | null>(null);
 
 	// Frozen news data (when paused)
 	let frozenNews = $state<NewsItem[]>([]);
+	let frozenCategorizedNews = $state<CategorizedNews | null>(null);
 	let lastNewsUpdate = $state<number>(Date.now());
 
 	// Get effective news (frozen if paused, otherwise live)
 	const effectiveNews = $derived(dataLayers.news.paused ? frozenNews : news);
+	const effectiveCategorizedNews = $derived(
+		dataLayers.news.paused && frozenCategorizedNews ? frozenCategorizedNews : categorizedNews
+	);
 
 	// Filter news by time and alert settings
 	const filteredNews = $derived(() => {
@@ -86,6 +131,30 @@
 			if (showAlertsOnly && !item.isAlert) return false;
 			return true;
 		});
+	});
+
+	// Filter categorized news by time, alert settings, and feed visibility
+	const filteredCategorizedNews = $derived(() => {
+		const now = Date.now();
+		const cutoffTime = now - newsTimeFilter * 60 * 1000;
+
+		const filterItems = (items: NewsItem[]) =>
+			items.filter((item) => {
+				if (item.timestamp < cutoffTime) return false;
+				if (showAlertsOnly && !item.isAlert) return false;
+				return true;
+			});
+
+		if (!effectiveCategorizedNews) return null;
+
+		return {
+			politics: feedLayers.politics.visible ? filterItems(effectiveCategorizedNews.politics) : [],
+			tech: feedLayers.tech.visible ? filterItems(effectiveCategorizedNews.tech) : [],
+			finance: feedLayers.finance.visible ? filterItems(effectiveCategorizedNews.finance) : [],
+			gov: feedLayers.gov.visible ? filterItems(effectiveCategorizedNews.gov) : [],
+			ai: feedLayers.ai.visible ? filterItems(effectiveCategorizedNews.ai) : [],
+			intel: feedLayers.intel.visible ? filterItems(effectiveCategorizedNews.intel) : []
+		};
 	});
 
 	// Match news items to specific hotspots
@@ -235,10 +304,15 @@
 		return { type: 'FeatureCollection', features };
 	}
 
-	// Generate news event markers
+	// Generate news event markers (legacy - for backward compatibility when categorizedNews not provided)
 	function getNewsEventsGeoJSON(): GeoJSON.FeatureCollection {
 		if (!dataLayers.news.visible) {
 			return { type: 'FeatureCollection', features: [] };
+		}
+
+		// If we have categorized news, use that instead
+		if (filteredCategorizedNews()) {
+			return getCategorizedNewsGeoJSON();
 		}
 
 		const features: GeoJSON.Feature[] = [];
@@ -292,15 +366,91 @@
 		return { type: 'FeatureCollection', features };
 	}
 
-	// Generate arc data for tension corridors
+	// Generate categorized news markers with distinct colors per feed type
+	function getCategorizedNewsGeoJSON(): GeoJSON.FeatureCollection {
+		const categorized = filteredCategorizedNews();
+		if (!categorized || !dataLayers.news.visible) {
+			return { type: 'FeatureCollection', features: [] };
+		}
+
+		const features: GeoJSON.Feature[] = [];
+		const now = Date.now();
+		const ttlMs = newsTTL * 60 * 1000;
+
+		// Process each category separately
+		const categories: NewsCategory[] = ['politics', 'tech', 'finance', 'gov', 'ai', 'intel'];
+
+		categories.forEach((category, categoryIndex) => {
+			if (!feedLayers[category].visible) return;
+
+			const categoryNews = categorized[category];
+			if (!categoryNews || categoryNews.length === 0) return;
+
+			// Group by hotspot
+			const hotspotNewsMap = new Map<string, NewsItem[]>();
+
+			categoryNews.forEach((item) => {
+				for (const [hotspotName, keywords] of Object.entries(HOTSPOT_KEYWORDS)) {
+					const text = `${item.title} ${item.description || ''}`.toLowerCase();
+					if (keywords.some((kw) => text.includes(kw.toLowerCase()))) {
+						if (!hotspotNewsMap.has(hotspotName)) {
+							hotspotNewsMap.set(hotspotName, []);
+						}
+						hotspotNewsMap.get(hotspotName)!.push(item);
+						break;
+					}
+				}
+			});
+
+			// Create markers for each hotspot with offset based on category
+			hotspotNewsMap.forEach((newsItems, hotspotName) => {
+				const hotspot = HOTSPOTS.find((h) => h.name === hotspotName);
+				if (!hotspot) return;
+
+				const hasAlerts = newsItems.some((n) => n.isAlert);
+				const age = now - Math.max(...newsItems.map((n) => n.timestamp));
+				const opacity = Math.max(0.4, 1 - age / ttlMs);
+
+				// Offset markers in a ring pattern around the hotspot
+				const angle = (categoryIndex / categories.length) * 2 * Math.PI;
+				const offsetDistance = 0.8; // degrees
+				const offsetLon = Math.cos(angle) * offsetDistance;
+				const offsetLat = Math.sin(angle) * offsetDistance;
+
+				features.push({
+					type: 'Feature',
+					geometry: {
+						type: 'Point',
+						coordinates: [hotspot.lon + offsetLon, hotspot.lat + offsetLat]
+					},
+					properties: {
+						label: `${newsItems.length} ${category}`,
+						type: 'feed-news',
+						category,
+						categoryLabel: FEED_LABELS[category],
+						count: newsItems.length,
+						hasAlerts,
+						opacity,
+						color: hasAlerts ? '#ef4444' : FEED_COLORS[category],
+						size: Math.min(10, 5 + newsItems.length),
+						recentNews: JSON.stringify(newsItems.slice(0, 3).map((n) => n.title))
+					}
+				});
+			});
+		});
+
+		return { type: 'FeatureCollection', features };
+	}
+
+	// Generate arc data for tension corridors with 3D rocket trajectory effect
 	function getArcsGeoJSON(): GeoJSON.FeatureCollection {
 		if (!dataLayers.arcs.visible) return { type: 'FeatureCollection', features: [] };
 
 		const arcConnections = [
-			{ from: 'Moscow', to: 'Kyiv', color: 'rgba(239, 68, 68, 0.7)' },
-			{ from: 'Tehran', to: 'Tel Aviv', color: 'rgba(239, 68, 68, 0.8)' },
-			{ from: 'Beijing', to: 'Taipei', color: 'rgba(251, 191, 36, 0.7)' },
-			{ from: 'Pyongyang', to: 'Tokyo', color: 'rgba(251, 191, 36, 0.7)' }
+			{ from: 'Moscow', to: 'Kyiv', color: '#ef4444', glowColor: 'rgba(239, 68, 68, 0.4)' },
+			{ from: 'Tehran', to: 'Tel Aviv', color: '#ef4444', glowColor: 'rgba(239, 68, 68, 0.4)' },
+			{ from: 'Beijing', to: 'Taipei', color: '#fbbf24', glowColor: 'rgba(251, 191, 36, 0.4)' },
+			{ from: 'Pyongyang', to: 'Tokyo', color: '#fbbf24', glowColor: 'rgba(251, 191, 36, 0.4)' }
 		];
 
 		const hotspotMap = new Map(HOTSPOTS.map((h) => [h.name, h]));
@@ -310,11 +460,18 @@
 			const from = hotspotMap.get(conn.from);
 			const to = hotspotMap.get(conn.to);
 			if (from && to) {
-				const coords = generateArcCoordinates([from.lon, from.lat], [to.lon, to.lat], 20);
+				// Use 40 segments for smooth 3D arc
+				const coords = generateArcCoordinates([from.lon, from.lat], [to.lon, to.lat], 40);
 				features.push({
 					type: 'Feature',
 					geometry: { type: 'LineString', coordinates: coords },
-					properties: { color: conn.color, from: conn.from, to: conn.to, id: index }
+					properties: {
+						color: conn.color,
+						glowColor: conn.glowColor,
+						from: conn.from,
+						to: conn.to,
+						id: index
+					}
 				});
 			}
 		});
@@ -322,18 +479,50 @@
 		return { type: 'FeatureCollection', features };
 	}
 
+	/**
+	 * Generate 3D arc coordinates that curve outward like a rocket/missile trajectory.
+	 * The arc bulges perpendicular to the great circle path, creating a parabolic effect.
+	 */
 	function generateArcCoordinates(
 		start: [number, number],
 		end: [number, number],
 		segments: number
 	): [number, number][] {
 		const coords: [number, number][] = [];
+
+		// Calculate perpendicular direction for the arc bulge
+		const dx = end[0] - start[0];
+		const dy = end[1] - start[1];
+		const distance = Math.sqrt(dx * dx + dy * dy);
+
+		// Perpendicular unit vector (rotated 90 degrees)
+		// Normalized perpendicular: (-dy/dist, dx/dist)
+		const perpX = -dy / distance;
+		const perpY = dx / distance;
+
+		// Arc height proportional to distance (gives rocket trajectory feel)
+		// Larger distances get higher arcs
+		const arcHeight = Math.min(distance * 0.35, 15); // Cap at 15 degrees max bulge
+
 		for (let i = 0; i <= segments; i++) {
 			const t = i / segments;
-			const lng = start[0] + (end[0] - start[0]) * t;
-			const lat = start[1] + (end[1] - start[1]) * t;
-			coords.push([lng, lat]);
+
+			// Linear interpolation for base position
+			const baseLon = start[0] + dx * t;
+			const baseLat = start[1] + dy * t;
+
+			// Parabolic arc offset: peaks at t=0.5, zero at t=0 and t=1
+			// Using sin curve for smoother, more natural arc shape
+			const arcFactor = Math.sin(t * Math.PI);
+
+			// Apply perpendicular offset for the 3D arc effect
+			// The arc bulges in the perpendicular direction
+			const offsetLon = perpX * arcHeight * arcFactor;
+			const offsetLat = perpY * arcHeight * arcFactor;
+
+			coords.push([baseLon + offsetLon, baseLat + offsetLat]);
 		}
+
 		return coords;
 	}
 
@@ -385,7 +574,7 @@
 		return { type: 'FeatureCollection', features };
 	}
 
-	function getTypeLabel(type: string): string {
+	function getTypeLabel(type: string, category?: string): string {
 		const labels: Record<string, string> = {
 			hotspot: 'GEOPOLITICAL HOTSPOT',
 			chokepoint: 'SHIPPING CHOKEPOINT',
@@ -393,7 +582,8 @@
 			nuclear: 'NUCLEAR SITE',
 			military: 'MILITARY BASE',
 			monitor: 'CUSTOM MONITOR',
-			'news-cluster': 'NEWS ACTIVITY'
+			'news-cluster': 'NEWS ACTIVITY',
+			'feed-news': category ? FEED_LABELS[category as keyof typeof FEED_LABELS] || 'NEWS FEED' : 'NEWS FEED'
 		};
 		return labels[type] || type.toUpperCase();
 	}
@@ -404,6 +594,16 @@
 			if (!dataLayers.news.paused) {
 				// Freezing - capture current news
 				frozenNews = [...news];
+				if (categorizedNews) {
+					frozenCategorizedNews = {
+						politics: [...categorizedNews.politics],
+						tech: [...categorizedNews.tech],
+						finance: [...categorizedNews.finance],
+						gov: [...categorizedNews.gov],
+						ai: [...categorizedNews.ai],
+						intel: [...categorizedNews.intel]
+					};
+				}
 				lastNewsUpdate = Date.now();
 			}
 		}
@@ -535,15 +735,41 @@
 				map.addSource('news-events', { type: 'geojson', data: getNewsEventsGeoJSON() });
 
 				// Add layers
+
+				// Arc glow layer (underneath) for 3D effect
+				map.addLayer({
+					id: 'arcs-glow',
+					type: 'line',
+					source: 'arcs',
+					paint: {
+						'line-color': ['get', 'glowColor'],
+						'line-width': 8,
+						'line-opacity': 0.6,
+						'line-blur': 4
+					}
+				});
+
+				// Arc main layer - solid curved line
 				map.addLayer({
 					id: 'arcs-layer',
 					type: 'line',
 					source: 'arcs',
 					paint: {
 						'line-color': ['get', 'color'],
-						'line-width': 2,
-						'line-opacity': 0.8,
-						'line-dasharray': [2, 2]
+						'line-width': 2.5,
+						'line-opacity': 0.9
+					}
+				});
+
+				// Arc highlight layer - thin bright line on top
+				map.addLayer({
+					id: 'arcs-highlight',
+					type: 'line',
+					source: 'arcs',
+					paint: {
+						'line-color': '#ffffff',
+						'line-width': 0.8,
+						'line-opacity': 0.4
 					}
 				});
 
@@ -590,9 +816,9 @@
 					type: 'circle',
 					source: 'news-events',
 					paint: {
-						'circle-radius': ['get', 'size'],
-						'circle-color': ['get', 'color'],
-						'circle-opacity': ['get', 'opacity'],
+						'circle-radius': ['coalesce', ['get', 'size'], 8],
+						'circle-color': ['coalesce', ['get', 'color'], '#3b82f6'],
+						'circle-opacity': ['coalesce', ['get', 'opacity'], 0.8],
 						'circle-stroke-color': '#ffffff',
 						'circle-stroke-width': 1,
 						'circle-stroke-opacity': 0.5
@@ -604,8 +830,8 @@
 					type: 'circle',
 					source: 'points',
 					paint: {
-						'circle-radius': ['*', ['get', 'size'], 1.5],
-						'circle-color': ['get', 'color'],
+						'circle-radius': ['*', ['coalesce', ['get', 'size'], 8], 1.5],
+						'circle-color': ['coalesce', ['get', 'color'], '#06b6d4'],
 						'circle-opacity': 0.3,
 						'circle-blur': 1
 					}
@@ -616,8 +842,8 @@
 					type: 'circle',
 					source: 'points',
 					paint: {
-						'circle-radius': ['get', 'size'],
-						'circle-color': ['get', 'color'],
+						'circle-radius': ['coalesce', ['get', 'size'], 8],
+						'circle-color': ['coalesce', ['get', 'color'], '#06b6d4'],
 						'circle-stroke-color': '#ffffff',
 						'circle-stroke-width': 1,
 						'circle-stroke-opacity': 0.5
@@ -633,7 +859,9 @@
 						'text-size': 10,
 						'text-offset': [0, 1.5],
 						'text-anchor': 'top',
-						'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular']
+						'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
+						'text-allow-overlap': true,
+						'text-ignore-placement': true
 					},
 					paint: {
 						'text-color': ['get', 'color'],
@@ -641,6 +869,10 @@
 						'text-halo-width': 1
 					}
 				});
+
+				// Ensure labels layer doesn't capture pointer events
+				map.on('mouseenter', 'labels-layer', () => {});
+				map.on('mouseleave', 'labels-layer', () => {});
 
 				setupInteractivity();
 				startRotation();
@@ -703,11 +935,22 @@
 			const feature = e.features[0];
 			const props = feature.properties;
 
+			let recentNews: string[] = [];
+			try {
+				recentNews = props?.recentNews ? JSON.parse(props.recentNews) : [];
+			} catch {
+				recentNews = [];
+			}
+
+			const isFeedNews = props?.type === 'feed-news';
 			tooltipData = {
-				label: `${props?.count || 0} News Items`,
+				label: isFeedNews ? `${props?.count || 0} ${props?.categoryLabel || 'News'} Items` : `${props?.count || 0} News Items`,
 				type: props?.type || 'news-cluster',
 				desc: props?.hasAlerts ? 'Contains alert-level news' : 'Recent news activity',
-				isAlert: props?.hasAlerts
+				isAlert: props?.hasAlerts,
+				category: props?.category,
+				categoryLabel: props?.categoryLabel,
+				recentNews
 			};
 			tooltipVisible = true;
 			updateTooltipPosition(e.point);
@@ -760,14 +1003,17 @@
 			recentNews = [];
 		}
 
+		const isFeedNews = props?.type === 'feed-news';
 		tooltipData = {
-			label: props?.label || '',
+			label: isFeedNews ? `${props?.count || 0} ${props?.categoryLabel || 'News'} Items` : (props?.label || ''),
 			type: props?.type || '',
 			desc: props?.desc,
 			level: props?.level,
-			newsCount: props?.newsCount || 0,
+			newsCount: props?.newsCount || props?.count || 0,
 			recentNews,
-			isAlert: props?.hasAlerts || props?.hasAlert
+			isAlert: props?.hasAlerts || props?.hasAlert,
+			category: props?.category,
+			categoryLabel: props?.categoryLabel
 		};
 		tooltipVisible = true;
 		tooltipLocked = true;
@@ -928,6 +1174,27 @@
 					{/each}
 				</div>
 
+				<!-- Feed category toggles -->
+				{#if categorizedNews}
+					<div class="layer-section">
+						<span class="layer-section-title">NEWS FEEDS</span>
+						{#each Object.entries(feedLayers) as [feed, state]}
+							<label class="layer-toggle feed-toggle">
+								<input
+									type="checkbox"
+									bind:checked={state.visible}
+									onchange={() => updateMapLayers()}
+								/>
+								<span
+									class="feed-color-dot"
+									style="background-color: {FEED_COLORS[feed as keyof typeof FEED_COLORS]}"
+								></span>
+								<span class="layer-name">{FEED_LABELS[feed as keyof typeof FEED_LABELS]}</span>
+							</label>
+						{/each}
+					</div>
+				{/if}
+
 				<!-- News filters -->
 				<div class="layer-section">
 					<span class="layer-section-title">NEWS FILTERS</span>
@@ -999,15 +1266,31 @@
 						</div>
 					</div>
 					<div class="legend-section">
-						<span class="legend-section-title">LIVE DATA</span>
+						<span class="legend-section-title">NEWS FEEDS</span>
 						<div class="legend-items">
 							<div class="legend-item">
-								<span class="legend-marker news-alert"></span>
-								<span class="legend-label">News Alert</span>
+								<span class="legend-marker" style="background: #ef4444; box-shadow: 0 0 4px #ef4444;"></span>
+								<span class="legend-label">Politics</span>
 							</div>
 							<div class="legend-item">
-								<span class="legend-marker news"></span>
-								<span class="legend-label">News Activity</span>
+								<span class="legend-marker" style="background: #8b5cf6; box-shadow: 0 0 4px #8b5cf6;"></span>
+								<span class="legend-label">Tech</span>
+							</div>
+							<div class="legend-item">
+								<span class="legend-marker" style="background: #10b981; box-shadow: 0 0 4px #10b981;"></span>
+								<span class="legend-label">Finance</span>
+							</div>
+							<div class="legend-item">
+								<span class="legend-marker" style="background: #f59e0b; box-shadow: 0 0 4px #f59e0b;"></span>
+								<span class="legend-label">Government</span>
+							</div>
+							<div class="legend-item">
+								<span class="legend-marker" style="background: #06b6d4; box-shadow: 0 0 4px #06b6d4;"></span>
+								<span class="legend-label">AI</span>
+							</div>
+							<div class="legend-item">
+								<span class="legend-marker" style="background: #ec4899; box-shadow: 0 0 4px #ec4899;"></span>
+								<span class="legend-label">Intel</span>
 							</div>
 						</div>
 					</div>
@@ -1049,8 +1332,9 @@
 					class:critical={tooltipData.level === 'critical' || tooltipData.isAlert}
 					class:high={tooltipData.level === 'high'}
 					class:elevated={tooltipData.level === 'elevated'}
+					style={tooltipData.category ? `color: ${FEED_COLORS[tooltipData.category as keyof typeof FEED_COLORS]}` : ''}
 				>
-					{getTypeLabel(tooltipData.type)}
+					{getTypeLabel(tooltipData.type, tooltipData.category)}
 				</span>
 				{#if tooltipData.level}
 					<span
@@ -1061,13 +1345,20 @@
 					>
 						{tooltipData.level.toUpperCase()}
 					</span>
+				{:else if tooltipData.category}
+					<span
+						class="tooltip-feed-badge"
+						style="background-color: {FEED_COLORS[tooltipData.category as keyof typeof FEED_COLORS]}20; border-color: {FEED_COLORS[tooltipData.category as keyof typeof FEED_COLORS]}40; color: {FEED_COLORS[tooltipData.category as keyof typeof FEED_COLORS]}"
+					>
+						{tooltipData.category.toUpperCase()}
+					</span>
 				{/if}
 			</div>
 			<div class="tooltip-name">{tooltipData.label}</div>
 			{#if tooltipData.desc}
 				<div class="tooltip-desc">{tooltipData.desc}</div>
 			{/if}
-			{#if tooltipData.newsCount && tooltipData.newsCount > 0}
+			{#if tooltipData.newsCount && tooltipData.newsCount > 0 && !tooltipData.category}
 				<div class="tooltip-news-count">
 					<span class="news-badge">{tooltipData.newsCount} news items</span>
 				</div>
@@ -1104,11 +1395,18 @@
 		inset: 0;
 		pointer-events: none;
 		background: radial-gradient(ellipse at center, transparent 50%, rgba(0, 0, 0, 0.4) 100%);
-		z-index: 1;
+		z-index: 10;
+	}
+
+	.globe-container :global(.mapboxgl-canvas-container) {
+		position: relative;
+		z-index: 0;
 	}
 
 	.globe-container :global(.mapboxgl-canvas) {
 		cursor: grab;
+		position: relative;
+		z-index: 1;
 	}
 
 	.globe-container :global(.mapboxgl-canvas:active) {
@@ -1278,6 +1576,18 @@
 		font-family: 'SF Mono', Monaco, monospace;
 		color: rgb(203 213 225);
 		flex: 1;
+	}
+
+	.feed-toggle {
+		gap: 0.375rem;
+	}
+
+	.feed-color-dot {
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		flex-shrink: 0;
+		box-shadow: 0 0 4px currentColor;
 	}
 
 	.pause-btn {
@@ -1617,6 +1927,17 @@
 		background: rgb(22 78 99 / 0.5);
 		color: rgb(34 211 238);
 		border-color: rgb(8 145 178 / 0.5);
+	}
+
+	.tooltip-feed-badge {
+		font-size: 0.5rem;
+		font-weight: 700;
+		font-family: 'SF Mono', Monaco, monospace;
+		letter-spacing: 0.05em;
+		padding: 0.125rem 0.375rem;
+		border-radius: 2px;
+		text-transform: uppercase;
+		border: 1px solid;
 	}
 
 	.tooltip-name {

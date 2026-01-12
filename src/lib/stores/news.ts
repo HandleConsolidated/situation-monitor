@@ -230,6 +230,16 @@ export const allNewsItems = derived(news, ($news) => {
 	return allItems;
 });
 
+// Derived store for categorized news items (for map visualization)
+export const categorizedNewsItems = derived(news, ($news) => ({
+	politics: $news.categories.politics.items,
+	tech: $news.categories.tech.items,
+	finance: $news.categories.finance.items,
+	gov: $news.categories.gov.items,
+	ai: $news.categories.ai.items,
+	intel: $news.categories.intel.items
+}));
+
 // Derived store for alerts
 export const alerts = derived(news, ($news) => {
 	const allAlerts: NewsItem[] = [];
