@@ -447,13 +447,13 @@ function getFallbackContracts(): Contract[] {
 
 /**
  * Fetch internet/power outage data
- * Uses multiple real-time APIs: IODA, OONI, Cloudflare Radar
- * No sample or curated data - only real detected outages
+ * Uses multiple real-time APIs: IODA, OONI, Downdetector-like sources
+ * Returns only real detected outages - no hardcoded fallback data
  */
 export async function fetchOutageData(): Promise<OutageData[]> {
 	const allOutages: OutageData[] = [];
 
-	// Fetch from IODA API (primary source)
+	// Fetch from IODA API (primary source - Georgia Tech)
 	try {
 		const iodaData = await fetchIODAOutages();
 		allOutages.push(...iodaData);
@@ -461,7 +461,7 @@ export async function fetchOutageData(): Promise<OutageData[]> {
 		console.warn('IODA API failed:', error);
 	}
 
-	// Try OONI (Open Observatory of Network Interference) for censorship/blocking data
+	// Try OONI incidents API for documented network interference
 	try {
 		const ooniData = await fetchOONIOutages();
 		const existingCountries = new Set(allOutages.map((o) => o.countryCode));
@@ -475,25 +475,22 @@ export async function fetchOutageData(): Promise<OutageData[]> {
 		console.warn('OONI API failed:', error);
 	}
 
-	// Try Cloudflare Radar for additional outage data
+	// Try Internet Society Pulse API for connectivity data
 	try {
-		const cloudflareData = await fetchCloudflareRadarOutages();
+		const pulseData = await fetchInternetPulseOutages();
 		const existingCountries = new Set(allOutages.map((o) => o.countryCode));
-		for (const outage of cloudflareData) {
+		for (const outage of pulseData) {
 			if (!existingCountries.has(outage.countryCode)) {
 				allOutages.push(outage);
 				existingCountries.add(outage.countryCode);
 			}
 		}
 	} catch (error) {
-		console.warn('Cloudflare Radar API failed:', error);
+		console.warn('Internet Pulse API failed:', error);
 	}
 
-	// If all APIs fail, return known ongoing conflict/restriction zones from OONI country list
-	if (allOutages.length === 0) {
-		const knownRestrictedCountries = await fetchKnownRestrictedCountries();
-		allOutages.push(...knownRestrictedCountries);
-	}
+	// NO hardcoded fallback - only show real detected outages
+	// If all APIs fail, the user will see no outages (which is accurate)
 
 	// Calculate radius for each outage based on severity and population
 	for (const outage of allOutages) {
@@ -558,42 +555,58 @@ async function fetchOONIOutages(): Promise<OutageData[]> {
 	return outages;
 }
 
-// Known restricted countries based on Freedom House and OONI reports
-async function fetchKnownRestrictedCountries(): Promise<OutageData[]> {
-	// These are countries with documented ongoing internet restrictions
-	// Data sourced from Freedom House's "Freedom on the Net" and OONI reports
-	const restrictedCountries = [
-		{ code: 'IR', name: 'Iran', severity: 'major' as const, desc: 'Government internet restrictions documented by OONI' },
-		{ code: 'CN', name: 'China', severity: 'major' as const, desc: 'Great Firewall - extensive internet censorship' },
-		{ code: 'RU', name: 'Russia', severity: 'partial' as const, desc: 'Increasing internet restrictions since 2022' },
-		{ code: 'KP', name: 'North Korea', severity: 'total' as const, desc: 'No public internet access' },
-		{ code: 'TM', name: 'Turkmenistan', severity: 'major' as const, desc: 'Severe internet restrictions' },
-		{ code: 'MM', name: 'Myanmar', severity: 'major' as const, desc: 'Military internet controls' },
-		{ code: 'BY', name: 'Belarus', severity: 'partial' as const, desc: 'Periodic shutdowns and censorship' }
-	];
+// Fetch from Internet Society Pulse for shutdown tracking
+async function fetchInternetPulseOutages(): Promise<OutageData[]> {
+	// Internet Society Pulse tracks internet shutdowns globally
+	// Using their public data endpoint
+	try {
+		const response = await fetch(
+			'https://pulse.internetsociety.org/api/shutdowns?status=ongoing',
+			{
+				headers: {
+					Accept: 'application/json'
+				}
+			}
+		);
 
-	const outages: OutageData[] = [];
+		if (!response.ok) {
+			return [];
+		}
 
-	for (const country of restrictedCountries) {
-		const coords = getCountryCoordinates(country.code);
-		if (!coords) continue;
+		const data = await response.json();
+		const outages: OutageData[] = [];
 
-		outages.push({
-			id: `known-${country.code}-${Date.now()}`,
-			country: country.name,
-			countryCode: country.code,
-			type: 'internet',
-			severity: country.severity,
-			lat: coords.lat,
-			lon: coords.lon,
-			description: country.desc,
-			affectedPopulation: coords.population,
-			source: 'Freedom House/OONI',
-			active: true
-		});
+		if (data.shutdowns && Array.isArray(data.shutdowns)) {
+			for (const shutdown of data.shutdowns) {
+				const countryCode = shutdown.country_code || '';
+				const coords = getCountryCoordinates(countryCode);
+				if (!coords) continue;
+
+				const severity: 'partial' | 'major' | 'total' =
+					shutdown.type === 'complete' ? 'total' :
+					shutdown.type === 'partial' ? 'major' : 'partial';
+
+				outages.push({
+					id: `pulse-${countryCode}-${Date.now()}`,
+					country: shutdown.country || countryCode,
+					countryCode,
+					type: 'internet',
+					severity,
+					lat: coords.lat,
+					lon: coords.lon,
+					description: shutdown.description || 'Internet shutdown detected by Internet Society',
+					affectedPopulation: coords.population,
+					startTime: shutdown.start_date,
+					source: 'Internet Society Pulse',
+					active: true
+				});
+			}
+		}
+
+		return outages;
+	} catch {
+		return [];
 	}
-
-	return outages;
 }
 
 // Calculate display radius based on severity and affected population
@@ -662,61 +675,6 @@ async function fetchIODAOutages(): Promise<OutageData[]> {
 				startTime: alert.time?.start,
 				source: 'IODA',
 				active: true
-			});
-		}
-	}
-
-	return outages;
-}
-
-// Fetch from Cloudflare Radar API for additional outage detection
-async function fetchCloudflareRadarOutages(): Promise<OutageData[]> {
-	// Cloudflare Radar provides network outage data
-	// Note: This endpoint may require API key for full access
-	const response = await fetch(
-		'https://api.cloudflare.com/client/v4/radar/annotations/outages?limit=20&dateRange=1d',
-		{
-			headers: {
-				Accept: 'application/json'
-			}
-		}
-	);
-
-	// If Cloudflare Radar requires auth, fall back to empty
-	if (!response.ok) {
-		return [];
-	}
-
-	const data = await response.json();
-	const outages: OutageData[] = [];
-
-	if (data.result?.annotations && Array.isArray(data.result.annotations)) {
-		for (const annotation of data.result.annotations) {
-			// Get coordinates for the affected location
-			const countryCode = annotation.asns?.[0]?.locations?.[0] || annotation.locations?.[0] || '';
-			const coords = getCountryCoordinates(countryCode);
-			if (!coords) continue;
-
-			const severity =
-				annotation.scope === 'country'
-					? 'major'
-					: annotation.scope === 'region'
-						? 'partial'
-						: 'partial';
-
-			outages.push({
-				id: `cloudflare-${countryCode}-${Date.now()}`,
-				country: annotation.locations?.[0] || countryCode,
-				countryCode,
-				type: 'internet',
-				severity,
-				lat: coords.lat,
-				lon: coords.lon,
-				description: annotation.description || 'Network outage detected by Cloudflare Radar',
-				affectedPopulation: coords.population,
-				startTime: annotation.startDate,
-				source: 'Cloudflare',
-				active: !annotation.endDate
 			});
 		}
 	}
@@ -814,62 +772,63 @@ function getCountryCoordinates(
 
 /**
  * Fetch layoffs data from real sources
- * Uses layoffs.fyi RSS feed or HN hiring trends
+ * Uses multiple sources: Hacker News, Google News RSS, and layoffs tracking
  */
 export async function fetchLayoffs(): Promise<Layoff[]> {
-	// Try to fetch from layoffs tracking sources
-	try {
-		// Try TechCrunch layoffs tag RSS feed (commonly tracks tech layoffs)
-		const response = await fetch(
-			'https://techcrunch.com/tag/layoffs/feed/',
-			{ headers: { Accept: 'application/rss+xml, application/xml, text/xml' } }
-		);
+	const layoffs: Layoff[] = [];
 
-		if (response.ok) {
-			const text = await response.text();
-			const layoffs = parseLayoffsFromRSS(text);
-			if (layoffs.length > 0) {
-				return layoffs;
-			}
-		}
-	} catch (error) {
-		console.warn('TechCrunch layoffs feed failed:', error);
-	}
-
-	// Try Hacker News API for layoff stories
+	// Try Hacker News API for layoff stories (most reliable)
 	try {
+		// Search for recent layoff-related stories with better query
 		const response = await fetch(
-			'https://hn.algolia.com/api/v1/search?query=layoffs&tags=story&hitsPerPage=10'
+			'https://hn.algolia.com/api/v1/search_by_date?query=layoffs+OR+layoff+OR+"laying+off"&tags=story&hitsPerPage=20'
 		);
 
 		if (response.ok) {
 			const data = await response.json();
 			if (data.hits && Array.isArray(data.hits)) {
-				const layoffs: Layoff[] = [];
 				for (const hit of data.hits) {
-					// Extract company name from title if possible
 					const title = hit.title || '';
-					const companyMatch = title.match(/^([A-Z][a-zA-Z]+)/);
-					const company = companyMatch ? companyMatch[1] : 'Tech Company';
 
-					// Try to extract count from title
-					const countMatch = title.match(/(\d+,?\d*)\s*(employees|workers|jobs|people|staff)/i);
-					const count = countMatch ? parseInt(countMatch[1].replace(',', '')) : 0;
-
-					if (count > 0 || title.toLowerCase().includes('layoff')) {
-						layoffs.push({
-							company,
-							count: count || 100, // Default estimate if not specified
-							title: title.substring(0, 80),
-							date: hit.created_at || new Date().toISOString()
-						});
+					// Skip if not actually about layoffs
+					if (!title.toLowerCase().match(/layoff|laying off|cut.*(jobs|staff|employees)|job cuts/i)) {
+						continue;
 					}
 
-					if (layoffs.length >= 5) break;
-				}
+					// Try to extract company name - look for capitalized words at start or after "at"
+					let company = 'Tech Company';
+					const companyAtMatch = title.match(/at\s+([A-Z][a-zA-Z0-9]+)/);
+					const companyStartMatch = title.match(/^([A-Z][a-zA-Z0-9]+)/);
+					const companyIsMatch = title.match(/([A-Z][a-zA-Z0-9]+)\s+(is|to|will|announces?|laying)/);
 
-				if (layoffs.length > 0) {
-					return layoffs;
+					if (companyAtMatch) {
+						company = companyAtMatch[1];
+					} else if (companyIsMatch) {
+						company = companyIsMatch[1];
+					} else if (companyStartMatch) {
+						company = companyStartMatch[1];
+					}
+
+					// Try to extract count from title
+					const countMatch = title.match(/(\d+[,\d]*)\s*(employees|workers|jobs|people|staff|%)/i);
+					let count = 0;
+					if (countMatch) {
+						const numStr = countMatch[1].replace(/,/g, '');
+						count = parseInt(numStr, 10);
+						// If percentage, estimate based on typical company sizes
+						if (countMatch[2] === '%' && count < 100) {
+							count = count * 50; // rough estimate
+						}
+					}
+
+					layoffs.push({
+						company,
+						count: count || 100, // Default estimate if not specified
+						title: title.substring(0, 100),
+						date: hit.created_at || new Date().toISOString()
+					});
+
+					if (layoffs.length >= 8) break;
 				}
 			}
 		}
@@ -877,9 +836,39 @@ export async function fetchLayoffs(): Promise<Layoff[]> {
 		console.warn('HN layoffs search failed:', error);
 	}
 
+	// If HN didn't return enough results, try Google News RSS
+	if (layoffs.length < 3) {
+		try {
+			const response = await fetch(
+				'https://news.google.com/rss/search?q=tech+layoffs+2025&hl=en-US&gl=US&ceid=US:en',
+				{ headers: { Accept: 'application/rss+xml, application/xml, text/xml' } }
+			);
+
+			if (response.ok) {
+				const text = await response.text();
+				const newsLayoffs = parseLayoffsFromRSS(text);
+				// Add unique ones
+				for (const l of newsLayoffs) {
+					if (!layoffs.some(existing => existing.title.toLowerCase().includes(l.company.toLowerCase()))) {
+						layoffs.push(l);
+						if (layoffs.length >= 8) break;
+					}
+				}
+			}
+		} catch (error) {
+			console.warn('Google News layoffs feed failed:', error);
+		}
+	}
+
+	// Sort by date (newest first)
+	layoffs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
 	// Return empty if no real data available - no sample data
-	console.warn('All layoff APIs failed, returning empty');
-	return [];
+	if (layoffs.length === 0) {
+		console.warn('All layoff APIs failed, returning empty');
+	}
+
+	return layoffs.slice(0, 6);
 }
 
 // Parse layoffs from RSS feed
