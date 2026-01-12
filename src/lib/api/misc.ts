@@ -46,6 +46,7 @@ export interface OutageData {
 	startTime?: string;
 	source: string;
 	active: boolean;
+	radiusKm?: number; // Radius for map display based on severity/population
 }
 
 /**
@@ -76,18 +77,163 @@ export async function fetchPolymarket(): Promise<Prediction[]> {
 }
 
 /**
- * Fetch whale transactions
- * Note: Would use Whale Alert API - returning sample data
+ * Fetch whale transactions from real blockchain APIs
+ * Uses Blockchain.com for BTC and public mempool data
  */
 export async function fetchWhaleTransactions(): Promise<WhaleTransaction[]> {
-	// Sample whale transaction data
-	return [
-		{ coin: 'BTC', amount: 1500, usd: 150000000, hash: '0x1a2b...3c4d' },
-		{ coin: 'ETH', amount: 25000, usd: 85000000, hash: '0x5e6f...7g8h' },
-		{ coin: 'BTC', amount: 850, usd: 85000000, hash: '0x9i0j...1k2l' },
-		{ coin: 'SOL', amount: 500000, usd: 75000000, hash: '0x3m4n...5o6p' },
-		{ coin: 'ETH', amount: 15000, usd: 51000000, hash: '0x7q8r...9s0t' }
-	];
+	const whales: WhaleTransaction[] = [];
+
+	try {
+		// Fetch BTC price for USD conversion
+		const btcPrice = await fetchBTCPrice();
+
+		// Fetch large recent Bitcoin transactions from blockchain.com
+		const btcWhales = await fetchBTCWhaleTransactions(btcPrice);
+		whales.push(...btcWhales);
+	} catch (error) {
+		console.warn('BTC whale fetch failed:', error);
+	}
+
+	try {
+		// Fetch ETH price and large transactions
+		const ethPrice = await fetchETHPrice();
+		const ethWhales = await fetchETHWhaleTransactions(ethPrice);
+		whales.push(...ethWhales);
+	} catch (error) {
+		console.warn('ETH whale fetch failed:', error);
+	}
+
+	// Sort by USD value descending
+	whales.sort((a, b) => b.usd - a.usd);
+
+	// Return top 10 whale transactions
+	return whales.slice(0, 10);
+}
+
+// Fetch current BTC price
+async function fetchBTCPrice(): Promise<number> {
+	try {
+		const response = await fetch(
+			'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd'
+		);
+		if (!response.ok) throw new Error('CoinGecko API failed');
+		const data = await response.json();
+		return data.bitcoin?.usd || 100000;
+	} catch {
+		return 100000; // Fallback price
+	}
+}
+
+// Fetch current ETH price
+async function fetchETHPrice(): Promise<number> {
+	try {
+		const response = await fetch(
+			'https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd'
+		);
+		if (!response.ok) throw new Error('CoinGecko API failed');
+		const data = await response.json();
+		return data.ethereum?.usd || 3500;
+	} catch {
+		return 3500; // Fallback price
+	}
+}
+
+// Fetch large BTC transactions from blockchain.com public API
+async function fetchBTCWhaleTransactions(btcPrice: number): Promise<WhaleTransaction[]> {
+	const whales: WhaleTransaction[] = [];
+
+	try {
+		// Get latest blocks to find large transactions
+		const blocksResponse = await fetch('https://blockchain.info/blocks?format=json');
+		if (!blocksResponse.ok) throw new Error('Blockchain.info blocks API failed');
+
+		const blocks: { hash: string; height: number; time: number }[] = await blocksResponse.json();
+
+		// Check first 3 recent blocks for large transactions
+		for (const block of blocks.slice(0, 3)) {
+			try {
+				const blockResponse = await fetch(
+					`https://blockchain.info/rawblock/${block.hash}?cors=true`
+				);
+				if (!blockResponse.ok) continue;
+
+				const blockData = await blockResponse.json();
+
+				// Find transactions with outputs > 100 BTC (whale threshold)
+				for (const tx of blockData.tx || []) {
+					// Calculate total output value
+					const totalOutput = (tx.out || []).reduce(
+						(sum: number, out: { value: number }) => sum + (out.value || 0),
+						0
+					);
+					const btcAmount = totalOutput / 100000000; // Convert satoshis to BTC
+
+					// Only include if >= 50 BTC (whale transaction)
+					if (btcAmount >= 50) {
+						const usdValue = btcAmount * btcPrice;
+						whales.push({
+							coin: 'BTC',
+							amount: Math.round(btcAmount * 100) / 100,
+							usd: Math.round(usdValue),
+							hash: tx.hash ? `${tx.hash.substring(0, 8)}...${tx.hash.substring(tx.hash.length - 4)}` : 'unknown'
+						});
+					}
+
+					// Limit to 5 BTC whales
+					if (whales.length >= 5) break;
+				}
+
+				if (whales.length >= 5) break;
+			} catch {
+				continue;
+			}
+		}
+	} catch (error) {
+		console.warn('BTC block fetch failed:', error);
+	}
+
+	return whales;
+}
+
+// Fetch large ETH transactions using Etherscan-like public data
+async function fetchETHWhaleTransactions(ethPrice: number): Promise<WhaleTransaction[]> {
+	const whales: WhaleTransaction[] = [];
+
+	try {
+		// Use Blockchair API for ETH (free, no auth required for basic queries)
+		const response = await fetch(
+			'https://api.blockchair.com/ethereum/transactions?limit=20&s=value(desc)'
+		);
+
+		if (response.ok) {
+			const data = await response.json();
+
+			if (data.data && Array.isArray(data.data)) {
+				for (const tx of data.data) {
+					const ethAmount = tx.value / 1e18; // Convert wei to ETH
+
+					// Only include if >= 100 ETH (whale threshold)
+					if (ethAmount >= 100) {
+						const usdValue = ethAmount * ethPrice;
+						whales.push({
+							coin: 'ETH',
+							amount: Math.round(ethAmount * 100) / 100,
+							usd: Math.round(usdValue),
+							hash: tx.hash
+								? `${tx.hash.substring(0, 8)}...${tx.hash.substring(tx.hash.length - 4)}`
+								: 'unknown'
+						});
+					}
+
+					if (whales.length >= 5) break;
+				}
+			}
+		}
+	} catch (error) {
+		console.warn('ETH whale fetch failed:', error);
+	}
+
+	return whales;
 }
 
 /**
@@ -240,31 +386,66 @@ function getFallbackContracts(): Contract[] {
 
 /**
  * Fetch internet/power outage data
- * Uses IODA API (Internet Outage Detection and Analysis) and curated known outages
+ * Uses multiple real-time APIs: IODA, Cloudflare Radar
+ * No sample or curated data - only real detected outages
  */
 export async function fetchOutageData(): Promise<OutageData[]> {
-	const outages: OutageData[] = [];
+	const allOutages: OutageData[] = [];
 
+	// Fetch from IODA API (primary source)
 	try {
-		// Try IODA API for real-time internet outage detection
 		const iodaData = await fetchIODAOutages();
-		outages.push(...iodaData);
+		allOutages.push(...iodaData);
 	} catch (error) {
 		console.warn('IODA API failed:', error);
 	}
 
-	// Add curated known ongoing outages (conflict zones, authoritarian restrictions)
-	const curatedOutages = getCuratedOutages();
-
-	// Merge and deduplicate by country
-	const countrySet = new Set(outages.map((o) => o.countryCode));
-	for (const curated of curatedOutages) {
-		if (!countrySet.has(curated.countryCode)) {
-			outages.push(curated);
+	// Try Cloudflare Radar for additional outage data
+	try {
+		const cloudflareData = await fetchCloudflareRadarOutages();
+		// Deduplicate by country code
+		const existingCountries = new Set(allOutages.map((o) => o.countryCode));
+		for (const outage of cloudflareData) {
+			if (!existingCountries.has(outage.countryCode)) {
+				allOutages.push(outage);
+				existingCountries.add(outage.countryCode);
+			}
 		}
+	} catch (error) {
+		console.warn('Cloudflare Radar API failed:', error);
 	}
 
-	return outages;
+	// Calculate radius for each outage based on severity and population
+	for (const outage of allOutages) {
+		outage.radiusKm = calculateOutageRadius(outage);
+	}
+
+	return allOutages;
+}
+
+// Calculate display radius based on severity and affected population
+function calculateOutageRadius(outage: OutageData): number {
+	// Base radius by severity
+	let baseRadius = 100; // km
+	switch (outage.severity) {
+		case 'total':
+			baseRadius = 300;
+			break;
+		case 'major':
+			baseRadius = 200;
+			break;
+		case 'partial':
+			baseRadius = 100;
+			break;
+	}
+
+	// Scale by affected population if available
+	if (outage.affectedPopulation) {
+		const popFactor = Math.log10(outage.affectedPopulation) / 8; // Scale factor
+		baseRadius = baseRadius * Math.max(0.5, Math.min(2, popFactor));
+	}
+
+	return Math.round(baseRadius);
 }
 
 // Fetch from IODA (Internet Outage Detection and Analysis) API
@@ -272,7 +453,7 @@ async function fetchIODAOutages(): Promise<OutageData[]> {
 	// IODA provides real-time internet outage detection
 	// API endpoint: https://api.ioda.inetintel.cc.gatech.edu/v2/
 	const response = await fetch(
-		'https://api.ioda.inetintel.cc.gatech.edu/v2/alerts/ongoing?limit=20',
+		'https://api.ioda.inetintel.cc.gatech.edu/v2/alerts/ongoing?limit=30',
 		{
 			headers: {
 				Accept: 'application/json'
@@ -304,9 +485,65 @@ async function fetchIODAOutages(): Promise<OutageData[]> {
 				lat: coords.lat,
 				lon: coords.lon,
 				description: `Internet connectivity disruption detected by IODA (${alert.datasource || 'multiple sources'})`,
+				affectedPopulation: coords.population,
 				startTime: alert.time?.start,
 				source: 'IODA',
 				active: true
+			});
+		}
+	}
+
+	return outages;
+}
+
+// Fetch from Cloudflare Radar API for additional outage detection
+async function fetchCloudflareRadarOutages(): Promise<OutageData[]> {
+	// Cloudflare Radar provides network outage data
+	// Note: This endpoint may require API key for full access
+	const response = await fetch(
+		'https://api.cloudflare.com/client/v4/radar/annotations/outages?limit=20&dateRange=1d',
+		{
+			headers: {
+				Accept: 'application/json'
+			}
+		}
+	);
+
+	// If Cloudflare Radar requires auth, fall back to empty
+	if (!response.ok) {
+		return [];
+	}
+
+	const data = await response.json();
+	const outages: OutageData[] = [];
+
+	if (data.result?.annotations && Array.isArray(data.result.annotations)) {
+		for (const annotation of data.result.annotations) {
+			// Get coordinates for the affected location
+			const countryCode = annotation.asns?.[0]?.locations?.[0] || annotation.locations?.[0] || '';
+			const coords = getCountryCoordinates(countryCode);
+			if (!coords) continue;
+
+			const severity =
+				annotation.scope === 'country'
+					? 'major'
+					: annotation.scope === 'region'
+						? 'partial'
+						: 'partial';
+
+			outages.push({
+				id: `cloudflare-${countryCode}-${Date.now()}`,
+				country: annotation.locations?.[0] || countryCode,
+				countryCode,
+				type: 'internet',
+				severity,
+				lat: coords.lat,
+				lon: coords.lon,
+				description: annotation.description || 'Network outage detected by Cloudflare Radar',
+				affectedPopulation: coords.population,
+				startTime: annotation.startDate,
+				source: 'Cloudflare',
+				active: !annotation.endDate
 			});
 		}
 	}
@@ -321,11 +558,12 @@ function getSeverityFromScore(score: number): 'partial' | 'major' | 'total' {
 	return 'partial';
 }
 
-// Country coordinates for mapping
+// Country coordinates for mapping - comprehensive list for IODA detection
 function getCountryCoordinates(
 	countryCode: string
 ): { lat: number; lon: number; population?: number } | null {
 	const coords: Record<string, { lat: number; lon: number; population?: number }> = {
+		// Major countries frequently monitored by IODA
 		IR: { lat: 32.4, lon: 53.7, population: 85000000 },
 		MM: { lat: 19.7, lon: 96.1, population: 54000000 },
 		UA: { lat: 48.4, lon: 35.0, population: 44000000 },
@@ -341,106 +579,64 @@ function getCountryCoordinates(
 		AF: { lat: 33.9, lon: 67.7, population: 40000000 },
 		YE: { lat: 15.5, lon: 48.5, population: 30000000 },
 		BY: { lat: 53.9, lon: 27.6, population: 9500000 },
-		TM: { lat: 38.9, lon: 59.6, population: 6000000 }
+		TM: { lat: 38.9, lon: 59.6, population: 6000000 },
+		// Additional countries for broader coverage
+		US: { lat: 37.1, lon: -95.7, population: 331000000 },
+		IN: { lat: 20.6, lon: 78.9, population: 1380000000 },
+		BR: { lat: -14.2, lon: -51.9, population: 212000000 },
+		ID: { lat: -0.8, lon: 113.9, population: 270000000 },
+		PK: { lat: 30.4, lon: 69.3, population: 220000000 },
+		NG: { lat: 9.1, lon: 8.7, population: 206000000 },
+		BD: { lat: 23.7, lon: 90.4, population: 164000000 },
+		JP: { lat: 36.2, lon: 138.3, population: 126000000 },
+		MX: { lat: 23.6, lon: -102.6, population: 128000000 },
+		PH: { lat: 12.9, lon: 121.8, population: 109000000 },
+		EG: { lat: 26.8, lon: 30.8, population: 102000000 },
+		VN: { lat: 14.1, lon: 108.3, population: 97000000 },
+		TR: { lat: 38.9, lon: 35.2, population: 84000000 },
+		DE: { lat: 51.2, lon: 10.5, population: 83000000 },
+		TH: { lat: 15.9, lon: 100.9, population: 70000000 },
+		GB: { lat: 55.4, lon: -3.4, population: 67000000 },
+		FR: { lat: 46.2, lon: 2.2, population: 67000000 },
+		IT: { lat: 41.9, lon: 12.6, population: 60000000 },
+		ZA: { lat: -30.6, lon: 22.9, population: 59000000 },
+		KE: { lat: -0.0, lon: 37.9, population: 54000000 },
+		CO: { lat: 4.6, lon: -74.3, population: 51000000 },
+		KR: { lat: 35.9, lon: 127.8, population: 52000000 },
+		ES: { lat: 40.5, lon: -3.7, population: 47000000 },
+		AR: { lat: -38.4, lon: -63.6, population: 45000000 },
+		PL: { lat: 51.9, lon: 19.1, population: 38000000 },
+		DZ: { lat: 28.0, lon: 1.7, population: 44000000 },
+		IQ: { lat: 33.2, lon: 43.7, population: 40000000 },
+		MA: { lat: 31.8, lon: -7.1, population: 37000000 },
+		SA: { lat: 23.9, lon: 45.1, population: 35000000 },
+		PE: { lat: -9.2, lon: -75.0, population: 33000000 },
+		MY: { lat: 4.2, lon: 101.9, population: 32000000 },
+		UZ: { lat: 41.4, lon: 64.6, population: 34000000 },
+		NP: { lat: 28.4, lon: 84.1, population: 30000000 },
+		GH: { lat: 7.9, lon: -1.0, population: 31000000 },
+		AO: { lat: -11.2, lon: 17.9, population: 33000000 },
+		MZ: { lat: -18.7, lon: 35.5, population: 31000000 },
+		AU: { lat: -25.3, lon: 133.8, population: 26000000 },
+		TW: { lat: 23.7, lon: 121.0, population: 24000000 },
+		CL: { lat: -35.7, lon: -71.5, population: 19000000 },
+		NL: { lat: 52.1, lon: 5.3, population: 17000000 },
+		KZ: { lat: 48.0, lon: 68.0, population: 19000000 },
+		GT: { lat: 15.8, lon: -90.2, population: 18000000 },
+		EC: { lat: -1.8, lon: -78.2, population: 18000000 },
+		SN: { lat: 14.5, lon: -14.5, population: 17000000 },
+		ZW: { lat: -19.0, lon: 29.2, population: 15000000 },
+		HT: { lat: 18.9, lon: -72.3, population: 11000000 },
+		LB: { lat: 33.9, lon: 35.9, population: 7000000 },
+		LY: { lat: 26.3, lon: 17.2, population: 7000000 },
+		SO: { lat: 5.2, lon: 46.2, population: 16000000 },
+		ML: { lat: 17.6, lon: -4.0, population: 20000000 },
+		BF: { lat: 12.2, lon: -1.6, population: 21000000 },
+		NE: { lat: 17.6, lon: 8.1, population: 24000000 },
+		TD: { lat: 15.5, lon: 18.7, population: 16000000 },
+		ER: { lat: 15.2, lon: 39.8, population: 4000000 }
 	};
 	return coords[countryCode] || null;
-}
-
-// Curated list of known ongoing internet/power restrictions
-function getCuratedOutages(): OutageData[] {
-	return [
-		{
-			id: 'curated-ir',
-			country: 'Iran',
-			countryCode: 'IR',
-			type: 'internet',
-			severity: 'major',
-			lat: 32.4,
-			lon: 53.7,
-			description: 'Government-imposed internet restrictions and periodic blackouts',
-			affectedPopulation: 85000000,
-			source: 'Curated',
-			active: true
-		},
-		{
-			id: 'curated-mm',
-			country: 'Myanmar',
-			countryCode: 'MM',
-			type: 'internet',
-			severity: 'partial',
-			lat: 19.7,
-			lon: 96.1,
-			description: 'Military junta internet throttling and restrictions',
-			affectedPopulation: 54000000,
-			source: 'Curated',
-			active: true
-		},
-		{
-			id: 'curated-ps',
-			country: 'Gaza Strip',
-			countryCode: 'PS',
-			type: 'both',
-			severity: 'total',
-			lat: 31.4,
-			lon: 34.4,
-			description: 'Communications and power infrastructure destroyed in conflict',
-			affectedPopulation: 2300000,
-			source: 'Curated',
-			active: true
-		},
-		{
-			id: 'curated-ua',
-			country: 'Ukraine',
-			countryCode: 'UA',
-			type: 'both',
-			severity: 'major',
-			lat: 48.4,
-			lon: 35.0,
-			description: 'Power grid attacks and infrastructure damage from ongoing conflict',
-			affectedPopulation: 10000000,
-			source: 'Curated',
-			active: true
-		},
-		{
-			id: 'curated-sd',
-			country: 'Sudan',
-			countryCode: 'SD',
-			type: 'both',
-			severity: 'major',
-			lat: 15.5,
-			lon: 32.5,
-			description: 'Civil conflict causing widespread infrastructure disruption',
-			affectedPopulation: 45000000,
-			source: 'Curated',
-			active: true
-		},
-		{
-			id: 'curated-kp',
-			country: 'North Korea',
-			countryCode: 'KP',
-			type: 'internet',
-			severity: 'total',
-			lat: 39.03,
-			lon: 125.75,
-			description: 'No public internet access - isolated intranet only',
-			affectedPopulation: 26000000,
-			source: 'Curated',
-			active: true
-		},
-		{
-			id: 'curated-tm',
-			country: 'Turkmenistan',
-			countryCode: 'TM',
-			type: 'internet',
-			severity: 'major',
-			lat: 38.9,
-			lon: 59.6,
-			description: 'Heavy government censorship and VPN blocking',
-			affectedPopulation: 6000000,
-			source: 'Curated',
-			active: true
-		}
-	];
 }
 
 /**

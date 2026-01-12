@@ -8,10 +8,11 @@
 		CABLE_LANDINGS,
 		NUCLEAR_SITES,
 		MILITARY_BASES,
-		OUTAGE_EVENTS,
 		THREAT_COLORS,
 		HOTSPOT_KEYWORDS
 	} from '$lib/config/map';
+	import { fetchOutageData } from '$lib/api';
+	import type { OutageData } from '$lib/api';
 	import type { CustomMonitor, NewsItem, NewsCategory } from '$lib/types';
 
 	// Feed category colors for map visualization
@@ -118,6 +119,10 @@
 	let frozenCategorizedNews = $state<CategorizedNews | null>(null);
 	let lastNewsUpdate = $state<number>(Date.now());
 
+	// Real outage data from API
+	let outageData = $state<OutageData[]>([]);
+	let outageDataLoading = $state(false);
+
 	// Get effective news (frozen if paused, otherwise live)
 	const effectiveNews = $derived(dataLayers.news.paused ? frozenNews : news);
 	const effectiveCategorizedNews = $derived(
@@ -215,7 +220,7 @@
 			});
 		}
 
-		// Add chokepoints - cyan/teal for maritime routes
+		// Add chokepoints - cyan for maritime routes with ship wheel icon
 		if (dataLayers.chokepoints.visible) {
 			CHOKEPOINTS.forEach((cp) => {
 				features.push({
@@ -225,15 +230,15 @@
 						label: cp.name,
 						type: 'chokepoint',
 						desc: cp.desc,
-						color: '#14b8a6', // Teal-500 - bright and visible
-						icon: '⚓', // Anchor for maritime chokepoints
-						size: 9
+						color: '#06b6d4', // Cyan-500 - bright and visible
+						icon: '⛵', // Sailboat - clear maritime symbol
+						size: 10
 					}
 				});
 			});
 		}
 
-		// Add cable landings - bright green for infrastructure
+		// Add cable landings - bright emerald for connectivity
 		if (dataLayers.cables.visible) {
 			CABLE_LANDINGS.forEach((cl) => {
 				features.push({
@@ -243,15 +248,15 @@
 						label: cl.name,
 						type: 'cable',
 						desc: cl.desc,
-						color: '#22c55e', // Green-500 - data/connectivity
-						icon: '●', // Solid circle for cable landings
-						size: 7
+						color: '#10b981', // Emerald-500 - data/connectivity
+						icon: '◈', // Diamond with dot - represents network node
+						size: 8
 					}
 				});
 			});
 		}
 
-		// Add nuclear sites - bright orange/red for warning
+		// Add nuclear sites - bright warning orange
 		if (dataLayers.nuclear.visible) {
 			NUCLEAR_SITES.forEach((ns) => {
 				features.push({
@@ -261,15 +266,15 @@
 						label: ns.name,
 						type: 'nuclear',
 						desc: ns.desc,
-						color: '#f97316', // Orange-500 - high visibility warning
-						icon: '☢', // Radiation symbol for nuclear
-						size: 10
+						color: '#fb923c', // Orange-400 - high visibility warning
+						icon: '☢', // Radiation symbol for nuclear - classic and recognizable
+						size: 11
 					}
 				});
 			});
 		}
 
-		// Add military bases - bright blue for military
+		// Add military bases - bright blue with star
 		if (dataLayers.military.visible) {
 			MILITARY_BASES.forEach((mb) => {
 				features.push({
@@ -279,9 +284,9 @@
 						label: mb.name,
 						type: 'military',
 						desc: mb.desc,
-						color: '#3b82f6', // Blue-500 - military blue
-						icon: '★', // Star for military bases
-						size: 9
+						color: '#60a5fa', // Blue-400 - military blue (brighter)
+						icon: '✦', // Four-pointed star - military designation
+						size: 10
 					}
 				});
 			});
@@ -533,7 +538,7 @@
 		return coords;
 	}
 
-	// Generate outage events overlay GeoJSON
+	// Generate outage events overlay GeoJSON - now uses real API data
 	function getOutagesGeoJSON(): GeoJSON.FeatureCollection {
 		if (!dataLayers.outages.visible) {
 			return { type: 'FeatureCollection', features: [] };
@@ -552,27 +557,86 @@
 			both: '◉' // Combined - filled circle
 		};
 
-		OUTAGE_EVENTS.filter((e) => e.active).forEach((event) => {
+		// Use real outage data from API
+		outageData.filter((e) => e.active).forEach((event) => {
 			features.push({
 				type: 'Feature',
 				geometry: { type: 'Point', coordinates: [event.lon, event.lat] },
 				properties: {
 					id: event.id,
-					label: event.name,
+					label: event.country,
 					type: 'outage',
 					outageType: event.type,
 					severity: event.severity,
-					region: event.region,
-					desc: event.desc,
+					desc: event.description,
 					affectedPopulation: event.affectedPopulation,
 					color: severityColors[event.severity],
 					icon: typeIcons[event.type],
-					size: event.severity === 'total' ? 14 : event.severity === 'major' ? 12 : 10
+					size: event.severity === 'total' ? 14 : event.severity === 'major' ? 12 : 10,
+					radiusKm: event.radiusKm || 100,
+					source: event.source
 				}
 			});
 		});
 
 		return { type: 'FeatureCollection', features };
+	}
+
+	// Generate outage radius circles GeoJSON for area visualization
+	function getOutageRadiusGeoJSON(): GeoJSON.FeatureCollection {
+		if (!dataLayers.outages.visible) {
+			return { type: 'FeatureCollection', features: [] };
+		}
+
+		const features: GeoJSON.Feature[] = [];
+		const severityColors = {
+			total: '#dc2626',
+			major: '#ea580c',
+			partial: '#ca8a04'
+		};
+
+		outageData.filter((e) => e.active).forEach((event) => {
+			// Create a circle polygon for the radius
+			const radiusKm = event.radiusKm || 100;
+			const circleCoords = generateCircleCoordinates(event.lon, event.lat, radiusKm);
+
+			features.push({
+				type: 'Feature',
+				geometry: { type: 'Polygon', coordinates: [circleCoords] },
+				properties: {
+					id: `${event.id}-radius`,
+					severity: event.severity,
+					color: severityColors[event.severity],
+					radiusKm
+				}
+			});
+		});
+
+		return { type: 'FeatureCollection', features };
+	}
+
+	// Generate circle coordinates for radius visualization
+	function generateCircleCoordinates(
+		centerLon: number,
+		centerLat: number,
+		radiusKm: number
+	): [number, number][] {
+		const coords: [number, number][] = [];
+		const points = 64; // Number of points for smooth circle
+
+		// Convert km to degrees (approximate)
+		const radiusDeg = radiusKm / 111; // 1 degree ~= 111 km
+
+		for (let i = 0; i <= points; i++) {
+			const angle = (i / points) * 2 * Math.PI;
+			// Adjust for latitude (longitude degrees are narrower near poles)
+			const latAdjust = Math.cos((centerLat * Math.PI) / 180);
+			const lon = centerLon + (radiusDeg * Math.cos(angle)) / latAdjust;
+			const lat = centerLat + radiusDeg * Math.sin(angle);
+			coords.push([lon, lat]);
+		}
+
+		return coords;
 	}
 
 	// Get pulsing rings (hotspots with alerts or critical level)
@@ -682,6 +746,9 @@
 
 			const outagesSource = map.getSource('outages') as mapboxgl.GeoJSONSource;
 			if (outagesSource) outagesSource.setData(getOutagesGeoJSON());
+
+			const outageRadiusSource = map.getSource('outage-radius') as mapboxgl.GeoJSONSource;
+			if (outageRadiusSource) outageRadiusSource.setData(getOutageRadiusGeoJSON());
 		} catch (e) {
 			// Sources might not exist yet
 		}
@@ -852,6 +919,7 @@
 				map.addSource('labels', { type: 'geojson', data: getLabelsGeoJSON() });
 				map.addSource('news-events', { type: 'geojson', data: getNewsEventsGeoJSON() });
 				map.addSource('outages', { type: 'geojson', data: getOutagesGeoJSON() });
+				map.addSource('outage-radius', { type: 'geojson', data: getOutageRadiusGeoJSON() });
 
 				// Add layers
 
@@ -862,9 +930,9 @@
 					source: 'arcs',
 					paint: {
 						'line-color': ['get', 'glowColor'],
-						'line-width': 8,
-						'line-opacity': 0.6,
-						'line-blur': 4
+						'line-width': 12,
+						'line-opacity': 0.5,
+						'line-blur': 6
 					}
 				});
 
@@ -875,8 +943,21 @@
 					source: 'arcs',
 					paint: {
 						'line-color': ['get', 'color'],
-						'line-width': 2.5,
-						'line-opacity': 0.9
+						'line-width': 3,
+						'line-opacity': 1
+					}
+				});
+
+				// Arc animated dash layer - creates flowing effect
+				map.addLayer({
+					id: 'arcs-flow',
+					type: 'line',
+					source: 'arcs',
+					paint: {
+						'line-color': '#ffffff',
+						'line-width': 3,
+						'line-opacity': 0.9,
+						'line-dasharray': [2, 4]
 					}
 				});
 
@@ -887,8 +968,8 @@
 					source: 'arcs',
 					paint: {
 						'line-color': '#ffffff',
-						'line-width': 0.8,
-						'line-opacity': 0.4
+						'line-width': 1,
+						'line-opacity': 0.6
 					}
 				});
 
@@ -941,6 +1022,30 @@
 						'circle-stroke-color': '#ffffff',
 						'circle-stroke-width': 1,
 						'circle-stroke-opacity': 0.5
+					}
+				});
+
+				// Outage radius area - shows affected region
+				map.addLayer({
+					id: 'outage-radius-fill',
+					type: 'fill',
+					source: 'outage-radius',
+					paint: {
+						'fill-color': ['get', 'color'],
+						'fill-opacity': 0.08
+					}
+				});
+
+				// Outage radius border
+				map.addLayer({
+					id: 'outage-radius-border',
+					type: 'line',
+					source: 'outage-radius',
+					paint: {
+						'line-color': ['get', 'color'],
+						'line-width': 1.5,
+						'line-opacity': 0.4,
+						'line-dasharray': [4, 2]
 					}
 				});
 
@@ -1347,38 +1452,46 @@
 		return () => clearInterval(pulseInterval);
 	});
 
-	// Animate threat corridor arcs with dramatic pulsing effect
+	// Animate threat corridor arcs with flowing dash effect
 	$effect(() => {
 		if (!map || !isInitialized) return;
 
 		let arcPhase = 0;
+		let dashOffset = 0;
 
 		const arcInterval = setInterval(() => {
 			if (!map) return;
-			arcPhase = (arcPhase + 2) % 360; // Smooth continuous rotation
+			arcPhase = (arcPhase + 3) % 360;
+			dashOffset = (dashOffset + 0.5) % 12; // Animate dash offset for flow effect
 
 			try {
-				// Pulsing glow that breathes - dramatic size changes
-				const glowOpacity = 0.35 + Math.sin((arcPhase / 180) * Math.PI) * 0.35;
-				const glowWidth = 6 + Math.sin((arcPhase / 180) * Math.PI) * 6;
+				// Pulsing glow that breathes - more dramatic
+				const glowOpacity = 0.3 + Math.sin((arcPhase / 180) * Math.PI) * 0.4;
+				const glowWidth = 8 + Math.sin((arcPhase / 180) * Math.PI) * 8;
 				map.setPaintProperty('arcs-glow', 'line-opacity', glowOpacity);
 				map.setPaintProperty('arcs-glow', 'line-width', glowWidth);
 
-				// Main arc line pulsing width and opacity
-				const mainWidth = 2 + Math.sin((arcPhase / 180) * Math.PI) * 1.5;
-				const mainOpacity = 0.6 + Math.sin((arcPhase / 180) * Math.PI) * 0.4;
+				// Main arc line pulsing
+				const mainWidth = 2.5 + Math.sin((arcPhase / 180) * Math.PI) * 1.5;
 				map.setPaintProperty('arcs-layer', 'line-width', mainWidth);
-				map.setPaintProperty('arcs-layer', 'line-opacity', mainOpacity);
 
-				// Highlight pulse with faster frequency for shimmer effect
-				const highlightWidth = 0.4 + Math.sin((arcPhase / 60) * Math.PI) * 0.8;
-				const highlightOpacity = 0.2 + Math.sin((arcPhase / 60) * Math.PI) * 0.6;
-				map.setPaintProperty('arcs-highlight', 'line-width', highlightWidth);
+				// Flowing dash animation - key for visible movement
+				// Cycle through different dash patterns to simulate movement
+				const dashLength = 2 + Math.sin((arcPhase / 90) * Math.PI) * 1;
+				const gapLength = 4 - Math.sin((arcPhase / 90) * Math.PI) * 1;
+				map.setPaintProperty('arcs-flow', 'line-dasharray', [dashLength, gapLength]);
+
+				// Flow layer opacity pulsing
+				const flowOpacity = 0.6 + Math.sin((arcPhase / 60) * Math.PI) * 0.4;
+				map.setPaintProperty('arcs-flow', 'line-opacity', flowOpacity);
+
+				// Highlight shimmer
+				const highlightOpacity = 0.3 + Math.sin((arcPhase / 45) * Math.PI) * 0.5;
 				map.setPaintProperty('arcs-highlight', 'line-opacity', highlightOpacity);
 			} catch {
 				// Layers might not exist yet
 			}
-		}, 25);
+		}, 30);
 
 		return () => clearInterval(arcInterval);
 	});
@@ -1406,6 +1519,12 @@
 				// Main marker subtle pulse
 				const mainOpacity = 0.7 + Math.sin((outagePhase / 100) * Math.PI * 2) * 0.2;
 				map.setPaintProperty('outages-layer', 'circle-opacity', mainOpacity);
+
+				// Radius area pulsing
+				const radiusFillOpacity = 0.05 + Math.sin((outagePhase / 100) * Math.PI * 2) * 0.05;
+				const radiusBorderOpacity = 0.3 + Math.sin((outagePhase / 100) * Math.PI * 2) * 0.2;
+				map.setPaintProperty('outage-radius-fill', 'fill-opacity', radiusFillOpacity);
+				map.setPaintProperty('outage-radius-border', 'line-opacity', radiusBorderOpacity);
 			} catch {
 				// Layers might not exist yet
 			}
@@ -1414,8 +1533,31 @@
 		return () => clearInterval(outageInterval);
 	});
 
+	// Fetch outage data from real API
+	async function loadOutageData() {
+		if (outageDataLoading) return;
+		outageDataLoading = true;
+		try {
+			const data = await fetchOutageData();
+			outageData = data;
+			// Update map layers with new outage data
+			if (map && isInitialized) {
+				updateMapLayers();
+			}
+		} catch (error) {
+			console.warn('Failed to fetch outage data:', error);
+		} finally {
+			outageDataLoading = false;
+		}
+	}
+
 	onMount(() => {
 		requestAnimationFrame(() => initMap());
+		// Fetch outage data immediately
+		loadOutageData();
+		// Refresh outage data every 5 minutes
+		const outageRefreshInterval = setInterval(loadOutageData, 5 * 60 * 1000);
+		return () => clearInterval(outageRefreshInterval);
 	});
 
 	onDestroy(() => {
@@ -1623,19 +1765,19 @@
 						<span class="legend-section-title">INFRASTRUCTURE</span>
 						<div class="legend-items">
 							<div class="legend-item">
-								<span class="legend-icon" style="color: #14b8a6;">⚓</span>
+								<span class="legend-icon" style="color: #06b6d4;">⛵</span>
 								<span class="legend-label">Chokepoint</span>
 							</div>
 							<div class="legend-item">
-								<span class="legend-icon" style="color: #22c55e;">●</span>
+								<span class="legend-icon" style="color: #10b981;">◈</span>
 								<span class="legend-label">Cable Landing</span>
 							</div>
 							<div class="legend-item">
-								<span class="legend-icon" style="color: #f97316;">☢</span>
+								<span class="legend-icon" style="color: #fb923c;">☢</span>
 								<span class="legend-label">Nuclear Site</span>
 							</div>
 							<div class="legend-item">
-								<span class="legend-icon" style="color: #3b82f6;">★</span>
+								<span class="legend-icon" style="color: #60a5fa;">✦</span>
 								<span class="legend-label">Military Base</span>
 							</div>
 						</div>
