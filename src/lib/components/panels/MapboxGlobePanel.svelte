@@ -18,9 +18,10 @@
 
 	let { monitors = [] }: Props = $props();
 
-	// Mapbox access token - using a public token for demo purposes
-	// In production, this should be set via environment variable
+	// Mapbox access token - checks environment variable first, falls back to demo token
+	// For production: set VITE_MAPBOX_TOKEN in .env file
 	const MAPBOX_TOKEN =
+		(typeof import.meta !== 'undefined' && import.meta.env?.VITE_MAPBOX_TOKEN) ||
 		'pk.eyJ1IjoibWFwYm94IiwiYSI6ImNpejY4NXVycTA2emYycXBndHRqcmZ3N3gifQ.rJcFIG214AriISLbB6B5aw';
 
 	let mapContainer: HTMLDivElement;
