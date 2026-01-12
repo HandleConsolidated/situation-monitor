@@ -389,3 +389,48 @@ export const WEATHER_CODES: Record<number, string> = {
 	96: '⛈️ Thunderstorm',
 	99: '⛈️ Thunderstorm'
 };
+
+// Map detected news regions to hotspot names for news integration
+export const REGION_TO_HOTSPOTS: Record<string, string[]> = {
+	EUROPE: ['Moscow', 'Kyiv', 'London', 'Brussels'],
+	MENA: ['Tehran', 'Tel Aviv', 'Riyadh'],
+	APAC: ['Beijing', 'Taipei', 'Pyongyang', 'Tokyo', 'Delhi', 'Singapore'],
+	AMERICAS: ['DC', 'Caracas'],
+	AFRICA: [] // Could add African hotspots in the future
+};
+
+// Reverse mapping: hotspot name to region
+export const HOTSPOT_TO_REGION: Record<string, string> = {
+	Moscow: 'EUROPE',
+	Kyiv: 'EUROPE',
+	London: 'EUROPE',
+	Brussels: 'EUROPE',
+	Tehran: 'MENA',
+	'Tel Aviv': 'MENA',
+	Riyadh: 'MENA',
+	Beijing: 'APAC',
+	Taipei: 'APAC',
+	Pyongyang: 'APAC',
+	Tokyo: 'APAC',
+	Delhi: 'APAC',
+	Singapore: 'APAC',
+	DC: 'AMERICAS',
+	Caracas: 'AMERICAS',
+	Nuuk: 'AMERICAS' // Greenland is closer to Americas geopolitically
+};
+
+// Keywords that directly match specific hotspots (more precise than region)
+export const HOTSPOT_KEYWORDS: Record<string, string[]> = {
+	Tehran: ['iran', 'tehran', 'persian', 'irgc', 'khamenei', 'rouhani'],
+	'Tel Aviv': ['israel', 'tel aviv', 'jerusalem', 'gaza', 'netanyahu', 'idf'],
+	Kyiv: ['ukraine', 'kyiv', 'kiev', 'zelensky', 'ukrainian'],
+	Moscow: ['russia', 'moscow', 'kremlin', 'putin', 'russian'],
+	Beijing: ['china', 'beijing', 'ccp', 'xi jinping', 'chinese'],
+	Taipei: ['taiwan', 'taipei', 'tsmc', 'taiwanese'],
+	Pyongyang: ['north korea', 'pyongyang', 'kim jong', 'dprk'],
+	Tokyo: ['japan', 'tokyo', 'japanese'],
+	DC: ['washington', 'white house', 'pentagon', 'congress', 'capitol'],
+	Caracas: ['venezuela', 'caracas', 'maduro'],
+	Riyadh: ['saudi', 'riyadh', 'mbs', 'aramco'],
+	Nuuk: ['greenland', 'nuuk', 'arctic', 'denmark']
+};

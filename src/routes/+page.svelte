@@ -342,7 +342,7 @@
 					<div class="corner-bl"></div>
 					<div class="corner-br"></div>
 
-					<GlobePanel monitors={$monitors.monitors} />
+					<GlobePanel monitors={$monitors.monitors} news={$allNewsItems} />
 
 					<!-- Globe overlay controls and info -->
 					<div class="globe-info-overlay">

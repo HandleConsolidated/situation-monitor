@@ -8,18 +8,19 @@
 		CABLE_LANDINGS,
 		NUCLEAR_SITES,
 		MILITARY_BASES,
-		THREAT_COLORS
+		THREAT_COLORS,
+		HOTSPOT_KEYWORDS
 	} from '$lib/config/map';
-	import type { CustomMonitor } from '$lib/types';
+	import type { CustomMonitor, NewsItem } from '$lib/types';
 
 	interface Props {
 		monitors?: CustomMonitor[];
+		news?: NewsItem[];
 	}
 
-	let { monitors = [] }: Props = $props();
+	let { monitors = [], news = [] }: Props = $props();
 
-	// Mapbox access token - checks environment variable first, falls back to demo token
-	// For production: set VITE_MAPBOX_TOKEN in .env file
+	// Mapbox access token
 	const MAPBOX_TOKEN =
 		(typeof import.meta !== 'undefined' && import.meta.env?.VITE_MAPBOX_TOKEN) ||
 		'pk.eyJ1IjoibWFwYm94IiwiYSI6ImNpejY4NXVycTA2emYycXBndHRqcmZ3N3gifQ.rJcFIG214AriISLbB6B5aw';
@@ -28,8 +29,25 @@
 	let map: mapboxgl.Map | null = null;
 	let isInitialized = $state(false);
 	let initError = $state<string | null>(null);
-	let showArcs = $state(true);
 	let legendExpanded = $state(true);
+	let dataControlsExpanded = $state(false);
+
+	// Data layer visibility controls
+	let dataLayers = $state({
+		hotspots: { visible: true, paused: false },
+		chokepoints: { visible: true, paused: false },
+		cables: { visible: true, paused: false },
+		nuclear: { visible: true, paused: false },
+		military: { visible: true, paused: false },
+		monitors: { visible: true, paused: false },
+		news: { visible: true, paused: false },
+		arcs: { visible: true, paused: false }
+	});
+
+	// News display settings
+	let newsTTL = $state(30); // Minutes until news expires from map
+	let newsTimeFilter = $state(60); // Only show news from last X minutes
+	let showAlertsOnly = $state(false);
 
 	// Interaction state
 	let tooltipLocked = $state(false);
@@ -45,113 +63,238 @@
 		type: string;
 		desc?: string;
 		level?: string;
+		newsCount?: number;
+		recentNews?: string[];
+		isAlert?: boolean;
+		timestamp?: number;
 	} | null>(null);
+
+	// Frozen news data (when paused)
+	let frozenNews = $state<NewsItem[]>([]);
+	let lastNewsUpdate = $state<number>(Date.now());
+
+	// Get effective news (frozen if paused, otherwise live)
+	const effectiveNews = $derived(dataLayers.news.paused ? frozenNews : news);
+
+	// Filter news by time and alert settings
+	const filteredNews = $derived(() => {
+		const now = Date.now();
+		const cutoffTime = now - newsTimeFilter * 60 * 1000;
+
+		return effectiveNews.filter((item) => {
+			if (item.timestamp < cutoffTime) return false;
+			if (showAlertsOnly && !item.isAlert) return false;
+			return true;
+		});
+	});
+
+	// Match news items to specific hotspots
+	function getNewsForHotspot(hotspotName: string): NewsItem[] {
+		const keywords = HOTSPOT_KEYWORDS[hotspotName] || [];
+		if (keywords.length === 0) return [];
+
+		return filteredNews().filter((item) => {
+			const text = `${item.title} ${item.description || ''}`.toLowerCase();
+			return keywords.some((kw) => text.includes(kw.toLowerCase()));
+		});
+	}
+
+	// Get hotspot activity level based on news
+	function getHotspotActivityLevel(
+		hotspotName: string,
+		baseLevel: string
+	): { level: string; newsCount: number; hasAlert: boolean } {
+		const hotspotNews = getNewsForHotspot(hotspotName);
+		const newsCount = hotspotNews.length;
+		const hasAlert = hotspotNews.some((n) => n.isAlert);
+
+		// Escalate level based on news activity
+		if (hasAlert && baseLevel !== 'critical') {
+			return { level: 'high', newsCount, hasAlert };
+		}
+		return { level: baseLevel, newsCount, hasAlert };
+	}
 
 	// Generate GeoJSON for all points
 	function getPointsGeoJSON(): GeoJSON.FeatureCollection {
 		const features: GeoJSON.Feature[] = [];
 
-		// Add hotspots
-		HOTSPOTS.forEach((h) => {
-			features.push({
-				type: 'Feature',
-				geometry: { type: 'Point', coordinates: [h.lon, h.lat] },
-				properties: {
-					label: h.name,
-					type: 'hotspot',
-					desc: h.desc,
-					level: h.level,
-					color: THREAT_COLORS[h.level],
-					size: h.level === 'critical' ? 12 : h.level === 'high' ? 10 : 8
-				}
+		// Add hotspots (with news integration)
+		if (dataLayers.hotspots.visible) {
+			HOTSPOTS.forEach((h) => {
+				const activity = getHotspotActivityLevel(h.name, h.level);
+				const hotspotNews = getNewsForHotspot(h.name);
+
+				features.push({
+					type: 'Feature',
+					geometry: { type: 'Point', coordinates: [h.lon, h.lat] },
+					properties: {
+						label: h.name,
+						type: 'hotspot',
+						desc: h.desc,
+						level: activity.level,
+						color: THREAT_COLORS[activity.level as keyof typeof THREAT_COLORS],
+						size: activity.level === 'critical' ? 12 : activity.level === 'high' ? 10 : 8,
+						newsCount: activity.newsCount,
+						hasAlert: activity.hasAlert,
+						recentNews: JSON.stringify(hotspotNews.slice(0, 3).map((n) => n.title))
+					}
+				});
 			});
-		});
+		}
 
 		// Add chokepoints
-		CHOKEPOINTS.forEach((cp) => {
-			features.push({
-				type: 'Feature',
-				geometry: { type: 'Point', coordinates: [cp.lon, cp.lat] },
-				properties: {
-					label: cp.name,
-					type: 'chokepoint',
-					desc: cp.desc,
-					color: '#06b6d4',
-					size: 7
-				}
+		if (dataLayers.chokepoints.visible) {
+			CHOKEPOINTS.forEach((cp) => {
+				features.push({
+					type: 'Feature',
+					geometry: { type: 'Point', coordinates: [cp.lon, cp.lat] },
+					properties: {
+						label: cp.name,
+						type: 'chokepoint',
+						desc: cp.desc,
+						color: '#06b6d4',
+						size: 7
+					}
+				});
 			});
-		});
+		}
 
 		// Add cable landings
-		CABLE_LANDINGS.forEach((cl) => {
-			features.push({
-				type: 'Feature',
-				geometry: { type: 'Point', coordinates: [cl.lon, cl.lat] },
-				properties: {
-					label: cl.name,
-					type: 'cable',
-					desc: cl.desc,
-					color: '#a855f7',
-					size: 6
-				}
+		if (dataLayers.cables.visible) {
+			CABLE_LANDINGS.forEach((cl) => {
+				features.push({
+					type: 'Feature',
+					geometry: { type: 'Point', coordinates: [cl.lon, cl.lat] },
+					properties: {
+						label: cl.name,
+						type: 'cable',
+						desc: cl.desc,
+						color: '#a855f7',
+						size: 6
+					}
+				});
 			});
-		});
+		}
 
 		// Add nuclear sites
-		NUCLEAR_SITES.forEach((ns) => {
-			features.push({
-				type: 'Feature',
-				geometry: { type: 'Point', coordinates: [ns.lon, ns.lat] },
-				properties: {
-					label: ns.name,
-					type: 'nuclear',
-					desc: ns.desc,
-					color: '#f59e0b',
-					size: 8
-				}
+		if (dataLayers.nuclear.visible) {
+			NUCLEAR_SITES.forEach((ns) => {
+				features.push({
+					type: 'Feature',
+					geometry: { type: 'Point', coordinates: [ns.lon, ns.lat] },
+					properties: {
+						label: ns.name,
+						type: 'nuclear',
+						desc: ns.desc,
+						color: '#f59e0b',
+						size: 8
+					}
+				});
 			});
-		});
+		}
 
 		// Add military bases
-		MILITARY_BASES.forEach((mb) => {
+		if (dataLayers.military.visible) {
+			MILITARY_BASES.forEach((mb) => {
+				features.push({
+					type: 'Feature',
+					geometry: { type: 'Point', coordinates: [mb.lon, mb.lat] },
+					properties: {
+						label: mb.name,
+						type: 'military',
+						desc: mb.desc,
+						color: '#ec4899',
+						size: 8
+					}
+				});
+			});
+		}
+
+		// Add custom monitors
+		if (dataLayers.monitors.visible) {
+			monitors
+				.filter((m) => m.enabled && m.location)
+				.forEach((m) => {
+					if (m.location) {
+						features.push({
+							type: 'Feature',
+							geometry: { type: 'Point', coordinates: [m.location.lon, m.location.lat] },
+							properties: {
+								label: m.name,
+								type: 'monitor',
+								desc: `Custom monitor: ${m.keywords?.join(', ') || 'No keywords'}`,
+								color: m.color || '#06b6d4',
+								size: 9
+							}
+						});
+					}
+				});
+		}
+
+		return { type: 'FeatureCollection', features };
+	}
+
+	// Generate news event markers
+	function getNewsEventsGeoJSON(): GeoJSON.FeatureCollection {
+		if (!dataLayers.news.visible) {
+			return { type: 'FeatureCollection', features: [] };
+		}
+
+		const features: GeoJSON.Feature[] = [];
+		const now = Date.now();
+		const ttlMs = newsTTL * 60 * 1000;
+
+		// Group news by hotspot for clustering
+		const hotspotNewsMap = new Map<string, NewsItem[]>();
+
+		filteredNews().forEach((item) => {
+			// Find matching hotspot
+			for (const [hotspotName, keywords] of Object.entries(HOTSPOT_KEYWORDS)) {
+				const text = `${item.title} ${item.description || ''}`.toLowerCase();
+				if (keywords.some((kw) => text.includes(kw.toLowerCase()))) {
+					if (!hotspotNewsMap.has(hotspotName)) {
+						hotspotNewsMap.set(hotspotName, []);
+					}
+					hotspotNewsMap.get(hotspotName)!.push(item);
+					break;
+				}
+			}
+		});
+
+		// Create markers for each hotspot with news
+		hotspotNewsMap.forEach((newsItems, hotspotName) => {
+			const hotspot = HOTSPOTS.find((h) => h.name === hotspotName);
+			if (!hotspot) return;
+
+			const hasAlerts = newsItems.some((n) => n.isAlert);
+			const age = now - Math.max(...newsItems.map((n) => n.timestamp));
+			const opacity = Math.max(0.3, 1 - age / ttlMs);
+
 			features.push({
 				type: 'Feature',
-				geometry: { type: 'Point', coordinates: [mb.lon, mb.lat] },
+				geometry: {
+					type: 'Point',
+					coordinates: [hotspot.lon + 0.5, hotspot.lat + 0.5] // Offset slightly from hotspot
+				},
 				properties: {
-					label: mb.name,
-					type: 'military',
-					desc: mb.desc,
-					color: '#ec4899',
-					size: 8
+					label: `${newsItems.length} news`,
+					type: 'news-cluster',
+					count: newsItems.length,
+					hasAlerts,
+					opacity,
+					color: hasAlerts ? '#ef4444' : '#3b82f6',
+					size: Math.min(12, 6 + newsItems.length)
 				}
 			});
 		});
-
-		// Add custom monitors
-		monitors
-			.filter((m) => m.enabled && m.location)
-			.forEach((m) => {
-				if (m.location) {
-					features.push({
-						type: 'Feature',
-						geometry: { type: 'Point', coordinates: [m.location.lon, m.location.lat] },
-						properties: {
-							label: m.name,
-							type: 'monitor',
-							desc: `Custom monitor: ${m.keywords?.join(', ') || 'No keywords'}`,
-							color: m.color || '#06b6d4',
-							size: 9
-						}
-					});
-				}
-			});
 
 		return { type: 'FeatureCollection', features };
 	}
 
 	// Generate arc data for tension corridors
 	function getArcsGeoJSON(): GeoJSON.FeatureCollection {
-		if (!showArcs) return { type: 'FeatureCollection', features: [] };
+		if (!dataLayers.arcs.visible) return { type: 'FeatureCollection', features: [] };
 
 		const arcConnections = [
 			{ from: 'Moscow', to: 'Kyiv', color: 'rgba(239, 68, 68, 0.7)' },
@@ -167,21 +310,11 @@
 			const from = hotspotMap.get(conn.from);
 			const to = hotspotMap.get(conn.to);
 			if (from && to) {
-				// Create a curved arc using intermediate points
-				const coords = generateArcCoordinates(
-					[from.lon, from.lat],
-					[to.lon, to.lat],
-					20 // number of segments
-				);
+				const coords = generateArcCoordinates([from.lon, from.lat], [to.lon, to.lat], 20);
 				features.push({
 					type: 'Feature',
 					geometry: { type: 'LineString', coordinates: coords },
-					properties: {
-						color: conn.color,
-						from: conn.from,
-						to: conn.to,
-						id: index
-					}
+					properties: { color: conn.color, from: conn.from, to: conn.to, id: index }
 				});
 			}
 		});
@@ -189,52 +322,65 @@
 		return { type: 'FeatureCollection', features };
 	}
 
-	// Generate curved arc coordinates (great circle approximation)
 	function generateArcCoordinates(
 		start: [number, number],
 		end: [number, number],
 		segments: number
 	): [number, number][] {
 		const coords: [number, number][] = [];
-
 		for (let i = 0; i <= segments; i++) {
 			const t = i / segments;
-			// Simple interpolation with altitude bump for arc effect
 			const lng = start[0] + (end[0] - start[0]) * t;
 			const lat = start[1] + (end[1] - start[1]) * t;
 			coords.push([lng, lat]);
 		}
-
 		return coords;
 	}
 
-	// Get pulsing rings data (critical hotspots only)
+	// Get pulsing rings (hotspots with alerts or critical level)
 	function getPulsingRingsGeoJSON(): GeoJSON.FeatureCollection {
-		const features: GeoJSON.Feature[] = HOTSPOTS.filter((h) => h.level === 'critical').map((h) => ({
-			type: 'Feature',
-			geometry: { type: 'Point', coordinates: [h.lon, h.lat] },
-			properties: {
-				label: h.name,
-				color: THREAT_COLORS[h.level]
-			}
-		}));
+		const features: GeoJSON.Feature[] = [];
+
+		if (dataLayers.hotspots.visible) {
+			HOTSPOTS.forEach((h) => {
+				const activity = getHotspotActivityLevel(h.name, h.level);
+				if (activity.level === 'critical' || activity.hasAlert) {
+					features.push({
+						type: 'Feature',
+						geometry: { type: 'Point', coordinates: [h.lon, h.lat] },
+						properties: {
+							label: h.name,
+							color: activity.hasAlert ? '#ef4444' : THREAT_COLORS[h.level]
+						}
+					});
+				}
+			});
+		}
 
 		return { type: 'FeatureCollection', features };
 	}
 
 	// Get labels for critical/high hotspots
 	function getLabelsGeoJSON(): GeoJSON.FeatureCollection {
-		const features: GeoJSON.Feature[] = HOTSPOTS.filter(
-			(h) => h.level === 'critical' || h.level === 'high'
-		).map((h) => ({
-			type: 'Feature',
-			geometry: { type: 'Point', coordinates: [h.lon, h.lat] },
-			properties: {
-				label: h.name,
-				color: THREAT_COLORS[h.level],
-				level: h.level
-			}
-		}));
+		if (!dataLayers.hotspots.visible) {
+			return { type: 'FeatureCollection', features: [] };
+		}
+
+		const features: GeoJSON.Feature[] = HOTSPOTS.filter((h) => {
+			const activity = getHotspotActivityLevel(h.name, h.level);
+			return activity.level === 'critical' || activity.level === 'high';
+		}).map((h) => {
+			const activity = getHotspotActivityLevel(h.name, h.level);
+			return {
+				type: 'Feature',
+				geometry: { type: 'Point', coordinates: [h.lon, h.lat] },
+				properties: {
+					label: activity.newsCount > 0 ? `${h.name} (${activity.newsCount})` : h.name,
+					color: THREAT_COLORS[activity.level as keyof typeof THREAT_COLORS],
+					level: activity.level
+				}
+			};
+		});
 
 		return { type: 'FeatureCollection', features };
 	}
@@ -246,24 +392,57 @@
 			cable: 'UNDERSEA CABLE',
 			nuclear: 'NUCLEAR SITE',
 			military: 'MILITARY BASE',
-			monitor: 'CUSTOM MONITOR'
+			monitor: 'CUSTOM MONITOR',
+			'news-cluster': 'NEWS ACTIVITY'
 		};
 		return labels[type] || type.toUpperCase();
+	}
+
+	// Pause/resume layer data
+	function toggleLayerPause(layer: keyof typeof dataLayers) {
+		if (layer === 'news') {
+			if (!dataLayers.news.paused) {
+				// Freezing - capture current news
+				frozenNews = [...news];
+				lastNewsUpdate = Date.now();
+			}
+		}
+		dataLayers[layer].paused = !dataLayers[layer].paused;
+	}
+
+	// Update all map layers
+	function updateMapLayers() {
+		if (!map || !isInitialized) return;
+
+		try {
+			const pointsSource = map.getSource('points') as mapboxgl.GeoJSONSource;
+			if (pointsSource) pointsSource.setData(getPointsGeoJSON());
+
+			const arcsSource = map.getSource('arcs') as mapboxgl.GeoJSONSource;
+			if (arcsSource) arcsSource.setData(getArcsGeoJSON());
+
+			const ringsSource = map.getSource('pulsing-rings') as mapboxgl.GeoJSONSource;
+			if (ringsSource) ringsSource.setData(getPulsingRingsGeoJSON());
+
+			const labelsSource = map.getSource('labels') as mapboxgl.GeoJSONSource;
+			if (labelsSource) labelsSource.setData(getLabelsGeoJSON());
+
+			const newsSource = map.getSource('news-events') as mapboxgl.GeoJSONSource;
+			if (newsSource) newsSource.setData(getNewsEventsGeoJSON());
+		} catch (e) {
+			// Sources might not exist yet
+		}
 	}
 
 	// Auto-rotation logic
 	function startRotation() {
 		if (!map || !isRotating) return;
-
 		const rotate = () => {
 			if (!map || !isRotating) return;
-
 			const center = map.getCenter();
-			// Rotate by a small amount each frame
 			map.setCenter([center.lng + 0.05, center.lat]);
 			rotationAnimationId = requestAnimationFrame(rotate);
 		};
-
 		rotationAnimationId = requestAnimationFrame(rotate);
 	}
 
@@ -284,17 +463,7 @@
 		startRotation();
 	}
 
-	function toggleArcs() {
-		showArcs = !showArcs;
-		if (map && isInitialized) {
-			const source = map.getSource('arcs') as mapboxgl.GeoJSONSource;
-			if (source) {
-				source.setData(getArcsGeoJSON());
-			}
-		}
-	}
-
-	// Initialize Mapbox map with globe projection
+	// Initialize Mapbox map
 	async function initMap() {
 		if (typeof window === 'undefined' || !mapContainer) return;
 
@@ -325,13 +494,7 @@
 						}
 					},
 					layers: [
-						{
-							id: 'background',
-							type: 'background',
-							paint: {
-								'background-color': '#020305'
-							}
-						},
+						{ id: 'background', type: 'background', paint: { 'background-color': '#020305' } },
 						{
 							id: 'satellite',
 							type: 'raster',
@@ -353,11 +516,9 @@
 				logoPosition: 'bottom-right'
 			});
 
-			// Set atmosphere/fog for 3D globe effect
 			map.on('style.load', () => {
 				if (!map) return;
 
-				// Add atmosphere
 				map.setFog({
 					color: 'rgb(6, 182, 212)',
 					'high-color': 'rgb(2, 6, 23)',
@@ -366,28 +527,14 @@
 					'star-intensity': 0.6
 				});
 
-				// Add data sources
-				map.addSource('points', {
-					type: 'geojson',
-					data: getPointsGeoJSON()
-				});
+				// Add all sources
+				map.addSource('points', { type: 'geojson', data: getPointsGeoJSON() });
+				map.addSource('arcs', { type: 'geojson', data: getArcsGeoJSON() });
+				map.addSource('pulsing-rings', { type: 'geojson', data: getPulsingRingsGeoJSON() });
+				map.addSource('labels', { type: 'geojson', data: getLabelsGeoJSON() });
+				map.addSource('news-events', { type: 'geojson', data: getNewsEventsGeoJSON() });
 
-				map.addSource('arcs', {
-					type: 'geojson',
-					data: getArcsGeoJSON()
-				});
-
-				map.addSource('pulsing-rings', {
-					type: 'geojson',
-					data: getPulsingRingsGeoJSON()
-				});
-
-				map.addSource('labels', {
-					type: 'geojson',
-					data: getLabelsGeoJSON()
-				});
-
-				// Add arcs layer (tension corridors)
+				// Add layers
 				map.addLayer({
 					id: 'arcs-layer',
 					type: 'line',
@@ -400,7 +547,6 @@
 					}
 				});
 
-				// Add pulsing rings layer (outer ring)
 				map.addLayer({
 					id: 'pulsing-rings-outer',
 					type: 'circle',
@@ -414,7 +560,6 @@
 					}
 				});
 
-				// Add pulsing rings layer (inner)
 				map.addLayer({
 					id: 'pulsing-rings-inner',
 					type: 'circle',
@@ -428,7 +573,32 @@
 					}
 				});
 
-				// Add glow layer for points
+				map.addLayer({
+					id: 'news-events-glow',
+					type: 'circle',
+					source: 'news-events',
+					paint: {
+						'circle-radius': ['*', ['get', 'size'], 1.8],
+						'circle-color': ['get', 'color'],
+						'circle-opacity': ['*', ['get', 'opacity'], 0.3],
+						'circle-blur': 1
+					}
+				});
+
+				map.addLayer({
+					id: 'news-events-layer',
+					type: 'circle',
+					source: 'news-events',
+					paint: {
+						'circle-radius': ['get', 'size'],
+						'circle-color': ['get', 'color'],
+						'circle-opacity': ['get', 'opacity'],
+						'circle-stroke-color': '#ffffff',
+						'circle-stroke-width': 1,
+						'circle-stroke-opacity': 0.5
+					}
+				});
+
 				map.addLayer({
 					id: 'points-glow',
 					type: 'circle',
@@ -441,7 +611,6 @@
 					}
 				});
 
-				// Add main points layer
 				map.addLayer({
 					id: 'points-layer',
 					type: 'circle',
@@ -455,7 +624,6 @@
 					}
 				});
 
-				// Add labels layer
 				map.addLayer({
 					id: 'labels-layer',
 					type: 'symbol',
@@ -474,27 +642,14 @@
 					}
 				});
 
-				// Add interactivity
 				setupInteractivity();
-
-				// Start auto-rotation
 				startRotation();
-
 				isInitialized = true;
 			});
 
-			// Pause rotation on user interaction
-			map.on('mousedown', () => {
-				pauseRotation();
-			});
-
-			map.on('touchstart', () => {
-				pauseRotation();
-			});
-
-			map.on('wheel', () => {
-				pauseRotation();
-			});
+			map.on('mousedown', pauseRotation);
+			map.on('touchstart', pauseRotation);
+			map.on('wheel', pauseRotation);
 		} catch (error) {
 			console.error('Failed to initialize map:', error);
 			initError = 'Failed to load 3D globe. WebGL may not be supported.';
@@ -504,100 +659,132 @@
 	function setupInteractivity() {
 		if (!map) return;
 
-		// Cursor changes
-		map.on('mouseenter', 'points-layer', () => {
-			if (map) map.getCanvas().style.cursor = 'pointer';
+		const interactiveLayers = ['points-layer', 'news-events-layer'];
+
+		interactiveLayers.forEach((layerId) => {
+			map!.on('mouseenter', layerId, () => {
+				if (map) map.getCanvas().style.cursor = 'pointer';
+			});
+
+			map!.on('mouseleave', layerId, () => {
+				if (map) map.getCanvas().style.cursor = '';
+			});
 		});
 
-		map.on('mouseleave', 'points-layer', () => {
-			if (map) map.getCanvas().style.cursor = '';
-		});
-
-		// Hover tooltip
 		map.on('mousemove', 'points-layer', (e) => {
-			if (!e.features || e.features.length === 0) return;
-			if (tooltipLocked) return;
+			if (!e.features || e.features.length === 0 || tooltipLocked) return;
 
 			const feature = e.features[0];
 			const props = feature.properties;
 
-			tooltipData = {
-				label: props?.label || '',
-				type: props?.type || '',
-				desc: props?.desc,
-				level: props?.level
-			};
-			tooltipVisible = true;
-			updateTooltipPosition(e.point);
-			pauseRotation();
-		});
-
-		map.on('mouseleave', 'points-layer', () => {
-			if (!tooltipLocked) {
-				tooltipVisible = false;
-				tooltipData = null;
-				// Resume rotation after delay
-				setTimeout(() => {
-					if (!tooltipLocked) {
-						resumeRotation();
-					}
-				}, 2000);
+			let recentNews: string[] = [];
+			try {
+				recentNews = props?.recentNews ? JSON.parse(props.recentNews) : [];
+			} catch {
+				recentNews = [];
 			}
-		});
-
-		// Click to lock tooltip
-		map.on('click', 'points-layer', (e) => {
-			if (!e.features || e.features.length === 0) return;
-
-			const feature = e.features[0];
-			const props = feature.properties;
 
 			tooltipData = {
 				label: props?.label || '',
 				type: props?.type || '',
 				desc: props?.desc,
-				level: props?.level
+				level: props?.level,
+				newsCount: props?.newsCount || 0,
+				recentNews
 			};
 			tooltipVisible = true;
-			tooltipLocked = true;
 			updateTooltipPosition(e.point);
 			pauseRotation();
 		});
 
-		// Click anywhere else to unlock
+		map.on('mousemove', 'news-events-layer', (e) => {
+			if (!e.features || e.features.length === 0 || tooltipLocked) return;
+
+			const feature = e.features[0];
+			const props = feature.properties;
+
+			tooltipData = {
+				label: `${props?.count || 0} News Items`,
+				type: props?.type || 'news-cluster',
+				desc: props?.hasAlerts ? 'Contains alert-level news' : 'Recent news activity',
+				isAlert: props?.hasAlerts
+			};
+			tooltipVisible = true;
+			updateTooltipPosition(e.point);
+			pauseRotation();
+		});
+
+		map.on('mouseleave', 'points-layer', handleMouseLeave);
+		map.on('mouseleave', 'news-events-layer', handleMouseLeave);
+
+		map.on('click', 'points-layer', (e) => handlePointClick(e));
+		map.on('click', 'news-events-layer', (e) => handlePointClick(e));
+
 		map.on('click', (e) => {
-			const features = map?.queryRenderedFeatures(e.point, { layers: ['points-layer'] });
+			const features = map?.queryRenderedFeatures(e.point, {
+				layers: ['points-layer', 'news-events-layer']
+			});
 			if (!features || features.length === 0) {
 				if (tooltipLocked) {
 					tooltipLocked = false;
 					tooltipVisible = false;
 					tooltipData = null;
 					setTimeout(() => {
-						if (!tooltipLocked) {
-							resumeRotation();
-						}
+						if (!tooltipLocked) resumeRotation();
 					}, 1500);
 				}
 			}
 		});
 	}
 
+	function handleMouseLeave() {
+		if (!tooltipLocked) {
+			tooltipVisible = false;
+			tooltipData = null;
+			setTimeout(() => {
+				if (!tooltipLocked) resumeRotation();
+			}, 2000);
+		}
+	}
+
+	function handlePointClick(e: mapboxgl.MapMouseEvent & { features?: mapboxgl.MapboxGeoJSONFeature[] }) {
+		if (!e.features || e.features.length === 0) return;
+
+		const feature = e.features[0];
+		const props = feature.properties;
+
+		let recentNews: string[] = [];
+		try {
+			recentNews = props?.recentNews ? JSON.parse(props.recentNews) : [];
+		} catch {
+			recentNews = [];
+		}
+
+		tooltipData = {
+			label: props?.label || '',
+			type: props?.type || '',
+			desc: props?.desc,
+			level: props?.level,
+			newsCount: props?.newsCount || 0,
+			recentNews,
+			isAlert: props?.hasAlerts || props?.hasAlert
+		};
+		tooltipVisible = true;
+		tooltipLocked = true;
+		updateTooltipPosition(e.point);
+		pauseRotation();
+	}
+
 	function updateTooltipPosition(point: mapboxgl.Point) {
 		if (!mapContainer) return;
-
 		const rect = mapContainer.getBoundingClientRect();
 		tooltipX = point.x + 15;
 		tooltipY = point.y + 15;
 
-		// Prevent tooltip from going off-screen
-		const tooltipWidth = 280;
-		const tooltipHeight = 100;
-		if (tooltipX + tooltipWidth > rect.width) {
-			tooltipX = point.x - tooltipWidth - 15;
-		}
-		if (tooltipY + tooltipHeight > rect.height) {
-			tooltipY = point.y - tooltipHeight - 15;
-		}
+		const tooltipWidth = 300;
+		const tooltipHeight = 150;
+		if (tooltipX + tooltipWidth > rect.width) tooltipX = point.x - tooltipWidth - 15;
+		if (tooltipY + tooltipHeight > rect.height) tooltipY = point.y - tooltipHeight - 15;
 	}
 
 	function handleMouseMove(event: MouseEvent) {
@@ -606,14 +793,10 @@
 			tooltipX = event.clientX - rect.left + 15;
 			tooltipY = event.clientY - rect.top + 15;
 
-			const tooltipWidth = 280;
-			const tooltipHeight = 100;
-			if (tooltipX + tooltipWidth > rect.width) {
-				tooltipX = event.clientX - rect.left - tooltipWidth - 15;
-			}
-			if (tooltipY + tooltipHeight > rect.height) {
-				tooltipY = event.clientY - rect.top - tooltipHeight - 15;
-			}
+			const tooltipWidth = 300;
+			const tooltipHeight = 150;
+			if (tooltipX + tooltipWidth > rect.width) tooltipX = event.clientX - rect.left - tooltipWidth - 15;
+			if (tooltipY + tooltipHeight > rect.height) tooltipY = event.clientY - rect.top - tooltipHeight - 15;
 		}
 	}
 
@@ -626,20 +809,15 @@
 			tooltipVisible = false;
 			tooltipData = null;
 			setTimeout(() => {
-				if (!tooltipLocked) {
-					resumeRotation();
-				}
+				if (!tooltipLocked) resumeRotation();
 			}, 1000);
 		}
 	}
 
-	// Update points when monitors change
+	// React to data changes
 	$effect(() => {
 		if (map && isInitialized) {
-			const source = map.getSource('points') as mapboxgl.GeoJSONSource;
-			if (source) {
-				source.setData(getPointsGeoJSON());
-			}
+			updateMapLayers();
 		}
 	});
 
@@ -650,7 +828,6 @@
 		let pulsePhase = 0;
 		const pulseInterval = setInterval(() => {
 			if (!map) return;
-
 			pulsePhase = (pulsePhase + 1) % 60;
 			const outerRadius = 15 + Math.sin((pulsePhase / 60) * Math.PI * 2) * 8;
 			const innerRadius = 10 + Math.sin((pulsePhase / 60) * Math.PI * 2) * 4;
@@ -668,29 +845,8 @@
 		return () => clearInterval(pulseInterval);
 	});
 
-	// Animate arc dash offset for flow effect
-	$effect(() => {
-		if (!map || !isInitialized) return;
-
-		let dashOffset = 0;
-		const arcInterval = setInterval(() => {
-			if (!map) return;
-
-			dashOffset = (dashOffset + 0.5) % 4;
-			try {
-				map.setPaintProperty('arcs-layer', 'line-dasharray', [2, 2]);
-			} catch {
-				// Layer might not exist yet
-			}
-		}, 100);
-
-		return () => clearInterval(arcInterval);
-	});
-
 	onMount(() => {
-		requestAnimationFrame(() => {
-			initMap();
-		});
+		requestAnimationFrame(() => initMap());
 	});
 
 	onDestroy(() => {
@@ -709,7 +865,7 @@
 	onmouseenter={handleContainerEnter}
 	onmouseleave={handleContainerLeave}
 	role="application"
-	aria-label="Interactive 3D globe showing global hotspots and regions"
+	aria-label="Interactive 3D globe showing global hotspots and live news"
 >
 	{#if !isInitialized && !initError}
 		<div class="globe-loading">
@@ -719,7 +875,7 @@
 	{/if}
 	{#if initError}
 		<div class="globe-error">
-			<span class="error-icon">⚠</span>
+			<span class="error-icon">!</span>
 			<span class="error-text">{initError}</span>
 		</div>
 	{/if}
@@ -729,18 +885,86 @@
 		<div class="globe-controls">
 			<button
 				class="control-btn"
-				class:active={showArcs}
-				onclick={toggleArcs}
-				title={showArcs ? 'Hide tension corridors' : 'Show tension corridors'}
+				class:active={dataControlsExpanded}
+				onclick={() => (dataControlsExpanded = !dataControlsExpanded)}
+				title="Data layer controls"
 			>
-				<span class="control-icon">⌇</span>
+				<span class="control-icon">&#9881;</span>
 			</button>
 			<button class="control-btn" onclick={() => resumeRotation()} title="Resume rotation">
-				<span class="control-icon">↻</span>
+				<span class="control-icon">&#8635;</span>
 			</button>
 			<button class="control-btn" onclick={() => pauseRotation()} title="Pause rotation">
-				<span class="control-icon">⏸</span>
+				<span class="control-icon">&#9208;</span>
 			</button>
+		</div>
+	{/if}
+
+	<!-- Data Layer Controls Panel -->
+	{#if isInitialized && dataControlsExpanded}
+		<div class="data-controls">
+			<div class="data-controls-header">
+				<span class="data-controls-title">DATA LAYERS</span>
+			</div>
+			<div class="data-controls-content">
+				<!-- Layer toggles -->
+				<div class="layer-section">
+					<span class="layer-section-title">VISIBILITY</span>
+					{#each Object.entries(dataLayers) as [layer, state]}
+						<label class="layer-toggle">
+							<input type="checkbox" bind:checked={state.visible} onchange={() => updateMapLayers()} />
+							<span class="layer-name">{layer.charAt(0).toUpperCase() + layer.slice(1)}</span>
+							{#if layer === 'news' || layer === 'hotspots'}
+								<button
+									class="pause-btn"
+									class:paused={state.paused}
+									onclick={() => toggleLayerPause(layer as keyof typeof dataLayers)}
+									title={state.paused ? 'Resume live data' : 'Pause live data'}
+								>
+									{state.paused ? '>' : '||'}
+								</button>
+							{/if}
+						</label>
+					{/each}
+				</div>
+
+				<!-- News filters -->
+				<div class="layer-section">
+					<span class="layer-section-title">NEWS FILTERS</span>
+					<label class="filter-row">
+						<span class="filter-label">Time window:</span>
+						<select bind:value={newsTimeFilter} onchange={() => updateMapLayers()}>
+							<option value={15}>15 min</option>
+							<option value={30}>30 min</option>
+							<option value={60}>1 hour</option>
+							<option value={120}>2 hours</option>
+							<option value={360}>6 hours</option>
+							<option value={1440}>24 hours</option>
+						</select>
+					</label>
+					<label class="filter-row">
+						<span class="filter-label">Expire after:</span>
+						<select bind:value={newsTTL} onchange={() => updateMapLayers()}>
+							<option value={15}>15 min</option>
+							<option value={30}>30 min</option>
+							<option value={60}>1 hour</option>
+							<option value={120}>2 hours</option>
+						</select>
+					</label>
+					<label class="filter-row checkbox">
+						<input type="checkbox" bind:checked={showAlertsOnly} onchange={() => updateMapLayers()} />
+						<span class="filter-label">Alerts only</span>
+					</label>
+				</div>
+
+				<!-- Status -->
+				{#if dataLayers.news.paused}
+					<div class="pause-status">
+						<span class="pause-indicator"></span>
+						News paused at {new Date(lastNewsUpdate).toLocaleTimeString()}
+					</div>
+				{/if}
+			</div>
 		</div>
 	{/if}
 
@@ -754,7 +978,7 @@
 			{#if legendExpanded}
 				<div class="legend-content">
 					<div class="legend-section">
-						<span class="legend-section-title">THREAT LEVELS (HOTSPOTS)</span>
+						<span class="legend-section-title">THREAT LEVELS</span>
 						<div class="legend-items">
 							<div class="legend-item">
 								<span class="legend-dot critical"></span>
@@ -775,67 +999,41 @@
 						</div>
 					</div>
 					<div class="legend-section">
-						<span class="legend-section-title">INFRASTRUCTURE MARKERS</span>
+						<span class="legend-section-title">LIVE DATA</span>
+						<div class="legend-items">
+							<div class="legend-item">
+								<span class="legend-marker news-alert"></span>
+								<span class="legend-label">News Alert</span>
+							</div>
+							<div class="legend-item">
+								<span class="legend-marker news"></span>
+								<span class="legend-label">News Activity</span>
+							</div>
+						</div>
+					</div>
+					<div class="legend-section">
+						<span class="legend-section-title">INFRASTRUCTURE</span>
 						<div class="legend-items">
 							<div class="legend-item">
 								<span class="legend-marker chokepoint"></span>
-								<span class="legend-label">Shipping Chokepoint</span>
+								<span class="legend-label">Chokepoint</span>
 							</div>
 							<div class="legend-item">
 								<span class="legend-marker cable"></span>
-								<span class="legend-label">Undersea Cable</span>
+								<span class="legend-label">Cable</span>
 							</div>
 							<div class="legend-item">
 								<span class="legend-marker nuclear"></span>
-								<span class="legend-label">Nuclear Site</span>
+								<span class="legend-label">Nuclear</span>
 							</div>
 							<div class="legend-item">
 								<span class="legend-marker military"></span>
-								<span class="legend-label">Military Base</span>
-							</div>
-							<div class="legend-item">
-								<span class="legend-marker monitor"></span>
-								<span class="legend-label">Custom Monitor</span>
-							</div>
-						</div>
-					</div>
-					<div class="legend-section">
-						<span class="legend-section-title">TENSION CORRIDORS</span>
-						<div class="legend-desc">
-							Animated arcs show intel/influence flows between geopolitically connected high-threat
-							areas:
-						</div>
-						<div class="legend-items arc-list">
-							<div class="legend-item">
-								<span class="legend-arc red"></span>
-								<span class="legend-label">Moscow ↔ Kyiv</span>
-							</div>
-							<div class="legend-item">
-								<span class="legend-arc red"></span>
-								<span class="legend-label">Tehran ↔ Tel Aviv</span>
-							</div>
-							<div class="legend-item">
-								<span class="legend-arc amber"></span>
-								<span class="legend-label">Beijing ↔ Taipei</span>
-							</div>
-							<div class="legend-item">
-								<span class="legend-arc amber"></span>
-								<span class="legend-label">Pyongyang ↔ Tokyo</span>
-							</div>
-						</div>
-					</div>
-					<div class="legend-section">
-						<span class="legend-section-title">ALERTS</span>
-						<div class="legend-items">
-							<div class="legend-item">
-								<span class="legend-ring"></span>
-								<span class="legend-label">Critical Hotspot Pulse</span>
+								<span class="legend-label">Military</span>
 							</div>
 						</div>
 					</div>
 					<div class="legend-hint">
-						Hover markers for details. Click to lock tooltip. Click empty space to unlock. Drag to
-						rotate globe.
+						Click gear icon for data controls. Click markers for details.
 					</div>
 				</div>
 			{/if}
@@ -848,7 +1046,7 @@
 			<div class="tooltip-header">
 				<span
 					class="tooltip-type"
-					class:critical={tooltipData.level === 'critical'}
+					class:critical={tooltipData.level === 'critical' || tooltipData.isAlert}
 					class:high={tooltipData.level === 'high'}
 					class:elevated={tooltipData.level === 'elevated'}
 				>
@@ -868,6 +1066,19 @@
 			<div class="tooltip-name">{tooltipData.label}</div>
 			{#if tooltipData.desc}
 				<div class="tooltip-desc">{tooltipData.desc}</div>
+			{/if}
+			{#if tooltipData.newsCount && tooltipData.newsCount > 0}
+				<div class="tooltip-news-count">
+					<span class="news-badge">{tooltipData.newsCount} news items</span>
+				</div>
+			{/if}
+			{#if tooltipData.recentNews && tooltipData.recentNews.length > 0}
+				<div class="tooltip-news">
+					<span class="news-label">Recent Headlines:</span>
+					{#each tooltipData.recentNews as headline}
+						<div class="news-headline">{headline}</div>
+					{/each}
+				</div>
 			{/if}
 		</div>
 	{/if}
@@ -955,17 +1166,371 @@
 		text-align: center;
 	}
 
-	/* Globe Tooltip Styles */
+	/* Globe Controls */
+	.globe-controls {
+		position: absolute;
+		top: 0.75rem;
+		right: 0.75rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.375rem;
+		z-index: 20;
+	}
+
+	.control-btn {
+		width: 28px;
+		height: 28px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: rgb(15 23 42 / 0.8);
+		backdrop-filter: blur(8px);
+		border: 1px solid rgb(51 65 85 / 0.5);
+		border-radius: 2px;
+		color: rgb(148 163 184);
+		cursor: pointer;
+		transition: all 0.15s ease;
+	}
+
+	.control-btn:hover {
+		background: rgb(51 65 85 / 0.8);
+		border-color: rgb(34 211 238 / 0.5);
+		color: rgb(34 211 238);
+	}
+
+	.control-btn.active {
+		background: rgb(22 78 99 / 0.5);
+		border-color: rgb(34 211 238 / 0.5);
+		color: rgb(34 211 238);
+	}
+
+	.control-icon {
+		font-size: 0.875rem;
+	}
+
+	/* Data Controls Panel */
+	.data-controls {
+		position: absolute;
+		top: 0.75rem;
+		right: 3rem;
+		z-index: 20;
+		background: rgb(15 23 42 / 0.95);
+		backdrop-filter: blur(12px);
+		border: 1px solid rgb(51 65 85 / 0.5);
+		border-radius: 2px;
+		min-width: 200px;
+		max-width: 260px;
+	}
+
+	.data-controls-header {
+		padding: 0.5rem 0.75rem;
+		border-bottom: 1px solid rgb(51 65 85 / 0.3);
+	}
+
+	.data-controls-title {
+		font-size: 0.5625rem;
+		font-family: 'SF Mono', Monaco, monospace;
+		font-weight: 700;
+		letter-spacing: 0.1em;
+		color: rgb(34 211 238);
+		text-transform: uppercase;
+	}
+
+	.data-controls-content {
+		padding: 0.5rem 0.75rem;
+	}
+
+	.layer-section {
+		margin-bottom: 0.75rem;
+	}
+
+	.layer-section:last-child {
+		margin-bottom: 0;
+	}
+
+	.layer-section-title {
+		display: block;
+		font-size: 0.5rem;
+		font-family: 'SF Mono', Monaco, monospace;
+		font-weight: 700;
+		letter-spacing: 0.1em;
+		color: rgb(100 116 139);
+		text-transform: uppercase;
+		margin-bottom: 0.375rem;
+	}
+
+	.layer-toggle {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.25rem 0;
+		cursor: pointer;
+	}
+
+	.layer-toggle input[type='checkbox'] {
+		width: 12px;
+		height: 12px;
+		accent-color: rgb(34 211 238);
+	}
+
+	.layer-name {
+		font-size: 0.625rem;
+		font-family: 'SF Mono', Monaco, monospace;
+		color: rgb(203 213 225);
+		flex: 1;
+	}
+
+	.pause-btn {
+		width: 20px;
+		height: 16px;
+		font-size: 0.5rem;
+		background: rgb(51 65 85 / 0.5);
+		border: 1px solid rgb(71 85 105 / 0.5);
+		border-radius: 2px;
+		color: rgb(148 163 184);
+		cursor: pointer;
+		transition: all 0.15s ease;
+	}
+
+	.pause-btn:hover {
+		background: rgb(71 85 105 / 0.5);
+		color: rgb(34 211 238);
+	}
+
+	.pause-btn.paused {
+		background: rgb(127 29 29 / 0.5);
+		border-color: rgb(239 68 68 / 0.5);
+		color: rgb(239 68 68);
+	}
+
+	.filter-row {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.25rem 0;
+	}
+
+	.filter-row.checkbox {
+		cursor: pointer;
+	}
+
+	.filter-label {
+		font-size: 0.5625rem;
+		font-family: 'SF Mono', Monaco, monospace;
+		color: rgb(148 163 184);
+		flex: 1;
+	}
+
+	.filter-row select {
+		font-size: 0.5625rem;
+		font-family: 'SF Mono', Monaco, monospace;
+		background: rgb(30 41 59);
+		border: 1px solid rgb(51 65 85);
+		border-radius: 2px;
+		color: rgb(203 213 225);
+		padding: 0.125rem 0.25rem;
+	}
+
+	.filter-row input[type='checkbox'] {
+		width: 12px;
+		height: 12px;
+		accent-color: rgb(34 211 238);
+	}
+
+	.pause-status {
+		margin-top: 0.5rem;
+		padding-top: 0.5rem;
+		border-top: 1px solid rgb(51 65 85 / 0.3);
+		font-size: 0.5rem;
+		font-family: 'SF Mono', Monaco, monospace;
+		color: rgb(251 191 36);
+		display: flex;
+		align-items: center;
+		gap: 0.375rem;
+	}
+
+	.pause-indicator {
+		width: 6px;
+		height: 6px;
+		background: rgb(251 191 36);
+		border-radius: 50%;
+		animation: blink 1s ease-in-out infinite;
+	}
+
+	@keyframes blink {
+		0%,
+		100% {
+			opacity: 1;
+		}
+		50% {
+			opacity: 0.3;
+		}
+	}
+
+	/* Globe Legend */
+	.globe-legend {
+		position: absolute;
+		bottom: 0.75rem;
+		left: 0.75rem;
+		z-index: 20;
+		background: rgb(15 23 42 / 0.9);
+		backdrop-filter: blur(12px);
+		border: 1px solid rgb(51 65 85 / 0.5);
+		border-radius: 2px;
+		min-width: 140px;
+		max-width: 200px;
+		max-height: 60%;
+		overflow-y: auto;
+	}
+
+	.legend-toggle {
+		width: 100%;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 0.5rem 0.625rem;
+		background: transparent;
+		border: none;
+		color: rgb(148 163 184);
+		cursor: pointer;
+		transition: color 0.15s ease;
+	}
+
+	.legend-toggle:hover {
+		color: rgb(34 211 238);
+	}
+
+	.legend-toggle-text {
+		font-size: 0.5625rem;
+		font-family: 'SF Mono', Monaco, monospace;
+		font-weight: 700;
+		letter-spacing: 0.1em;
+		text-transform: uppercase;
+	}
+
+	.legend-toggle-icon {
+		font-size: 0.5rem;
+	}
+
+	.legend-content {
+		padding: 0 0.625rem 0.625rem;
+		border-top: 1px solid rgb(51 65 85 / 0.3);
+	}
+
+	.legend-section {
+		margin-top: 0.5rem;
+	}
+
+	.legend-section-title {
+		display: block;
+		font-size: 0.4375rem;
+		font-family: 'SF Mono', Monaco, monospace;
+		font-weight: 700;
+		letter-spacing: 0.1em;
+		color: rgb(100 116 139);
+		text-transform: uppercase;
+		margin-bottom: 0.25rem;
+	}
+
+	.legend-items {
+		display: flex;
+		flex-direction: column;
+		gap: 0.125rem;
+	}
+
+	.legend-item {
+		display: flex;
+		align-items: center;
+		gap: 0.375rem;
+	}
+
+	.legend-dot {
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		flex-shrink: 0;
+	}
+
+	.legend-dot.critical {
+		background: #ff0000;
+		box-shadow: 0 0 4px #ff0000;
+	}
+
+	.legend-dot.high {
+		background: #ff4444;
+		box-shadow: 0 0 4px #ff4444;
+	}
+
+	.legend-dot.elevated {
+		background: #ffcc00;
+		box-shadow: 0 0 4px #ffcc00;
+	}
+
+	.legend-dot.low {
+		background: #00ff88;
+		box-shadow: 0 0 4px #00ff88;
+	}
+
+	.legend-marker {
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		flex-shrink: 0;
+	}
+
+	.legend-marker.news-alert {
+		background: #ef4444;
+		box-shadow: 0 0 4px #ef4444;
+	}
+
+	.legend-marker.news {
+		background: #3b82f6;
+		box-shadow: 0 0 4px #3b82f6;
+	}
+
+	.legend-marker.chokepoint {
+		background: #06b6d4;
+	}
+
+	.legend-marker.cable {
+		background: #a855f7;
+	}
+
+	.legend-marker.nuclear {
+		background: #f59e0b;
+	}
+
+	.legend-marker.military {
+		background: #ec4899;
+	}
+
+	.legend-label {
+		font-size: 0.5rem;
+		font-family: 'SF Mono', Monaco, monospace;
+		color: rgb(203 213 225);
+		white-space: nowrap;
+	}
+
+	.legend-hint {
+		margin-top: 0.375rem;
+		padding-top: 0.375rem;
+		border-top: 1px solid rgb(51 65 85 / 0.3);
+		font-size: 0.4375rem;
+		font-family: 'SF Mono', Monaco, monospace;
+		color: rgb(100 116 139);
+		line-height: 1.3;
+	}
+
+	/* Globe Tooltip */
 	.globe-tooltip {
 		position: absolute;
 		z-index: 200;
 		background: rgb(15 23 42 / 0.95);
 		backdrop-filter: blur(12px);
-		-webkit-backdrop-filter: blur(12px);
 		border: 1px solid rgb(51 65 85 / 0.5);
 		border-radius: 2px;
 		padding: 0.75rem;
-		max-width: 280px;
+		max-width: 300px;
 		min-width: 180px;
 		pointer-events: none;
 		box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.5);
@@ -1070,300 +1635,60 @@
 		margin-top: 0.25rem;
 	}
 
-	/* Globe Controls */
-	.globe-controls {
-		position: absolute;
-		top: 0.75rem;
-		right: 0.75rem;
-		display: flex;
-		flex-direction: column;
-		gap: 0.375rem;
-		z-index: 20;
+	.tooltip-news-count {
+		margin-top: 0.375rem;
 	}
 
-	.control-btn {
-		width: 28px;
-		height: 28px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		background: rgb(15 23 42 / 0.8);
-		backdrop-filter: blur(8px);
-		-webkit-backdrop-filter: blur(8px);
-		border: 1px solid rgb(51 65 85 / 0.5);
-		border-radius: 2px;
-		color: rgb(148 163 184);
-		cursor: pointer;
-		transition: all 0.15s ease;
-	}
-
-	.control-btn:hover {
-		background: rgb(51 65 85 / 0.8);
-		border-color: rgb(34 211 238 / 0.5);
-		color: rgb(34 211 238);
-	}
-
-	.control-btn.active {
-		background: rgb(22 78 99 / 0.5);
-		border-color: rgb(34 211 238 / 0.5);
-		color: rgb(34 211 238);
-	}
-
-	.control-icon {
-		font-size: 0.875rem;
-	}
-
-	/* Globe Legend */
-	.globe-legend {
-		position: absolute;
-		bottom: 0.75rem;
-		left: 0.75rem;
-		z-index: 20;
-		background: rgb(15 23 42 / 0.9);
-		backdrop-filter: blur(12px);
-		-webkit-backdrop-filter: blur(12px);
-		border: 1px solid rgb(51 65 85 / 0.5);
-		border-radius: 2px;
-		min-width: 160px;
-		max-width: 240px;
-		max-height: 70%;
-		overflow-y: auto;
-	}
-
-	.legend-toggle {
-		width: 100%;
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 0.5rem 0.625rem;
-		background: transparent;
-		border: none;
-		color: rgb(148 163 184);
-		cursor: pointer;
-		transition: color 0.15s ease;
-	}
-
-	.legend-toggle:hover {
-		color: rgb(34 211 238);
-	}
-
-	.legend-toggle-text {
-		font-size: 0.5625rem;
-		font-family: 'SF Mono', Monaco, monospace;
-		font-weight: 700;
-		letter-spacing: 0.1em;
-		text-transform: uppercase;
-	}
-
-	.legend-toggle-icon {
+	.news-badge {
 		font-size: 0.5rem;
+		font-family: 'SF Mono', Monaco, monospace;
+		background: rgb(59 130 246 / 0.2);
+		color: rgb(96 165 250);
+		padding: 0.125rem 0.375rem;
+		border-radius: 2px;
+		border: 1px solid rgb(59 130 246 / 0.3);
 	}
 
-	.legend-content {
-		padding: 0 0.625rem 0.625rem;
-		border-top: 1px solid rgb(51 65 85 / 0.3);
-	}
-
-	.legend-section {
+	.tooltip-news {
 		margin-top: 0.5rem;
+		padding-top: 0.375rem;
+		border-top: 1px solid rgb(51 65 85 / 0.5);
 	}
 
-	.legend-section-title {
+	.news-label {
 		display: block;
 		font-size: 0.5rem;
 		font-family: 'SF Mono', Monaco, monospace;
-		font-weight: 700;
-		letter-spacing: 0.1em;
 		color: rgb(100 116 139);
+		margin-bottom: 0.25rem;
 		text-transform: uppercase;
-		margin-bottom: 0.375rem;
+		letter-spacing: 0.05em;
 	}
 
-	.legend-items {
-		display: flex;
-		flex-direction: column;
-		gap: 0.25rem;
-	}
-
-	.legend-item {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-	}
-
-	.legend-dot {
-		width: 8px;
-		height: 8px;
-		border-radius: 50%;
-		flex-shrink: 0;
-	}
-
-	.legend-dot.critical {
-		background: #ff0000;
-		box-shadow: 0 0 6px #ff0000;
-	}
-
-	.legend-dot.high {
-		background: #ff4444;
-		box-shadow: 0 0 6px #ff4444;
-	}
-
-	.legend-dot.elevated {
-		background: #ffcc00;
-		box-shadow: 0 0 6px #ffcc00;
-	}
-
-	.legend-dot.low {
-		background: #00ff88;
-		box-shadow: 0 0 6px #00ff88;
-	}
-
-	.legend-marker {
-		width: 8px;
-		height: 8px;
-		border-radius: 50%;
-		flex-shrink: 0;
-	}
-
-	.legend-marker.chokepoint {
-		background: #06b6d4;
-		box-shadow: 0 0 4px #06b6d4;
-	}
-
-	.legend-marker.cable {
-		background: #a855f7;
-		box-shadow: 0 0 4px #a855f7;
-	}
-
-	.legend-marker.nuclear {
-		background: #f59e0b;
-		box-shadow: 0 0 4px #f59e0b;
-	}
-
-	.legend-marker.military {
-		background: #ec4899;
-		box-shadow: 0 0 4px #ec4899;
-	}
-
-	.legend-marker.monitor {
-		background: #06b6d4;
-		box-shadow: 0 0 6px #06b6d4;
-	}
-
-	.legend-desc {
-		font-size: 0.5rem;
-		font-family: 'SF Mono', Monaco, monospace;
-		color: rgb(148 163 184);
-		line-height: 1.4;
-		margin: 0.25rem 0;
-	}
-
-	.legend-items.arc-list {
-		margin-top: 0.25rem;
-	}
-
-	.legend-arc {
-		width: 16px;
-		height: 2px;
-		border-radius: 1px;
-		flex-shrink: 0;
-		position: relative;
-		overflow: hidden;
-	}
-
-	.legend-arc::after {
-		content: '';
-		position: absolute;
-		width: 100%;
-		height: 100%;
-		animation: arc-flow 1.5s linear infinite;
-	}
-
-	.legend-arc.red {
-		background: linear-gradient(
-			90deg,
-			transparent 0%,
-			rgba(239, 68, 68, 0.7) 50%,
-			transparent 100%
-		);
-	}
-
-	.legend-arc.red::after {
-		background: linear-gradient(90deg, transparent, rgba(255, 100, 100, 0.9), transparent);
-	}
-
-	.legend-arc.amber {
-		background: linear-gradient(
-			90deg,
-			transparent 0%,
-			rgba(251, 191, 36, 0.7) 50%,
-			transparent 100%
-		);
-	}
-
-	.legend-arc.amber::after {
-		background: linear-gradient(90deg, transparent, rgba(255, 220, 100, 0.9), transparent);
-	}
-
-	@keyframes arc-flow {
-		0% {
-			transform: translateX(-100%);
-		}
-		100% {
-			transform: translateX(100%);
-		}
-	}
-
-	.legend-ring {
-		width: 12px;
-		height: 12px;
-		border: 2px solid rgba(255, 0, 0, 0.6);
-		border-radius: 50%;
-		flex-shrink: 0;
-		animation: legend-pulse 1.5s ease-in-out infinite;
-	}
-
-	@keyframes legend-pulse {
-		0%,
-		100% {
-			opacity: 1;
-			transform: scale(1);
-		}
-		50% {
-			opacity: 0.5;
-			transform: scale(0.9);
-		}
-	}
-
-	.legend-label {
+	.news-headline {
 		font-size: 0.5625rem;
-		font-family: 'SF Mono', Monaco, monospace;
 		color: rgb(203 213 225);
+		line-height: 1.3;
+		padding: 0.125rem 0;
+		border-bottom: 1px solid rgb(51 65 85 / 0.2);
+		overflow: hidden;
+		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
 
-	.legend-hint {
-		margin-top: 0.5rem;
-		padding-top: 0.5rem;
-		border-top: 1px solid rgb(51 65 85 / 0.3);
-		font-size: 0.5rem;
-		font-family: 'SF Mono', Monaco, monospace;
-		color: rgb(100 116 139);
-		line-height: 1.4;
+	.news-headline:last-child {
+		border-bottom: none;
 	}
 
 	@media (max-width: 480px) {
+		.data-controls {
+			right: 2.5rem;
+			min-width: 180px;
+		}
+
 		.globe-legend {
-			min-width: 140px;
-			max-width: 200px;
-		}
-
-		.legend-label {
-			font-size: 0.5rem;
-		}
-
-		.legend-desc {
-			font-size: 0.4375rem;
+			min-width: 120px;
+			max-width: 160px;
 		}
 	}
 </style>
