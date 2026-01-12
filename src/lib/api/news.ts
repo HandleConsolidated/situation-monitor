@@ -29,17 +29,38 @@ function delay(ms: number): Promise<void> {
 
 /**
  * Parse GDELT date format (20251202T224500Z) to valid Date
+ * GDELT's seendate is when the article was indexed, not published.
+ * Articles may have similar timestamps if indexed in the same batch.
  */
-function parseGdeltDate(dateStr: string): Date {
-	if (!dateStr) return new Date();
-	// Convert 20251202T224500Z to 2025-12-02T22:45:00Z
+function parseGdeltDate(dateStr: string, index: number = 0): Date {
+	if (!dateStr) {
+		// If no date, create a date slightly in the past based on index
+		// This preserves order even when dates are missing
+		const now = new Date();
+		now.setMinutes(now.getMinutes() - index);
+		return now;
+	}
+
+	// Try GDELT format: 20251202T224500Z
 	const match = dateStr.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/);
 	if (match) {
 		const [, year, month, day, hour, min, sec] = match;
-		return new Date(`${year}-${month}-${day}T${hour}:${min}:${sec}Z`);
+		const date = new Date(`${year}-${month}-${day}T${hour}:${min}:${sec}Z`);
+		if (!isNaN(date.getTime())) {
+			return date;
+		}
 	}
-	// Fallback to standard parsing
-	return new Date(dateStr);
+
+	// Try standard date parsing
+	const parsed = new Date(dateStr);
+	if (!isNaN(parsed.getTime())) {
+		return parsed;
+	}
+
+	// Last resort: return a date based on index to preserve order
+	const now = new Date();
+	now.setMinutes(now.getMinutes() - index);
+	return now;
 }
 
 interface GdeltArticle {
@@ -69,7 +90,7 @@ function transformGdeltArticle(
 	const urlHash = article.url ? hashCode(article.url) : Math.random().toString(36).slice(2);
 	const uniqueId = `gdelt-${category}-${urlHash}-${index}`;
 
-	const parsedDate = parseGdeltDate(article.seendate);
+	const parsedDate = parseGdeltDate(article.seendate, index);
 
 	return {
 		id: uniqueId,
@@ -136,9 +157,13 @@ export async function fetchCategoryNews(category: NewsCategory): Promise<NewsIte
 		const categoryFeeds = FEEDS[category] || [];
 		const defaultSource = categoryFeeds[0]?.name || 'News';
 
-		return data.articles.map((article, index) =>
+		// Transform and sort by timestamp (newest first)
+		const items = data.articles.map((article, index) =>
 			transformGdeltArticle(article, category, article.domain || defaultSource, index)
 		);
+
+		// Sort by timestamp descending to ensure newest first
+		return items.sort((a, b) => b.timestamp - a.timestamp);
 	} catch (error) {
 		logger.error('News API', `Error fetching ${category}:`, error);
 		// Return empty array but log - callers should check if result is empty

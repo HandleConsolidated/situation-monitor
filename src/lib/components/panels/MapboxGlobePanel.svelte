@@ -90,7 +90,8 @@
 
 	// Interaction state
 	let tooltipLocked = $state(false);
-	let isRotating = $state(false); // Default to not rotating
+	let isRotating = $state(false); // Current rotation state
+	let userEnabledRotation = $state(false); // Track if user explicitly enabled rotation
 	let rotationAnimationId: number | null = null;
 
 	// Tooltip state
@@ -103,7 +104,7 @@
 		desc?: string;
 		level?: string;
 		newsCount?: number;
-		recentNews?: string[];
+		recentNews?: Array<{ title: string; link?: string }>; // Updated to include links
 		isAlert?: boolean;
 		timestamp?: number;
 		category?: string;
@@ -206,7 +207,7 @@
 						size: activity.level === 'critical' ? 12 : activity.level === 'high' ? 10 : 8,
 						newsCount: activity.newsCount,
 						hasAlert: activity.hasAlert,
-						recentNews: JSON.stringify(hotspotNews.slice(0, 3).map((n) => n.title))
+						recentNews: JSON.stringify(hotspotNews.slice(0, 3).map((n) => ({ title: n.title, link: n.link })))
 					}
 				});
 			});
@@ -437,7 +438,7 @@
 						opacity,
 						color: hasAlerts ? '#ef4444' : FEED_COLORS[category],
 						size: Math.min(10, 5 + newsItems.length),
-						recentNews: JSON.stringify(newsItems.slice(0, 3).map((n) => n.title))
+						recentNews: JSON.stringify(newsItems.slice(0, 3).map((n) => ({ title: n.title, link: n.link })))
 					}
 				});
 			});
@@ -663,8 +664,22 @@
 	}
 
 	function resumeRotation() {
+		// Only resume if user has explicitly enabled rotation via the play button
+		if (!userEnabledRotation) return;
 		isRotating = true;
 		startRotation();
+	}
+
+	// Toggle rotation from UI button
+	function toggleRotation() {
+		if (isRotating) {
+			userEnabledRotation = false;
+			pauseRotation();
+		} else {
+			userEnabledRotation = true;
+			isRotating = true;
+			startRotation();
+		}
 	}
 
 	// Initialize Mapbox map
@@ -851,6 +866,26 @@
 						'circle-stroke-color': '#ffffff',
 						'circle-stroke-width': 1,
 						'circle-stroke-opacity': 0.5
+					}
+				});
+
+				// Symbol layer for infrastructure marker icons
+				map.addLayer({
+					id: 'points-icons',
+					type: 'symbol',
+					source: 'points',
+					filter: ['has', 'icon'], // Only show icons for features that have an icon property
+					layout: {
+						'text-field': ['get', 'icon'],
+						'text-size': 12,
+						'text-allow-overlap': true,
+						'text-ignore-placement': true,
+						'text-anchor': 'center'
+					},
+					paint: {
+						'text-color': '#ffffff',
+						'text-halo-color': 'rgba(0, 0, 0, 0.8)',
+						'text-halo-width': 1
 					}
 				});
 
@@ -1095,6 +1130,39 @@
 		return () => clearInterval(pulseInterval);
 	});
 
+	// Animate threat corridor arcs with traveling pulse effect
+	$effect(() => {
+		if (!map || !isInitialized) return;
+
+		let arcPhase = 0;
+		const dashLength = 4;
+		const gapLength = 8;
+		const totalLength = dashLength + gapLength;
+
+		const arcInterval = setInterval(() => {
+			if (!map) return;
+			arcPhase = (arcPhase + 0.5) % totalLength;
+
+			try {
+				// Animate the main arc with a traveling dash pattern
+				map.setPaintProperty('arcs-layer', 'line-dasharray', [dashLength, gapLength]);
+				map.setPaintProperty('arcs-layer', 'line-offset', arcPhase);
+
+				// Pulse the glow opacity for dramatic effect
+				const glowOpacity = 0.4 + Math.sin((arcPhase / totalLength) * Math.PI * 2) * 0.3;
+				map.setPaintProperty('arcs-glow', 'line-opacity', glowOpacity);
+
+				// Animate the highlight with pulsing width
+				const highlightWidth = 0.6 + Math.sin((arcPhase / totalLength) * Math.PI * 4) * 0.4;
+				map.setPaintProperty('arcs-highlight', 'line-width', highlightWidth);
+			} catch {
+				// Layers might not exist yet
+			}
+		}, 40);
+
+		return () => clearInterval(arcInterval);
+	});
+
 	onMount(() => {
 		requestAnimationFrame(() => initMap());
 	});
@@ -1144,7 +1212,7 @@
 			<button
 				class="control-btn"
 				class:active={isRotating}
-				onclick={() => (isRotating ? pauseRotation() : resumeRotation())}
+				onclick={toggleRotation}
 				title={isRotating ? 'Pause rotation' : 'Start rotation'}
 			>
 				<span class="control-icon">{isRotating ? '⏸' : '▶'}</span>
@@ -1331,7 +1399,18 @@
 
 	<!-- Interactive Tooltip -->
 	{#if tooltipVisible && tooltipData}
-		<div class="globe-tooltip" style="left: {tooltipX}px; top: {tooltipY}px;">
+		<div
+			class="globe-tooltip"
+			class:locked={tooltipLocked}
+			style="left: {tooltipX}px; top: {tooltipY}px;"
+		>
+			{#if tooltipLocked}
+				<button
+					class="tooltip-close"
+					onclick={() => { tooltipLocked = false; tooltipVisible = false; tooltipData = null; }}
+					title="Close"
+				>×</button>
+			{/if}
 			<div class="tooltip-header">
 				<span
 					class="tooltip-type"
@@ -1372,8 +1451,17 @@
 			{#if tooltipData.recentNews && tooltipData.recentNews.length > 0}
 				<div class="tooltip-news">
 					<span class="news-label">Recent Headlines:</span>
-					{#each tooltipData.recentNews as headline}
-						<div class="news-headline">{headline}</div>
+					{#each tooltipData.recentNews as newsItem}
+						{#if typeof newsItem === 'object' && newsItem.link}
+							<a
+								class="news-headline clickable"
+								href={newsItem.link}
+								target="_blank"
+								rel="noopener noreferrer"
+							>{newsItem.title}</a>
+						{:else}
+							<div class="news-headline">{typeof newsItem === 'string' ? newsItem : newsItem.title}</div>
+						{/if}
 					{/each}
 				</div>
 			{/if}
@@ -1835,6 +1923,34 @@
 		box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.5);
 	}
 
+	.globe-tooltip.locked {
+		pointer-events: auto;
+	}
+
+	.tooltip-close {
+		position: absolute;
+		top: 0.25rem;
+		right: 0.25rem;
+		width: 18px;
+		height: 18px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: rgb(51 65 85 / 0.5);
+		border: 1px solid rgb(71 85 105 / 0.5);
+		border-radius: 2px;
+		color: rgb(148 163 184);
+		font-size: 14px;
+		line-height: 1;
+		cursor: pointer;
+		transition: all 0.15s ease;
+	}
+
+	.tooltip-close:hover {
+		background: rgb(71 85 105 / 0.8);
+		color: white;
+	}
+
 	.globe-tooltip::before,
 	.globe-tooltip::after {
 		content: '';
@@ -1976,6 +2092,7 @@
 	}
 
 	.news-headline {
+		display: block;
 		font-size: 0.5625rem;
 		color: rgb(203 213 225);
 		line-height: 1.3;
@@ -1984,10 +2101,20 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+		text-decoration: none;
 	}
 
 	.news-headline:last-child {
 		border-bottom: none;
+	}
+
+	.news-headline.clickable {
+		cursor: pointer;
+		transition: color 0.15s ease;
+	}
+
+	.news-headline.clickable:hover {
+		color: rgb(34 211 238);
 	}
 
 	@media (max-width: 480px) {
