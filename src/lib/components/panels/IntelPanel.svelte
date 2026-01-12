@@ -89,7 +89,7 @@
 					<a href={item.link} target="_blank" rel="noopener noreferrer" class="intel-title">
 						{item.title}
 					</a>
-					{#if item.pubDate}
+					{#if item.pubDate && getRelativeTime(item.pubDate)}
 						<div class="intel-meta">
 							<span>{getRelativeTime(item.pubDate)}</span>
 						</div>
