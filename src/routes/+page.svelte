@@ -25,7 +25,7 @@
 	} from '$lib/components/panels';
 	import { news, markets, monitors, settings, refresh, allNewsItems, layoutSettings } from '$lib/stores';
 	import {
-		fetchAllNews,
+		fetchAllNewsWithErrors,
 		fetchAllMarkets,
 		fetchPolymarket,
 		fetchWhaleTransactions,
@@ -68,9 +68,18 @@
 		categories.forEach((cat) => news.setLoading(cat, true));
 
 		try {
-			const data = await fetchAllNews();
-			Object.entries(data).forEach(([category, items]) => {
-				news.setItems(category as keyof typeof data, items);
+			const result = await fetchAllNewsWithErrors();
+
+			// Set items for each category
+			Object.entries(result.data).forEach(([category, items]) => {
+				news.setItems(category as keyof typeof result.data, items);
+			});
+
+			// Set errors for categories that failed
+			Object.entries(result.errors).forEach(([category, errorMsg]) => {
+				if (errorMsg && result.data[category as keyof typeof result.data].length === 0) {
+					news.setError(category as keyof typeof result.data, errorMsg);
+				}
 			});
 		} catch (error) {
 			categories.forEach((cat) => news.setError(cat, String(error)));
@@ -746,11 +755,13 @@
 		overflow-x: auto;
 		overflow-y: hidden;
 		flex-shrink: 0;
+		min-height: var(--bottom-height, 220px);
 	}
 
 	.bottom-panels > :global(*) {
-		flex: 0 0 280px;
-		max-height: var(--bottom-height, 220px);
+		flex: 0 0 320px;
+		min-height: var(--bottom-height, 200px);
+		max-height: var(--bottom-height, 280px);
 		overflow: hidden;
 	}
 

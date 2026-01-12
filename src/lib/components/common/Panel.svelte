@@ -82,9 +82,16 @@
 
 	<div class="panel-content" class:hidden={collapsed}>
 		{#if error}
-			<div class="error-msg">{error}</div>
+			<div class="error-state">
+				<span class="error-icon">⚠</span>
+				<div class="error-msg">{error}</div>
+				<div class="error-hint">Check connection or refresh</div>
+			</div>
 		{:else if loading}
-			<div class="loading-msg">Loading...</div>
+			<div class="loading-state">
+				<div class="loading-spinner-small"></div>
+				<div class="loading-msg">FETCHING DATA</div>
+			</div>
 		{:else}
 			{@render children()}
 		{/if}
@@ -269,20 +276,64 @@
 		display: none;
 	}
 
+	/* Error State Styling */
+	.error-state {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		padding: 1.5rem 1rem;
+		text-align: center;
+	}
+
+	.error-icon {
+		font-size: 1.25rem;
+		color: rgb(251 191 36); /* amber-400 */
+	}
+
 	.error-msg {
 		color: rgb(248 113 113); /* red-400 */
-		text-align: center;
-		padding: 1rem;
-		font-size: 0.75rem; /* text-xs (12px) */
+		font-size: 0.625rem; /* 10px */
 		font-family: 'SF Mono', Monaco, monospace;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		max-width: 200px;
+	}
+
+	.error-hint {
+		color: rgb(100 116 139); /* slate-500 */
+		font-size: 0.5625rem; /* 9px */
+		font-family: 'SF Mono', Monaco, monospace;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+	}
+
+	/* Loading State Styling */
+	.loading-state {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 0.75rem;
+		padding: 1.5rem 1rem;
+	}
+
+	.loading-spinner-small {
+		width: 20px;
+		height: 20px;
+		border: 2px solid rgb(51 65 85); /* slate-700 */
+		border-top-color: rgb(34 211 238); /* cyan-400 */
+		border-radius: 50%;
+		animation: spin 1s linear infinite;
 	}
 
 	.loading-msg {
 		color: rgb(148 163 184); /* slate-400 */
 		text-align: center;
-		padding: 1rem;
-		font-size: 0.75rem; /* text-xs (12px) */
+		font-size: 0.5625rem; /* 9px */
+		font-family: 'SF Mono', Monaco, monospace;
 		text-transform: uppercase;
-		letter-spacing: 0.1em;
+		letter-spacing: 0.15em;
 	}
 </style>
