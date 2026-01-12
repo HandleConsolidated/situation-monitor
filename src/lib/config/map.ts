@@ -42,6 +42,20 @@ export interface MilitaryBase {
 	desc: string;
 }
 
+export interface OutageEvent {
+	id: string;
+	name: string;
+	lat: number;
+	lon: number;
+	type: 'internet' | 'power' | 'both';
+	severity: 'partial' | 'major' | 'total';
+	region?: string;
+	desc: string;
+	affectedPopulation?: number;
+	startTime?: string;
+	active: boolean;
+}
+
 export interface Ocean {
 	name: string;
 	lat: number;
@@ -361,6 +375,154 @@ export const OCEANS: Ocean[] = [
 	{ name: 'INDIAN', lat: -20, lon: 75 },
 	{ name: 'ARCTIC', lat: 75, lon: 0 },
 	{ name: 'SOUTHERN', lat: -60, lon: 0 }
+];
+
+// Internet blackouts and power outage events
+export const OUTAGE_EVENTS: OutageEvent[] = [
+	{
+		id: 'iran-blackout',
+		name: 'Iran Internet Blackout',
+		lat: 32.4,
+		lon: 53.7,
+		type: 'internet',
+		severity: 'major',
+		region: 'Iran',
+		desc: 'Periodic government-imposed internet blackouts during protests',
+		affectedPopulation: 85000000,
+		active: true
+	},
+	{
+		id: 'myanmar-shutdown',
+		name: 'Myanmar Connectivity',
+		lat: 19.7,
+		lon: 96.1,
+		type: 'internet',
+		severity: 'partial',
+		region: 'Myanmar',
+		desc: 'Military junta internet restrictions and mobile data throttling',
+		affectedPopulation: 54000000,
+		active: true
+	},
+	{
+		id: 'ukraine-infrastructure',
+		name: 'Ukraine Infrastructure',
+		lat: 48.4,
+		lon: 35.0,
+		type: 'both',
+		severity: 'major',
+		region: 'Eastern Ukraine',
+		desc: 'Power grid attacks and communication infrastructure damage from conflict',
+		affectedPopulation: 10000000,
+		active: true
+	},
+	{
+		id: 'gaza-blackout',
+		name: 'Gaza Communications',
+		lat: 31.4,
+		lon: 34.4,
+		type: 'both',
+		severity: 'total',
+		region: 'Gaza Strip',
+		desc: 'Complete communications and power blackout due to conflict',
+		affectedPopulation: 2300000,
+		active: true
+	},
+	{
+		id: 'sudan-outage',
+		name: 'Sudan Infrastructure',
+		lat: 15.5,
+		lon: 32.5,
+		type: 'both',
+		severity: 'major',
+		region: 'Sudan',
+		desc: 'Widespread power and internet disruptions from civil conflict',
+		affectedPopulation: 45000000,
+		active: true
+	},
+	{
+		id: 'ethiopia-tigray',
+		name: 'Tigray Region',
+		lat: 14.1,
+		lon: 38.8,
+		type: 'both',
+		severity: 'partial',
+		region: 'Northern Ethiopia',
+		desc: 'Communications blackout in conflict-affected regions',
+		affectedPopulation: 6000000,
+		active: true
+	},
+	{
+		id: 'russia-censorship',
+		name: 'Russia Internet Restrictions',
+		lat: 55.75,
+		lon: 37.6,
+		type: 'internet',
+		severity: 'partial',
+		region: 'Russia',
+		desc: 'Government-imposed internet censorship and VPN restrictions',
+		affectedPopulation: 144000000,
+		active: true
+	},
+	{
+		id: 'xinjiang-restrictions',
+		name: 'Xinjiang Digital Control',
+		lat: 41.8,
+		lon: 87.6,
+		type: 'internet',
+		severity: 'major',
+		region: 'Xinjiang, China',
+		desc: 'Heavy surveillance and internet restrictions in region',
+		affectedPopulation: 26000000,
+		active: true
+	},
+	{
+		id: 'cuba-connectivity',
+		name: 'Cuba Internet Access',
+		lat: 21.5,
+		lon: -80.0,
+		type: 'internet',
+		severity: 'partial',
+		region: 'Cuba',
+		desc: 'Limited internet access and government restrictions',
+		affectedPopulation: 11000000,
+		active: true
+	},
+	{
+		id: 'venezuela-power',
+		name: 'Venezuela Power Grid',
+		lat: 8.0,
+		lon: -66.0,
+		type: 'power',
+		severity: 'partial',
+		region: 'Venezuela',
+		desc: 'Chronic power grid failures and rolling blackouts',
+		affectedPopulation: 28000000,
+		active: true
+	},
+	{
+		id: 'north-korea',
+		name: 'North Korea',
+		lat: 39.03,
+		lon: 125.75,
+		type: 'internet',
+		severity: 'total',
+		region: 'North Korea',
+		desc: 'No public internet access - isolated intranet only',
+		affectedPopulation: 26000000,
+		active: true
+	},
+	{
+		id: 'syria-infrastructure',
+		name: 'Syria Infrastructure',
+		lat: 35.0,
+		lon: 38.0,
+		type: 'both',
+		severity: 'major',
+		region: 'Syria',
+		desc: 'War-damaged power grid and internet infrastructure',
+		affectedPopulation: 22000000,
+		active: true
+	}
 ];
 
 export const WEATHER_CODES: Record<number, string> = {

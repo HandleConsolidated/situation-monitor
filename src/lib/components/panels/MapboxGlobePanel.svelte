@@ -8,6 +8,7 @@
 		CABLE_LANDINGS,
 		NUCLEAR_SITES,
 		MILITARY_BASES,
+		OUTAGE_EVENTS,
 		THREAT_COLORS,
 		HOTSPOT_KEYWORDS
 	} from '$lib/config/map';
@@ -68,6 +69,7 @@
 		cables: { visible: true, paused: false },
 		nuclear: { visible: true, paused: false },
 		military: { visible: true, paused: false },
+		outages: { visible: true, paused: false },
 		monitors: { visible: true, paused: false },
 		news: { visible: true, paused: false },
 		arcs: { visible: true, paused: false }
@@ -531,6 +533,48 @@
 		return coords;
 	}
 
+	// Generate outage events overlay GeoJSON
+	function getOutagesGeoJSON(): GeoJSON.FeatureCollection {
+		if (!dataLayers.outages.visible) {
+			return { type: 'FeatureCollection', features: [] };
+		}
+
+		const features: GeoJSON.Feature[] = [];
+		const severityColors = {
+			total: '#dc2626', // Red - complete blackout
+			major: '#ea580c', // Orange - major disruption
+			partial: '#ca8a04' // Yellow - partial issues
+		};
+
+		const typeIcons = {
+			internet: '⊘', // No internet symbol
+			power: '⚡', // Power/lightning
+			both: '◉' // Combined - filled circle
+		};
+
+		OUTAGE_EVENTS.filter((e) => e.active).forEach((event) => {
+			features.push({
+				type: 'Feature',
+				geometry: { type: 'Point', coordinates: [event.lon, event.lat] },
+				properties: {
+					id: event.id,
+					label: event.name,
+					type: 'outage',
+					outageType: event.type,
+					severity: event.severity,
+					region: event.region,
+					desc: event.desc,
+					affectedPopulation: event.affectedPopulation,
+					color: severityColors[event.severity],
+					icon: typeIcons[event.type],
+					size: event.severity === 'total' ? 14 : event.severity === 'major' ? 12 : 10
+				}
+			});
+		});
+
+		return { type: 'FeatureCollection', features };
+	}
+
 	// Get pulsing rings (hotspots with alerts or critical level)
 	function getPulsingRingsGeoJSON(): GeoJSON.FeatureCollection {
 		const features: GeoJSON.Feature[] = [];
@@ -587,6 +631,7 @@
 			nuclear: 'NUCLEAR SITE',
 			military: 'MILITARY BASE',
 			monitor: 'CUSTOM MONITOR',
+			outage: 'CONNECTIVITY OUTAGE',
 			'news-cluster': 'NEWS ACTIVITY',
 			'feed-news': category ? FEED_LABELS[category as keyof typeof FEED_LABELS] || 'NEWS FEED' : 'NEWS FEED'
 		};
@@ -634,6 +679,9 @@
 
 			const newsSource = map.getSource('news-events') as mapboxgl.GeoJSONSource;
 			if (newsSource) newsSource.setData(getNewsEventsGeoJSON());
+
+			const outagesSource = map.getSource('outages') as mapboxgl.GeoJSONSource;
+			if (outagesSource) outagesSource.setData(getOutagesGeoJSON());
 		} catch (e) {
 			// Sources might not exist yet
 		}
@@ -752,6 +800,7 @@
 				map.addSource('pulsing-rings', { type: 'geojson', data: getPulsingRingsGeoJSON() });
 				map.addSource('labels', { type: 'geojson', data: getLabelsGeoJSON() });
 				map.addSource('news-events', { type: 'geojson', data: getNewsEventsGeoJSON() });
+				map.addSource('outages', { type: 'geojson', data: getOutagesGeoJSON() });
 
 				// Add layers
 
@@ -841,6 +890,66 @@
 						'circle-stroke-color': '#ffffff',
 						'circle-stroke-width': 1,
 						'circle-stroke-opacity': 0.5
+					}
+				});
+
+				// Outage layer - outer pulsing ring for visibility
+				map.addLayer({
+					id: 'outages-pulse',
+					type: 'circle',
+					source: 'outages',
+					paint: {
+						'circle-radius': ['*', ['get', 'size'], 2],
+						'circle-color': ['get', 'color'],
+						'circle-opacity': 0.15,
+						'circle-blur': 1
+					}
+				});
+
+				// Outage layer - inner glow
+				map.addLayer({
+					id: 'outages-glow',
+					type: 'circle',
+					source: 'outages',
+					paint: {
+						'circle-radius': ['*', ['get', 'size'], 1.5],
+						'circle-color': ['get', 'color'],
+						'circle-opacity': 0.3,
+						'circle-blur': 0.5
+					}
+				});
+
+				// Outage layer - main marker
+				map.addLayer({
+					id: 'outages-layer',
+					type: 'circle',
+					source: 'outages',
+					paint: {
+						'circle-radius': ['coalesce', ['get', 'size'], 10],
+						'circle-color': ['get', 'color'],
+						'circle-opacity': 0.8,
+						'circle-stroke-color': '#1e1b4b',
+						'circle-stroke-width': 2,
+						'circle-stroke-opacity': 0.9
+					}
+				});
+
+				// Outage layer - icon symbols
+				map.addLayer({
+					id: 'outages-icons',
+					type: 'symbol',
+					source: 'outages',
+					layout: {
+						'text-field': ['get', 'icon'],
+						'text-size': 14,
+						'text-allow-overlap': true,
+						'text-ignore-placement': true,
+						'text-anchor': 'center'
+					},
+					paint: {
+						'text-color': '#ffffff',
+						'text-halo-color': 'rgba(0, 0, 0, 0.8)',
+						'text-halo-width': 1
 					}
 				});
 
@@ -934,7 +1043,7 @@
 	function setupInteractivity() {
 		if (!map) return;
 
-		const interactiveLayers = ['points-layer', 'news-events-layer'];
+		const interactiveLayers = ['points-layer', 'news-events-layer', 'outages-layer'];
 
 		interactiveLayers.forEach((layerId) => {
 			map!.on('mouseenter', layerId, () => {
@@ -1000,15 +1109,39 @@
 			pauseRotation();
 		});
 
+		map.on('mousemove', 'outages-layer', (e) => {
+			if (!e.features || e.features.length === 0 || tooltipLocked) return;
+
+			const feature = e.features[0];
+			const props = feature.properties;
+
+			const affectedPop = props?.affectedPopulation
+				? `~${(props.affectedPopulation / 1000000).toFixed(1)}M people affected`
+				: '';
+
+			tooltipData = {
+				label: props?.label || '',
+				type: 'outage',
+				desc: `${props?.desc || ''}${affectedPop ? ` — ${affectedPop}` : ''}`,
+				level: props?.severity,
+				isAlert: props?.severity === 'total'
+			};
+			tooltipVisible = true;
+			updateTooltipPosition(e.point);
+			pauseRotation();
+		});
+
 		map.on('mouseleave', 'points-layer', handleMouseLeave);
 		map.on('mouseleave', 'news-events-layer', handleMouseLeave);
+		map.on('mouseleave', 'outages-layer', handleMouseLeave);
 
 		map.on('click', 'points-layer', (e) => handlePointClick(e));
 		map.on('click', 'news-events-layer', (e) => handlePointClick(e));
+		map.on('click', 'outages-layer', (e) => handleOutageClick(e));
 
 		map.on('click', (e) => {
 			const features = map?.queryRenderedFeatures(e.point, {
-				layers: ['points-layer', 'news-events-layer']
+				layers: ['points-layer', 'news-events-layer', 'outages-layer']
 			});
 			if (!features || features.length === 0) {
 				if (tooltipLocked) {
@@ -1057,6 +1190,35 @@
 			isAlert: props?.hasAlerts || props?.hasAlert,
 			category: props?.category,
 			categoryLabel: props?.categoryLabel
+		};
+		tooltipVisible = true;
+		tooltipLocked = true;
+		updateTooltipPosition(e.point);
+		pauseRotation();
+	}
+
+	function handleOutageClick(e: mapboxgl.MapMouseEvent & { features?: mapboxgl.MapboxGeoJSONFeature[] }) {
+		if (!e.features || e.features.length === 0) return;
+
+		const feature = e.features[0];
+		const props = feature.properties;
+
+		const affectedPop = props?.affectedPopulation
+			? `~${(props.affectedPopulation / 1000000).toFixed(1)}M people affected`
+			: '';
+
+		const outageTypeLabel = props?.outageType === 'both'
+			? 'Internet + Power'
+			: props?.outageType === 'internet'
+				? 'Internet Blackout'
+				: 'Power Outage';
+
+		tooltipData = {
+			label: props?.label || '',
+			type: 'outage',
+			desc: `${outageTypeLabel}. ${props?.desc || ''}${affectedPop ? ` — ${affectedPop}` : ''}`,
+			level: props?.severity,
+			isAlert: props?.severity === 'total'
 		};
 		tooltipVisible = true;
 		tooltipLocked = true;
@@ -1165,6 +1327,37 @@
 		}, 40);
 
 		return () => clearInterval(arcInterval);
+	});
+
+	// Animate outage markers with flickering/pulsing effect
+	$effect(() => {
+		if (!map || !isInitialized) return;
+
+		let outagePhase = 0;
+		const outageInterval = setInterval(() => {
+			if (!map) return;
+			outagePhase = (outagePhase + 1) % 100;
+
+			try {
+				// Outer pulse ring expands and fades
+				const pulseRadius = 2 + Math.sin((outagePhase / 100) * Math.PI * 2) * 0.8;
+				const pulseOpacity = 0.1 + Math.sin((outagePhase / 100) * Math.PI * 2) * 0.1;
+				map.setPaintProperty('outages-pulse', 'circle-radius', ['*', ['get', 'size'], pulseRadius]);
+				map.setPaintProperty('outages-pulse', 'circle-opacity', pulseOpacity);
+
+				// Glow flicker effect
+				const glowOpacity = 0.25 + Math.sin((outagePhase / 50) * Math.PI * 2) * 0.15;
+				map.setPaintProperty('outages-glow', 'circle-opacity', glowOpacity);
+
+				// Main marker subtle pulse
+				const mainOpacity = 0.7 + Math.sin((outagePhase / 100) * Math.PI * 2) * 0.2;
+				map.setPaintProperty('outages-layer', 'circle-opacity', mainOpacity);
+			} catch {
+				// Layers might not exist yet
+			}
+		}, 30);
+
+		return () => clearInterval(outageInterval);
 	});
 
 	onMount(() => {
@@ -1390,6 +1583,23 @@
 							<div class="legend-item">
 								<span class="legend-icon" style="color: #708090;">★</span>
 								<span class="legend-label">Military Base</span>
+							</div>
+						</div>
+					</div>
+					<div class="legend-section">
+						<span class="legend-section-title">OUTAGES</span>
+						<div class="legend-items">
+							<div class="legend-item">
+								<span class="legend-marker outage-total"></span>
+								<span class="legend-label">Total Blackout</span>
+							</div>
+							<div class="legend-item">
+								<span class="legend-marker outage-major"></span>
+								<span class="legend-label">Major Disruption</span>
+							</div>
+							<div class="legend-item">
+								<span class="legend-marker outage-partial"></span>
+								<span class="legend-label">Partial Outage</span>
 							</div>
 						</div>
 					</div>
@@ -1884,6 +2094,36 @@
 		height: 6px;
 		border-radius: 50%;
 		flex-shrink: 0;
+	}
+
+	.legend-marker.outage-total {
+		background: #dc2626;
+		box-shadow: 0 0 6px #dc2626;
+		animation: outage-pulse 1.5s ease-in-out infinite;
+	}
+
+	.legend-marker.outage-major {
+		background: #ea580c;
+		box-shadow: 0 0 4px #ea580c;
+		animation: outage-pulse 2s ease-in-out infinite;
+	}
+
+	.legend-marker.outage-partial {
+		background: #ca8a04;
+		box-shadow: 0 0 3px #ca8a04;
+		animation: outage-pulse 2.5s ease-in-out infinite;
+	}
+
+	@keyframes outage-pulse {
+		0%,
+		100% {
+			opacity: 1;
+			transform: scale(1);
+		}
+		50% {
+			opacity: 0.5;
+			transform: scale(1.2);
+		}
 	}
 
 	/* Infrastructure markers now use icons - see .legend-icon */
