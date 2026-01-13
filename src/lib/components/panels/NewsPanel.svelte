@@ -31,7 +31,7 @@
 
 <Panel id={panelId} {title} {count} {loading} {error}>
 	{#if items.length === 0 && !loading && !error}
-		<div class="empty-state">No news available</div>
+		<div class="text-center text-[10px] sm:text-xs text-[var(--text-secondary)] p-4">No news available</div>
 	{:else}
 		<div class="news-list">
 			{#each items.slice(0, 15) as item (item.id)}
@@ -45,12 +45,5 @@
 	.news-list {
 		display: flex;
 		flex-direction: column;
-	}
-
-	.empty-state {
-		text-align: center;
-		color: var(--text-secondary);
-		font-size: 0.7rem;
-		padding: 1rem;
 	}
 </style>

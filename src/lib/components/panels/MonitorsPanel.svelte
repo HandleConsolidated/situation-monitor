@@ -38,16 +38,16 @@
 	<div class="monitors-content">
 		{#if monitors.length === 0 && !loading && !error}
 			<div class="empty-state">
-				<p>No monitors configured</p>
+				<p class="text-[10px] sm:text-xs">No monitors configured</p>
 				{#if onCreateMonitor}
-					<button class="create-btn" onclick={onCreateMonitor}> + CREATE MONITOR </button>
+					<button class="create-btn text-[10px] sm:text-xs" onclick={onCreateMonitor}> + CREATE MONITOR </button>
 				{/if}
 			</div>
 		{:else}
 			<div class="monitors-header">
-				<span class="active-count">{activeMonitors.length} ACTIVE</span>
+				<span class="active-count text-[10px] sm:text-xs">{activeMonitors.length} ACTIVE</span>
 				{#if onCreateMonitor}
-					<button class="add-btn" onclick={onCreateMonitor}>+</button>
+					<button class="add-btn text-xs sm:text-sm" onclick={onCreateMonitor}>+</button>
 				{/if}
 			</div>
 
@@ -62,7 +62,7 @@
 										style="background: {monitor.color}; box-shadow: 0 0 8px {monitor.color}"
 									></span>
 								{/if}
-								<span class="monitor-name">{monitor.name}</span>
+								<span class="monitor-name text-[10px] sm:text-xs">{monitor.name}</span>
 								{#if monitor.matchCount > 0}
 									<Badge text={String(monitor.matchCount)} variant="info" />
 								{/if}
@@ -70,7 +70,7 @@
 							<div class="monitor-actions">
 								{#if onToggleMonitor}
 									<button
-										class="action-btn"
+										class="action-btn text-[10px] sm:text-xs"
 										class:active={monitor.enabled}
 										onclick={() => onToggleMonitor?.(monitor.id)}
 										title={monitor.enabled ? 'Disable' : 'Enable'}
@@ -79,13 +79,13 @@
 									</button>
 								{/if}
 								{#if onEditMonitor}
-									<button class="action-btn" onclick={() => onEditMonitor?.(monitor)} title="Edit">
+									<button class="action-btn text-[10px] sm:text-xs" onclick={() => onEditMonitor?.(monitor)} title="Edit">
 										✎
 									</button>
 								{/if}
 								{#if onDeleteMonitor}
 									<button
-										class="action-btn delete"
+										class="action-btn delete text-[10px] sm:text-xs"
 										onclick={() => onDeleteMonitor?.(monitor.id)}
 										title="Delete"
 									>

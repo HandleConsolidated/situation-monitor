@@ -23,38 +23,104 @@ const isDev = browser ? (import.meta.env?.DEV ?? false) : false;
 
 /**
  * CORS proxy URLs for external API requests
+ * Multiple proxies for redundancy - tries each in order until one works
  * Primary: Custom Cloudflare Worker (faster, dedicated)
- * Fallback: corsproxy.io (public, may rate limit)
+ * Fallbacks: Various public proxies (may rate limit or block certain traffic)
  */
 export const CORS_PROXIES = {
 	primary: 'https://situation-monitor-proxy.seanthielen-e.workers.dev/?url=',
-	fallback: 'https://corsproxy.io/?url='
+	fallback: 'https://corsproxy.io/?url=',
+	// Additional fallback proxies for better reliability
+	allOrigins: 'https://api.allorigins.win/raw?url=',
+	corsfix: 'https://proxy.cors.sh/'
 } as const;
 
 // Default export for backward compatibility
 export const CORS_PROXY_URL = CORS_PROXIES.fallback;
 
 /**
- * Fetch with CORS proxy fallback
- * Tries primary proxy first, falls back to secondary on failure
+ * Fetch options for CORS proxy requests
  */
-export async function fetchWithProxy(url: string): Promise<Response> {
+export interface FetchWithProxyOptions {
+	headers?: Record<string, string>;
+	maxRetries?: number;
+	retryDelay?: number;
+}
+
+/**
+ * Fetch with CORS proxy fallback and retry logic
+ * Tries multiple proxies in order, with configurable retries
+ * Supports custom headers for authenticated APIs
+ */
+export async function fetchWithProxy(
+	url: string,
+	options: FetchWithProxyOptions = {}
+): Promise<Response> {
+	const { headers = {}, maxRetries = 2, retryDelay = 1000 } = options;
 	const encodedUrl = encodeURIComponent(url);
 
-	// Try primary proxy first
-	try {
-		const response = await fetch(CORS_PROXIES.primary + encodedUrl);
-		if (response.ok) {
-			return response;
+	// List of proxies to try in order
+	const proxiesToTry = [
+		{ name: 'primary', url: CORS_PROXIES.primary + encodedUrl },
+		{ name: 'corsproxy', url: CORS_PROXIES.fallback + encodedUrl },
+		{ name: 'allOrigins', url: CORS_PROXIES.allOrigins + encodedUrl }
+	];
+
+	let lastError: Error | null = null;
+
+	for (const proxy of proxiesToTry) {
+		for (let attempt = 0; attempt < maxRetries; attempt++) {
+			try {
+				const response = await fetch(proxy.url, {
+					headers: {
+						Accept: 'application/json',
+						...headers
+					}
+				});
+
+				if (response.ok) {
+					return response;
+				}
+
+				// Log non-OK responses but continue trying
+				if (response.status >= 400 && response.status < 500) {
+					// Client errors (4xx) - likely won't succeed with retry
+					logger.warn('API', `${proxy.name} proxy returned ${response.status} for ${url}`);
+					break; // Try next proxy
+				}
+
+				// Server errors (5xx) - might succeed with retry
+				logger.warn('API', `${proxy.name} proxy returned ${response.status}, attempt ${attempt + 1}/${maxRetries}`);
+			} catch (error) {
+				lastError = error instanceof Error ? error : new Error(String(error));
+				logger.warn('API', `${proxy.name} proxy error (attempt ${attempt + 1}/${maxRetries}):`, lastError.message);
+			}
+
+			// Wait before retry (but not after last attempt)
+			if (attempt < maxRetries - 1) {
+				await new Promise((resolve) => setTimeout(resolve, retryDelay));
+			}
 		}
-		// If we get an error response, try fallback
-		logger.warn('API', `Primary proxy failed (${response.status}), trying fallback`);
-	} catch (error) {
-		logger.warn('API', 'Primary proxy error, trying fallback:', error);
 	}
 
-	// Fallback to secondary proxy
-	return fetch(CORS_PROXIES.fallback + encodedUrl);
+	// All proxies failed - throw the last error
+	throw lastError || new Error(`All CORS proxies failed for ${url}`);
+}
+
+/**
+ * Fetch with custom headers directly (no proxy)
+ * Useful for APIs that support CORS but need authentication
+ */
+export async function fetchWithHeaders(
+	url: string,
+	headers: Record<string, string> = {}
+): Promise<Response> {
+	return fetch(url, {
+		headers: {
+			Accept: 'application/json',
+			...headers
+		}
+	});
 }
 
 /**

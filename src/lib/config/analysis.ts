@@ -124,102 +124,127 @@ export const CORRELATION_TOPICS: CorrelationTopic[] = [
 	}
 ];
 
+// Narrative patterns - expanded with more common keywords that appear in mainstream news
 export const NARRATIVE_PATTERNS: NarrativePattern[] = [
 	{
 		id: 'deep-state',
-		keywords: ['deep state', 'shadow government', 'permanent state'],
+		keywords: ['deep state', 'shadow government', 'permanent state', 'bureaucracy corruption', 'unelected officials'],
 		category: 'Political',
 		severity: 'watch'
 	},
 	{
 		id: 'cbdc-control',
-		keywords: ['cbdc control', 'digital currency surveillance', 'social credit'],
+		keywords: ['cbdc', 'central bank digital', 'digital dollar', 'digital euro', 'digital yuan', 'programmable money', 'social credit'],
 		category: 'Finance',
 		severity: 'watch'
 	},
 	{
 		id: 'wef-agenda',
-		keywords: ['great reset', 'wef agenda', 'world economic forum plot'],
+		keywords: ['great reset', 'world economic forum', 'davos', 'stakeholder capitalism', 'global governance'],
 		category: 'Political',
 		severity: 'watch'
 	},
 	{
 		id: 'bio-weapon',
-		keywords: ['lab leak', 'bioweapon', 'gain of function'],
+		keywords: ['lab leak', 'bioweapon', 'gain of function', 'wuhan lab', 'virus origin', 'lab origin'],
 		category: 'Health',
 		severity: 'emerging'
 	},
 	{
-		id: 'election-fraud',
-		keywords: ['election fraud', 'rigged election', 'stolen election', 'mail ballot fraud'],
+		id: 'election-integrity',
+		keywords: ['election fraud', 'rigged election', 'stolen election', 'voter fraud', 'election interference', 'ballot', 'voting machine'],
 		category: 'Political',
 		severity: 'watch'
 	},
 	{
-		id: 'ai-doom',
-		keywords: ['ai doom', 'ai extinction', 'superintelligence risk', 'agi danger'],
+		id: 'ai-risk',
+		keywords: ['ai risk', 'ai danger', 'ai threat', 'ai doom', 'ai extinction', 'superintelligence', 'agi', 'existential risk', 'ai safety'],
 		category: 'Tech',
 		severity: 'emerging'
 	},
 	{
 		id: 'ai-consciousness',
-		keywords: ['ai sentient', 'ai conscious', 'ai feelings', 'ai alive'],
+		keywords: ['ai sentient', 'ai conscious', 'ai feelings', 'ai alive', 'machine consciousness'],
 		category: 'Tech',
 		severity: 'emerging'
 	},
 	{
-		id: 'robot-replacement',
-		keywords: ['robots replacing', 'automation unemployment', 'job automation'],
+		id: 'job-automation',
+		keywords: ['robots replacing', 'automation', 'job loss', 'ai replacing', 'workers displaced', 'unemployment ai'],
 		category: 'Economy',
 		severity: 'spreading'
 	},
 	{
-		id: 'china-invasion',
-		keywords: ['china taiwan invasion', 'china war', 'south china sea conflict'],
+		id: 'china-threat',
+		keywords: ['china threat', 'taiwan invasion', 'china war', 'south china sea', 'chinese military', 'china aggression', 'chinese spy'],
 		category: 'Geopolitical',
 		severity: 'watch'
 	},
 	{
-		id: 'nato-expansion',
-		keywords: ['nato provocation', 'nato aggression', 'nato encirclement'],
+		id: 'nato-russia',
+		keywords: ['nato expansion', 'nato provocation', 'russia nato', 'nato aggression', 'nuclear threat', 'world war'],
 		category: 'Geopolitical',
 		severity: 'watch'
 	},
 	{
-		id: 'dollar-collapse',
-		keywords: ['dollar collapse', 'dedollarization', 'brics currency', 'petrodollar death'],
+		id: 'dollar-decline',
+		keywords: ['dollar collapse', 'dedollarization', 'brics', 'petrodollar', 'dollar reserve', 'us debt'],
 		category: 'Finance',
 		severity: 'spreading'
 	},
 	{
-		id: 'vaccine-injury',
-		keywords: ['vaccine injury', 'vaccine side effect', 'vaccine death', 'turbo cancer'],
+		id: 'vaccine-concerns',
+		keywords: ['vaccine injury', 'vaccine side effect', 'vaccine mandate', 'vaccine hesitancy', 'mrna concern'],
 		category: 'Health',
 		severity: 'watch'
 	},
 	{
-		id: 'next-pandemic',
-		keywords: ['next pandemic', 'disease x', 'bird flu pandemic'],
+		id: 'pandemic-threat',
+		keywords: ['next pandemic', 'disease x', 'bird flu', 'h5n1', 'new virus', 'outbreak', 'epidemic', 'pandemic preparedness'],
 		category: 'Health',
 		severity: 'emerging'
 	},
 	{
-		id: 'depopulation',
-		keywords: ['depopulation agenda', 'fertility crisis', 'population control'],
+		id: 'population-crisis',
+		keywords: ['fertility crisis', 'birth rate', 'population decline', 'demographic crisis', 'aging population'],
 		category: 'Society',
-		severity: 'disinfo'
+		severity: 'watch'
 	},
 	{
-		id: 'food-crisis',
-		keywords: ['food shortage', 'engineered famine', 'food supply attack'],
+		id: 'food-security',
+		keywords: ['food shortage', 'food crisis', 'famine', 'food supply', 'crop failure', 'food price', 'hunger'],
 		category: 'Economy',
 		severity: 'emerging'
 	},
 	{
-		id: 'energy-war',
-		keywords: ['energy crisis manufactured', 'green agenda', 'energy shortage'],
+		id: 'energy-crisis',
+		keywords: ['energy crisis', 'power grid', 'blackout', 'energy shortage', 'fuel shortage', 'oil crisis', 'gas crisis'],
 		category: 'Economy',
 		severity: 'spreading'
+	},
+	{
+		id: 'misinformation',
+		keywords: ['misinformation', 'disinformation', 'fake news', 'propaganda', 'fact check', 'censorship'],
+		category: 'Society',
+		severity: 'spreading'
+	},
+	{
+		id: 'cyber-threat',
+		keywords: ['cyber attack', 'hacking', 'ransomware', 'data breach', 'cyber warfare', 'critical infrastructure'],
+		category: 'Security',
+		severity: 'emerging'
+	},
+	{
+		id: 'bank-instability',
+		keywords: ['bank failure', 'bank run', 'banking crisis', 'bank collapse', 'financial crisis', 'credit crunch'],
+		category: 'Finance',
+		severity: 'watch'
+	},
+	{
+		id: 'surveillance',
+		keywords: ['surveillance', 'privacy', 'spying', 'mass surveillance', 'data collection', 'tracking'],
+		category: 'Society',
+		severity: 'watch'
 	}
 ];
 
@@ -238,16 +263,31 @@ export const SOURCE_TYPES: SourceTypes = {
 	mainstream: [
 		'reuters',
 		'ap news',
+		'apnews',
 		'bbc',
 		'cnn',
 		'nytimes',
+		'nyt',
 		'wsj',
 		'wapo',
+		'washingtonpost',
 		'guardian',
+		'theguardian',
 		'abc',
 		'nbc',
 		'cbs',
-		'fox'
+		'fox',
+		'npr',
+		'politico',
+		'axios',
+		'bloomberg',
+		'cnbc',
+		'forbes',
+		'businessinsider',
+		'techcrunch',
+		'theverge',
+		'wired',
+		'arstechnica'
 	]
 };
 

@@ -5,12 +5,13 @@
 		open: boolean;
 		title: string;
 		onClose: () => void;
+		size?: 'default' | 'large' | 'half-page';
 		header?: Snippet;
 		footer?: Snippet;
 		children: Snippet;
 	}
 
-	let { open = false, title, onClose, header, footer, children }: Props = $props();
+	let { open = false, title, onClose, size = 'default', header, footer, children }: Props = $props();
 
 	function handleBackdropClick(e: MouseEvent) {
 		if (e.target === e.currentTarget) {
@@ -31,7 +32,7 @@
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div class="modal-backdrop" onclick={handleBackdropClick}>
-		<div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+		<div class="modal modal-{size}" role="dialog" aria-modal="true" aria-labelledby="modal-title">
 			<!-- Tech Corner Decorations -->
 			<div class="tech-corner top-left"></div>
 			<div class="tech-corner top-right"></div>
@@ -64,19 +65,19 @@
 		position: fixed;
 		inset: 0;
 		/* Aegis backdrop: bg-black/80 backdrop-blur-sm */
-		background: rgb(0 0 0 / 0.8);
+		background: rgb(0 0 0 / 0.85);
 		backdrop-filter: blur(4px);
 		-webkit-backdrop-filter: blur(4px);
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		z-index: 1000;
+		z-index: 9999;
 		padding: 1rem;
 	}
 
 	.modal {
 		/* Aegis glass morphism: bg-slate-950/80 backdrop-blur-md */
-		background: rgb(2 6 23 / 0.8);
+		background: rgb(2 6 23 / 0.95);
 		backdrop-filter: blur(12px);
 		-webkit-backdrop-filter: blur(12px);
 		/* Aegis border: border border-slate-700/50 */
@@ -92,6 +93,20 @@
 		isolation: isolate;
 		/* Aegis shadow: shadow-2xl */
 		box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.25);
+	}
+
+	/* Large modal - wider */
+	.modal.modal-large {
+		max-width: 700px;
+	}
+
+	/* Half-page modal - centered, takes up ~50% of viewport */
+	.modal.modal-half-page {
+		max-width: 600px;
+		width: 90%;
+		height: 50vh;
+		min-height: 400px;
+		max-height: 70vh;
 	}
 
 	/* Tech Corner Decorations - 8px x 8px with cyan-500/50 border */

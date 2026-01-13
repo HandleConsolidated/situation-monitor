@@ -48,22 +48,22 @@
 
 <Panel id="correlation" title="Pattern Analysis" {loading} {error}>
 	{#if news.length === 0 && !loading && !error}
-		<div class="empty-state">Insufficient data for analysis</div>
+		<div class="empty-state text-[10px] sm:text-xs">Insufficient data for analysis</div>
 	{:else if analysis}
 		<div class="correlation-content">
 			{#if analysis.emergingPatterns.length > 0}
 				<div class="section">
-					<div class="section-title">Emerging Patterns</div>
+					<div class="section-title text-[10px] sm:text-xs">Emerging Patterns</div>
 					{#each analysis.emergingPatterns.slice(0, 3) as pattern}
 						<div class="pattern-item">
 							<div class="pattern-header">
-								<span class="pattern-topic">{pattern.name}</span>
+								<span class="pattern-topic text-xs sm:text-sm">{pattern.name}</span>
 								<Badge
 									text={pattern.level.toUpperCase()}
 									variant={getLevelVariant(pattern.level)}
 								/>
 							</div>
-							<div class="pattern-sources">
+							<div class="pattern-sources text-[10px] sm:text-xs">
 								{pattern.sources.slice(0, 3).join(' · ')} ({pattern.count} items)
 							</div>
 						</div>
@@ -73,12 +73,12 @@
 
 			{#if analysis.momentumSignals.length > 0}
 				<div class="section">
-					<div class="section-title">Momentum Signals</div>
+					<div class="section-title text-[10px] sm:text-xs">Momentum Signals</div>
 					{#each analysis.momentumSignals.slice(0, 3) as signal}
 						<div class="signal-item {getMomentumClass(signal.momentum)}">
-							<span class="signal-topic">{signal.name}</span>
+							<span class="signal-topic text-[10px] sm:text-xs">{signal.name}</span>
 							<span
-								class="signal-direction"
+								class="signal-direction text-[10px] sm:text-xs"
 								class:up={signal.delta > 0}
 								class:down={signal.delta < 0}
 							>
@@ -92,13 +92,13 @@
 
 			{#if analysis.crossSourceCorrelations.length > 0}
 				<div class="section">
-					<div class="section-title">Cross-Source Links</div>
+					<div class="section-title text-[10px] sm:text-xs">Cross-Source Links</div>
 					{#each analysis.crossSourceCorrelations.slice(0, 3) as corr}
 						<div class="correlation-item">
-							<div class="correlation-sources">
+							<div class="correlation-sources text-[10px] sm:text-xs">
 								{corr.sources.slice(0, 2).join(' ↔ ')}
 							</div>
-							<div class="correlation-topic">{corr.name} ({corr.sourceCount} sources)</div>
+							<div class="correlation-topic text-[10px] sm:text-xs">{corr.name} ({corr.sourceCount} sources)</div>
 						</div>
 					{/each}
 				</div>
@@ -106,11 +106,11 @@
 
 			{#if analysis.predictiveSignals.length > 0}
 				<div class="section">
-					<div class="section-title">Predictive Signals</div>
+					<div class="section-title text-[10px] sm:text-xs">Predictive Signals</div>
 					{#each analysis.predictiveSignals.slice(0, 2) as signal}
 						<div class="predictive-item">
-							<div class="predictive-pattern">{signal.prediction}</div>
-							<div class="predictive-confidence">
+							<div class="predictive-pattern text-[10px] sm:text-xs">{signal.prediction}</div>
+							<div class="predictive-confidence text-[10px] sm:text-xs">
 								Confidence: {Math.round(signal.confidence * 100)}%
 							</div>
 						</div>
@@ -119,11 +119,11 @@
 			{/if}
 
 			{#if analysis.emergingPatterns.length === 0 && analysis.momentumSignals.length === 0}
-				<div class="empty-state">No significant patterns detected</div>
+				<div class="empty-state text-[10px] sm:text-xs">No significant patterns detected</div>
 			{/if}
 		</div>
 	{:else}
-		<div class="empty-state">No significant patterns detected</div>
+		<div class="empty-state text-[10px] sm:text-xs">No significant patterns detected</div>
 	{/if}
 </Panel>
 
@@ -145,7 +145,6 @@
 	}
 
 	.section-title {
-		font-size: 0.5625rem;
 		font-weight: 700;
 		font-family: 'SF Mono', Monaco, monospace;
 		color: var(--accent);
@@ -166,13 +165,11 @@
 	}
 
 	.pattern-topic {
-		font-size: 0.65rem;
 		font-weight: 700;
 		color: var(--text-primary);
 	}
 
 	.pattern-sources {
-		font-size: 0.5625rem;
 		font-family: 'SF Mono', Monaco, monospace;
 		color: var(--text-muted);
 	}
@@ -199,12 +196,10 @@
 	}
 
 	.signal-topic {
-		font-size: 0.625rem;
 		color: var(--text-primary);
 	}
 
 	.signal-direction {
-		font-size: 0.625rem;
 		font-weight: 700;
 		font-family: 'SF Mono', Monaco, monospace;
 	}
@@ -222,12 +217,10 @@
 	}
 
 	.correlation-sources {
-		font-size: 0.625rem;
 		color: var(--text-secondary);
 	}
 
 	.correlation-topic {
-		font-size: 0.5625rem;
 		font-family: 'SF Mono', Monaco, monospace;
 		color: var(--text-muted);
 	}
@@ -237,12 +230,10 @@
 	}
 
 	.predictive-pattern {
-		font-size: 0.625rem;
 		color: var(--text-primary);
 	}
 
 	.predictive-confidence {
-		font-size: 0.5625rem;
 		font-family: 'SF Mono', Monaco, monospace;
 		color: var(--text-muted);
 	}
@@ -250,7 +241,6 @@
 	.empty-state {
 		text-align: center;
 		color: var(--text-dim);
-		font-size: 0.65rem;
 		padding: 1rem;
 		text-transform: uppercase;
 		letter-spacing: 0.1em;

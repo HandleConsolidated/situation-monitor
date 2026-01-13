@@ -47,12 +47,12 @@ describe('Narrative Tracker', () => {
 		expect(deepState!.count).toBe(2);
 	});
 
-	it('should classify disinfo patterns', () => {
+	it('should detect population-crisis narrative', () => {
 		const news: NewsItem[] = [
 			{
 				id: '1',
-				title: 'Depopulation agenda exposed',
-				source: 'Fringe',
+				title: 'Birth rate decline continues in major economies',
+				source: 'Reuters',
 				link: 'a',
 				timestamp: Date.now(),
 				category: 'politics'
@@ -61,8 +61,11 @@ describe('Narrative Tracker', () => {
 
 		const results = analyzeNarratives(news);
 
-		expect(results!.disinfoSignals.length).toBeGreaterThan(0);
-		expect(results!.disinfoSignals.find((n) => n.id === 'depopulation')).toBeDefined();
+		// population-crisis should be in narrativeWatch since it comes from mainstream sources
+		const populationCrisis =
+			results!.narrativeWatch.find((n) => n.id === 'population-crisis') ||
+			results!.emergingFringe.find((n) => n.id === 'population-crisis');
+		expect(populationCrisis).toBeDefined();
 	});
 
 	it('should detect fringe-to-mainstream crossover', () => {
@@ -121,7 +124,7 @@ describe('Narrative Tracker', () => {
 
 		const results = analyzeNarratives(news);
 
-		const dollarNarrative = results!.emergingFringe.find((n) => n.id === 'dollar-collapse');
+		const dollarNarrative = results!.emergingFringe.find((n) => n.id === 'dollar-decline');
 
 		expect(dollarNarrative).toBeDefined();
 		expect(dollarNarrative!.fringeCount).toBeGreaterThan(0);
@@ -150,8 +153,8 @@ describe('Narrative Tracker', () => {
 		const results = analyzeNarratives(news);
 
 		const aiDoom =
-			results!.emergingFringe.find((n) => n.id === 'ai-doom') ||
-			results!.narrativeWatch.find((n) => n.id === 'ai-doom');
+			results!.emergingFringe.find((n) => n.id === 'ai-risk') ||
+			results!.narrativeWatch.find((n) => n.id === 'ai-risk');
 
 		expect(aiDoom).toBeDefined();
 		expect(aiDoom!.keywords).toContain('ai doom');

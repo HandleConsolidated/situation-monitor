@@ -35,16 +35,16 @@
 	class:py-1.5={compact}
 >
 	<div class="flex flex-col gap-0.5">
-		<div class="text-xs font-bold text-white" class:text-[10px]={compact}>{item.name}</div>
+		<div class="text-xs sm:text-sm font-bold text-white" class:text-[10px]={compact}>{item.name}</div>
 		{#if showSymbol}
-			<div class="text-[9px] font-mono text-slate-500 uppercase tracking-wide">{item.symbol}</div>
+			<div class="text-[9px] sm:text-[10px] font-mono text-slate-500 uppercase tracking-wide">{item.symbol}</div>
 		{/if}
 	</div>
 
 	<div class="flex flex-col items-end gap-0.5">
 		{#if showPrice}
 			<div
-				class="text-xs font-mono text-slate-200 tabular-nums"
+				class="text-xs sm:text-sm font-mono text-slate-200 tabular-nums"
 				class:text-[10px]={compact}
 				class:text-slate-500={!isDataAvailable}
 				class:opacity-50={!isDataAvailable}
@@ -53,7 +53,7 @@
 			</div>
 		{/if}
 		<div
-			class="text-[10px] font-mono tabular-nums"
+			class="text-[10px] sm:text-xs font-mono tabular-nums"
 			class:text-emerald-500={isDataAvailable && isPositive}
 			class:text-red-500={isDataAvailable && !isPositive}
 			class:text-slate-500={!isDataAvailable}

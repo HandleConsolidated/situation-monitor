@@ -59,22 +59,22 @@
 	{loading}
 	{error}
 >
-	<div class="situation-content">
-		<div class="situation-header">
-			<div class="situation-title">{config.title}</div>
-			<div class="situation-subtitle">{config.subtitle}</div>
+	<div class="flex flex-col gap-2">
+		<div class="text-center pb-2 border-b border-[var(--border)]">
+			<div class="text-xs sm:text-sm font-semibold text-[var(--text-primary)]">{config.title}</div>
+			<div class="text-[10px] sm:text-xs text-[var(--text-secondary)] mt-0.5">{config.subtitle}</div>
 		</div>
 
 		{#if news.length === 0 && !loading && !error}
-			<div class="empty-state">No recent news</div>
+			<div class="text-center text-[10px] sm:text-xs text-[var(--text-secondary)] p-4">No recent news</div>
 		{:else}
-			<div class="situation-news">
+			<div class="flex flex-col">
 				{#each news.slice(0, 8) as item (item.id)}
-					<div class="situation-item">
-						<a href={item.link} target="_blank" rel="noopener noreferrer" class="headline">
+					<div class="py-1.5 border-b border-[var(--border)] last:border-b-0">
+						<a href={item.link} target="_blank" rel="noopener noreferrer" class="block text-[10px] sm:text-xs text-[var(--text-primary)] no-underline leading-snug hover:text-[var(--accent)]">
 							{item.title}
 						</a>
-						<div class="meta">{item.source} · {timeAgo(item.timestamp)}</div>
+						<div class="text-[9px] sm:text-[10px] text-[var(--text-muted)] mt-0.5">{item.source} · {timeAgo(item.timestamp)}</div>
 					</div>
 				{/each}
 			</div>
@@ -82,67 +82,4 @@
 	</div>
 </Panel>
 
-<style>
-	.situation-content {
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-	}
-
-	.situation-header {
-		text-align: center;
-		padding-bottom: 0.5rem;
-		border-bottom: 1px solid var(--border);
-	}
-
-	.situation-title {
-		font-size: 0.8rem;
-		font-weight: 600;
-		color: var(--text-primary);
-	}
-
-	.situation-subtitle {
-		font-size: 0.6rem;
-		color: var(--text-secondary);
-		margin-top: 0.1rem;
-	}
-
-	.situation-news {
-		display: flex;
-		flex-direction: column;
-	}
-
-	.situation-item {
-		padding: 0.4rem 0;
-		border-bottom: 1px solid var(--border);
-	}
-
-	.situation-item:last-child {
-		border-bottom: none;
-	}
-
-	.headline {
-		display: block;
-		font-size: 0.65rem;
-		color: var(--text-primary);
-		text-decoration: none;
-		line-height: 1.35;
-	}
-
-	.headline:hover {
-		color: var(--accent);
-	}
-
-	.meta {
-		font-size: 0.55rem;
-		color: var(--text-muted);
-		margin-top: 0.2rem;
-	}
-
-	.empty-state {
-		text-align: center;
-		color: var(--text-secondary);
-		font-size: 0.7rem;
-		padding: 1rem;
-	}
-</style>
+<!-- Styles moved to Tailwind classes for responsive text sizing -->

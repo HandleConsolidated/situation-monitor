@@ -30,7 +30,7 @@
 
 <Panel id="polymarket" title="Polymarket" {count} {loading} {error}>
 	{#if predictions.length === 0 && !loading && !error}
-		<div class="text-center text-slate-400 text-xs py-4">No predictions available</div>
+		<div class="text-center text-slate-400 text-[10px] sm:text-xs py-4">No predictions available</div>
 	{:else}
 		<div class="flex flex-col">
 			{#each predictions as pred (pred.id)}
@@ -38,11 +38,11 @@
 					class="flex justify-between items-center py-2 border-b border-slate-800 last:border-b-0 hover:bg-white/5 transition-colors"
 				>
 					<div class="flex-1 min-w-0 mr-2">
-						<div class="text-xs font-bold text-white leading-tight mb-0.5">{pred.question}</div>
-						<div class="text-[10px] font-mono text-slate-500">Vol: {formatVolume(pred.volume)}</div>
+						<div class="text-xs sm:text-sm font-bold text-white leading-tight mb-0.5">{pred.question}</div>
+						<div class="text-[10px] sm:text-xs font-mono text-slate-500">Vol: {formatVolume(pred.volume)}</div>
 					</div>
 					<div class="ml-2">
-						<span class="text-xs font-mono text-emerald-500 font-bold tabular-nums"
+						<span class="text-xs sm:text-sm font-mono text-emerald-500 font-bold tabular-nums"
 							>{pred.yes}%</span
 						>
 					</div>

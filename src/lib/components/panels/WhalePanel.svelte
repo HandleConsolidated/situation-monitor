@@ -31,7 +31,7 @@
 
 <Panel id="whales" title="Whale Watch" {count} {loading} {error}>
 	{#if whales.length === 0 && !loading && !error}
-		<div class="text-center text-slate-400 text-xs py-4">No whale transactions detected</div>
+		<div class="text-center text-slate-400 text-[10px] sm:text-xs py-4">No whale transactions detected</div>
 	{:else}
 		<div class="flex flex-col">
 			{#each whales as whale, i (whale.hash + i)}
@@ -39,15 +39,15 @@
 					class="py-2 border-b border-slate-800 last:border-b-0 hover:bg-white/5 transition-colors"
 				>
 					<div class="flex justify-between items-center mb-1">
-						<span class="text-xs font-bold text-white">{whale.coin}</span>
-						<span class="text-xs font-mono text-slate-200 tabular-nums"
+						<span class="text-xs sm:text-sm font-bold text-white">{whale.coin}</span>
+						<span class="text-[10px] sm:text-xs font-mono text-slate-200 tabular-nums"
 							>{formatAmount(whale.amount)} {whale.coin}</span
 						>
 					</div>
 					<div class="flex items-center gap-2">
-						<span class="text-[10px] font-mono text-emerald-500">{formatUSD(whale.usd)}</span>
-						<span class="text-slate-500">→</span>
-						<span class="text-[10px] font-mono text-slate-500">{whale.hash}</span>
+						<span class="text-[10px] sm:text-xs font-mono text-emerald-500">{formatUSD(whale.usd)}</span>
+						<span class="text-slate-500 text-[10px] sm:text-xs">→</span>
+						<span class="text-[10px] sm:text-xs font-mono text-slate-500">{whale.hash}</span>
 					</div>
 				</div>
 			{/each}

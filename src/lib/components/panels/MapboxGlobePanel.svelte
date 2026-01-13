@@ -101,17 +101,20 @@
 	let tooltipVisible = $state(false);
 	let tooltipX = $state(0);
 	let tooltipY = $state(0);
+	let tooltipExpanded = $state(false);
 	let tooltipData = $state<{
 		label: string;
 		type: string;
 		desc?: string;
 		level?: string;
 		newsCount?: number;
-		recentNews?: Array<{ title: string; link?: string }>; // Updated to include links
+		recentNews?: Array<{ title: string; link?: string }>; // First 3 items shown by default
+		allNews?: Array<{ title: string; link?: string; source?: string }>; // All items for expansion
 		isAlert?: boolean;
 		timestamp?: number;
 		category?: string;
 		categoryLabel?: string;
+		hotspotName?: string;
 	} | null>(null);
 
 	// Frozen news data (when paused)
@@ -209,11 +212,11 @@
 		return { level: baseLevel, newsCount, hasAlert };
 	}
 
-	// Generate GeoJSON for all points
+	// Generate GeoJSON for all points - now with enhanced type-specific properties
 	function getPointsGeoJSON(): GeoJSON.FeatureCollection {
 		const features: GeoJSON.Feature[] = [];
 
-		// Add hotspots (with news integration)
+		// Add hotspots (with news integration) - main geopolitical markers
 		if (dataLayers.hotspots.visible) {
 			HOTSPOTS.forEach((h) => {
 				const activity = getHotspotActivityLevel(h.name, h.level);
@@ -228,16 +231,20 @@
 						desc: h.desc,
 						level: activity.level,
 						color: THREAT_COLORS[activity.level as keyof typeof THREAT_COLORS],
-						size: activity.level === 'critical' ? 12 : activity.level === 'high' ? 10 : 8,
+						size: activity.level === 'critical' ? 10 : activity.level === 'high' ? 8 : 6,
+						glowSize: activity.level === 'critical' ? 16 : activity.level === 'high' ? 12 : 10,
+						strokeWidth: activity.level === 'critical' ? 2 : 1.5,
+						icon: activity.hasAlert ? '⚠' : '◉',
 						newsCount: activity.newsCount,
 						hasAlert: activity.hasAlert,
+						importance: activity.level === 'critical' ? 3 : activity.level === 'high' ? 2 : 1,
 						recentNews: JSON.stringify(hotspotNews.slice(0, 3).map((n) => ({ title: n.title, link: n.link })))
 					}
 				});
 			});
 		}
 
-		// Add chokepoints - cyan diamonds for maritime routes
+		// Add chokepoints - diamond markers for maritime strategic routes
 		if (dataLayers.chokepoints.visible) {
 			CHOKEPOINTS.forEach((cp) => {
 				features.push({
@@ -248,13 +255,18 @@
 						type: 'chokepoint',
 						desc: cp.desc,
 						color: '#06b6d4', // Cyan-500
-						size: 7
+						innerColor: '#0891b2', // Cyan-600
+						size: 9,
+						glowSize: 16,
+						strokeWidth: 2,
+						icon: '⬥', // Diamond shape
+						importance: 1
 					}
 				});
 			});
 		}
 
-		// Add cable landings - emerald small circles
+		// Add cable landings - small pulsing circles for digital infrastructure
 		if (dataLayers.cables.visible) {
 			CABLE_LANDINGS.forEach((cl) => {
 				features.push({
@@ -265,13 +277,18 @@
 						type: 'cable',
 						desc: cl.desc,
 						color: '#10b981', // Emerald-500
-						size: 5
+						innerColor: '#059669', // Emerald-600
+						size: 6,
+						glowSize: 10,
+						strokeWidth: 1.5,
+						icon: '◈', // Diamond with dot
+						importance: 0
 					}
 				});
 			});
 		}
 
-		// Add nuclear sites - orange warning circles
+		// Add nuclear sites - warning markers with radiation symbol
 		if (dataLayers.nuclear.visible) {
 			NUCLEAR_SITES.forEach((ns) => {
 				features.push({
@@ -282,13 +299,18 @@
 						type: 'nuclear',
 						desc: ns.desc,
 						color: '#f97316', // Orange-500
-						size: 8
+						innerColor: '#ea580c', // Orange-600
+						size: 10,
+						glowSize: 18,
+						strokeWidth: 2,
+						icon: '☢', // Radiation symbol
+						importance: 2
 					}
 				});
 			});
 		}
 
-		// Add military bases - blue circles
+		// Add military bases - star markers for defense installations
 		if (dataLayers.military.visible) {
 			MILITARY_BASES.forEach((mb) => {
 				features.push({
@@ -299,13 +321,18 @@
 						type: 'military',
 						desc: mb.desc,
 						color: '#3b82f6', // Blue-500
-						size: 6
+						innerColor: '#2563eb', // Blue-600
+						size: 8,
+						glowSize: 14,
+						strokeWidth: 1.5,
+						icon: '✦', // Star shape
+						importance: 1
 					}
 				});
 			});
 		}
 
-		// Add custom monitors
+		// Add custom monitors - user-defined watch markers
 		if (dataLayers.monitors.visible) {
 			monitors
 				.filter((m) => m.enabled && m.location)
@@ -319,7 +346,12 @@
 								type: 'monitor',
 								desc: `Custom monitor: ${m.keywords?.join(', ') || 'No keywords'}`,
 								color: m.color || '#06b6d4',
-								size: 9
+								innerColor: m.color || '#0891b2',
+								size: 10,
+								glowSize: 16,
+								strokeWidth: 2,
+								icon: '◎', // Target/bullseye
+								importance: 2
 							}
 						});
 					}
@@ -327,6 +359,55 @@
 		}
 
 		return { type: 'FeatureCollection', features };
+	}
+
+	// Generate separate GeoJSON for each marker type to enable distinct styling
+	function getHotspotsGeoJSON(): GeoJSON.FeatureCollection {
+		const allPoints = getPointsGeoJSON();
+		return {
+			type: 'FeatureCollection',
+			features: allPoints.features.filter((f) => f.properties?.type === 'hotspot')
+		};
+	}
+
+	function getChokepointsGeoJSON(): GeoJSON.FeatureCollection {
+		const allPoints = getPointsGeoJSON();
+		return {
+			type: 'FeatureCollection',
+			features: allPoints.features.filter((f) => f.properties?.type === 'chokepoint')
+		};
+	}
+
+	function getCablesGeoJSON(): GeoJSON.FeatureCollection {
+		const allPoints = getPointsGeoJSON();
+		return {
+			type: 'FeatureCollection',
+			features: allPoints.features.filter((f) => f.properties?.type === 'cable')
+		};
+	}
+
+	function getNuclearGeoJSON(): GeoJSON.FeatureCollection {
+		const allPoints = getPointsGeoJSON();
+		return {
+			type: 'FeatureCollection',
+			features: allPoints.features.filter((f) => f.properties?.type === 'nuclear')
+		};
+	}
+
+	function getMilitaryGeoJSON(): GeoJSON.FeatureCollection {
+		const allPoints = getPointsGeoJSON();
+		return {
+			type: 'FeatureCollection',
+			features: allPoints.features.filter((f) => f.properties?.type === 'military')
+		};
+	}
+
+	function getMonitorsGeoJSON(): GeoJSON.FeatureCollection {
+		const allPoints = getPointsGeoJSON();
+		return {
+			type: 'FeatureCollection',
+			features: allPoints.features.filter((f) => f.properties?.type === 'monitor')
+		};
 	}
 
 	// Generate news event markers (legacy - for backward compatibility when categorizedNews not provided)
@@ -458,7 +539,9 @@
 						opacity,
 						color: hasAlerts ? '#ef4444' : FEED_COLORS[category],
 						size: Math.min(10, 5 + newsItems.length),
-						recentNews: JSON.stringify(newsItems.slice(0, 3).map((n) => ({ title: n.title, link: n.link })))
+						hotspotName: hotspotName,
+						recentNews: JSON.stringify(newsItems.slice(0, 3).map((n) => ({ title: n.title, link: n.link }))),
+						allNews: JSON.stringify(newsItems.slice(0, 15).map((n) => ({ title: n.title, link: n.link, source: n.source })))
 					}
 				});
 			});
@@ -504,8 +587,9 @@
 	}
 
 	/**
-	 * Generate 3D arc coordinates that curve outward like a rocket/missile trajectory.
-	 * The arc bulges perpendicular to the great circle path, creating a parabolic effect.
+	 * Generate beautiful 3D arc coordinates using geodesic (great circle) interpolation
+	 * with simulated altitude that creates a dramatic ballistic trajectory effect.
+	 * The arc rises above the earth's surface and follows the curvature of the globe.
 	 */
 	function generateArcCoordinates(
 		start: [number, number],
@@ -514,37 +598,80 @@
 	): [number, number][] {
 		const coords: [number, number][] = [];
 
-		// Calculate perpendicular direction for the arc bulge
-		const dx = end[0] - start[0];
-		const dy = end[1] - start[1];
-		const distance = Math.sqrt(dx * dx + dy * dy);
+		// Convert to radians for spherical calculations
+		const toRad = (deg: number) => (deg * Math.PI) / 180;
+		const toDeg = (rad: number) => (rad * 180) / Math.PI;
 
-		// Perpendicular unit vector (rotated 90 degrees)
-		// Normalized perpendicular: (-dy/dist, dx/dist)
-		const perpX = -dy / distance;
-		const perpY = dx / distance;
+		const lon1 = toRad(start[0]);
+		const lat1 = toRad(start[1]);
+		const lon2 = toRad(end[0]);
+		const lat2 = toRad(end[1]);
 
-		// Arc height proportional to distance (gives rocket trajectory feel)
-		// Larger distances get higher arcs
-		const arcHeight = Math.min(distance * 0.35, 15); // Cap at 15 degrees max bulge
+		// Calculate great circle distance (angular distance in radians)
+		const dLon = lon2 - lon1;
+		const dLat = lat2 - lat1;
+		const a =
+			Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+		const angularDistance = 2 * Math.asin(Math.sqrt(Math.min(1, a))); // Clamp to avoid NaN
+
+		// Guard against very short distances (would cause division by zero)
+		if (angularDistance < 0.0001) {
+			// Just return a straight line for very short distances
+			for (let i = 0; i <= segments; i++) {
+				const t = i / segments;
+				coords.push([
+					start[0] + (end[0] - start[0]) * t,
+					start[1] + (end[1] - start[1]) * t
+				]);
+			}
+			return coords;
+		}
+
+		// Arc height scales with distance - longer arcs get higher peaks
+		// Reduced values for more subtle, less dramatic arcs
+		const distanceDegrees = toDeg(angularDistance);
+		// Lower height factor for subtle arcs that don't dominate the view
+		const arcHeightFactor = Math.min(distanceDegrees * 0.25, 10);
 
 		for (let i = 0; i <= segments; i++) {
 			const t = i / segments;
 
-			// Linear interpolation for base position
-			const baseLon = start[0] + dx * t;
-			const baseLat = start[1] + dy * t;
+			// Spherical interpolation along great circle (geodesic path)
+			const sinAngDist = Math.sin(angularDistance);
+			const A = Math.sin((1 - t) * angularDistance) / sinAngDist;
+			const B = Math.sin(t * angularDistance) / sinAngDist;
 
-			// Parabolic arc offset: peaks at t=0.5, zero at t=0 and t=1
-			// Using sin curve for smoother, more natural arc shape
-			const arcFactor = Math.sin(t * Math.PI);
+			// Calculate point on great circle
+			const x = A * Math.cos(lat1) * Math.cos(lon1) + B * Math.cos(lat2) * Math.cos(lon2);
+			const y = A * Math.cos(lat1) * Math.sin(lon1) + B * Math.cos(lat2) * Math.sin(lon2);
+			const z = A * Math.sin(lat1) + B * Math.sin(lat2);
 
-			// Apply perpendicular offset for the 3D arc effect
-			// The arc bulges in the perpendicular direction
-			const offsetLon = perpX * arcHeight * arcFactor;
-			const offsetLat = perpY * arcHeight * arcFactor;
+			const gcLat = Math.atan2(z, Math.sqrt(x * x + y * y));
+			const gcLon = Math.atan2(y, x);
 
-			coords.push([baseLon + offsetLon, baseLat + offsetLat]);
+			// Calculate arc elevation - parabolic curve that peaks at midpoint
+			// Using a smooth sin curve creates natural ballistic trajectory
+			const elevationFactor = Math.sin(t * Math.PI);
+
+			// Calculate perpendicular offset direction for the arc bulge
+			// The arc bulges perpendicular to the path direction
+			const pathBearing = Math.atan2(
+				Math.sin(dLon) * Math.cos(lat2),
+				Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon)
+			);
+
+			// Perpendicular direction (90 degrees to the right of path)
+			const perpBearing = pathBearing + Math.PI / 2;
+
+			// Apply offset perpendicular to path for dramatic arc bulge
+			const offsetMagnitude = toRad(arcHeightFactor * elevationFactor);
+			const latOffset = offsetMagnitude * Math.cos(perpBearing);
+			const lonOffset = offsetMagnitude * Math.sin(perpBearing) / Math.cos(gcLat);
+
+			const finalLat = toDeg(gcLat + latOffset);
+			const finalLon = toDeg(gcLon + lonOffset);
+
+			coords.push([finalLon, finalLat]);
 		}
 
 		return coords;
@@ -595,25 +722,67 @@
 	}
 
 	// Get a single point along an arc at a given progress (0-1)
+	// Uses the same geodesic algorithm as generateArcCoordinates for consistency
 	function getArcPointAtProgress(
 		start: [number, number],
 		end: [number, number],
 		progress: number
 	): [number, number] {
-		const dx = end[0] - start[0];
-		const dy = end[1] - start[1];
-		const distance = Math.sqrt(dx * dx + dy * dy);
+		const toRad = (deg: number) => (deg * Math.PI) / 180;
+		const toDeg = (rad: number) => (rad * 180) / Math.PI;
 
-		const perpX = -dy / distance;
-		const perpY = dx / distance;
-		const arcHeight = Math.min(distance * 0.35, 15);
+		const lon1 = toRad(start[0]);
+		const lat1 = toRad(start[1]);
+		const lon2 = toRad(end[0]);
+		const lat2 = toRad(end[1]);
+
+		// Great circle distance
+		const dLon = lon2 - lon1;
+		const dLat = lat2 - lat1;
+		const a =
+			Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+		const angularDistance = 2 * Math.asin(Math.sqrt(Math.min(1, a)));
+
+		// Guard against very short distances
+		if (angularDistance < 0.0001) {
+			const t = progress;
+			return [
+				start[0] + (end[0] - start[0]) * t,
+				start[1] + (end[1] - start[1]) * t
+			];
+		}
+
+		const distanceDegrees = toDeg(angularDistance);
+		const arcHeightFactor = Math.min(distanceDegrees * 0.25, 10); // Match the arc generation
 
 		const t = progress;
-		const baseLon = start[0] + dx * t;
-		const baseLat = start[1] + dy * t;
-		const arcFactor = Math.sin(t * Math.PI);
 
-		return [baseLon + perpX * arcHeight * arcFactor, baseLat + perpY * arcHeight * arcFactor];
+		// Spherical interpolation
+		const sinAngDist = Math.sin(angularDistance);
+		const A = Math.sin((1 - t) * angularDistance) / sinAngDist;
+		const B = Math.sin(t * angularDistance) / sinAngDist;
+
+		const x = A * Math.cos(lat1) * Math.cos(lon1) + B * Math.cos(lat2) * Math.cos(lon2);
+		const y = A * Math.cos(lat1) * Math.sin(lon1) + B * Math.cos(lat2) * Math.sin(lon2);
+		const z = A * Math.sin(lat1) + B * Math.sin(lat2);
+
+		const gcLat = Math.atan2(z, Math.sqrt(x * x + y * y));
+		const gcLon = Math.atan2(y, x);
+
+		const elevationFactor = Math.sin(t * Math.PI);
+
+		// Calculate perpendicular offset - same as generateArcCoordinates
+		const pathBearing = Math.atan2(
+			Math.sin(dLon) * Math.cos(lat2),
+			Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon)
+		);
+		const perpBearing = pathBearing + Math.PI / 2;
+
+		const offsetMagnitude = toRad(arcHeightFactor * elevationFactor);
+		const latOffset = offsetMagnitude * Math.cos(perpBearing);
+		const lonOffset = offsetMagnitude * Math.sin(perpBearing) / Math.cos(gcLat);
+
+		return [toDeg(gcLon + lonOffset), toDeg(gcLat + latOffset)];
 	}
 
 	// Generate outage events overlay GeoJSON - now uses real API data
@@ -802,14 +971,35 @@
 		dataLayers[layer].paused = !dataLayers[layer].paused;
 	}
 
-	// Update all map layers
+	// Update all map layers - now includes type-specific marker sources
 	function updateMapLayers() {
 		if (!map || !isInitialized) return;
 
 		try {
+			// Update main points source (for interactivity)
 			const pointsSource = map.getSource('points') as mapboxgl.GeoJSONSource;
 			if (pointsSource) pointsSource.setData(getPointsGeoJSON());
 
+			// Update type-specific marker sources
+			const hotspotsSource = map.getSource('hotspots') as mapboxgl.GeoJSONSource;
+			if (hotspotsSource) hotspotsSource.setData(getHotspotsGeoJSON());
+
+			const chokepointsSource = map.getSource('chokepoints') as mapboxgl.GeoJSONSource;
+			if (chokepointsSource) chokepointsSource.setData(getChokepointsGeoJSON());
+
+			const cablesSource = map.getSource('cables') as mapboxgl.GeoJSONSource;
+			if (cablesSource) cablesSource.setData(getCablesGeoJSON());
+
+			const nuclearSource = map.getSource('nuclear') as mapboxgl.GeoJSONSource;
+			if (nuclearSource) nuclearSource.setData(getNuclearGeoJSON());
+
+			const militarySource = map.getSource('military') as mapboxgl.GeoJSONSource;
+			if (militarySource) militarySource.setData(getMilitaryGeoJSON());
+
+			const monitorsSource = map.getSource('monitors') as mapboxgl.GeoJSONSource;
+			if (monitorsSource) monitorsSource.setData(getMonitorsGeoJSON());
+
+			// Update other sources
 			const arcsSource = map.getSource('arcs') as mapboxgl.GeoJSONSource;
 			if (arcsSource) arcsSource.setData(getArcsGeoJSON());
 
@@ -993,8 +1183,14 @@
 					'star-intensity': 0.6
 				});
 
-				// Add all sources
+				// Add all sources - now with separate sources for each marker type
 				map.addSource('points', { type: 'geojson', data: getPointsGeoJSON() });
+				map.addSource('hotspots', { type: 'geojson', data: getHotspotsGeoJSON() });
+				map.addSource('chokepoints', { type: 'geojson', data: getChokepointsGeoJSON() });
+				map.addSource('cables', { type: 'geojson', data: getCablesGeoJSON() });
+				map.addSource('nuclear', { type: 'geojson', data: getNuclearGeoJSON() });
+				map.addSource('military', { type: 'geojson', data: getMilitaryGeoJSON() });
+				map.addSource('monitors', { type: 'geojson', data: getMonitorsGeoJSON() });
 				map.addSource('arcs', { type: 'geojson', data: getArcsGeoJSON() });
 				map.addSource('arc-particles', { type: 'geojson', data: getArcParticlesGeoJSON() });
 				map.addSource('pulsing-rings', { type: 'geojson', data: getPulsingRingsGeoJSON() });
@@ -1005,45 +1201,59 @@
 
 				// Add layers
 
-				// Arc glow layer (underneath) for 3D effect
+				// ========== ARC LAYERS - Threat corridor visualization (subtle styling) ==========
+				// Layer 1: Outer glow (widest, most diffuse) - subtle halo
 				map.addLayer({
-					id: 'arcs-glow',
-					type: 'line',
-					source: 'arcs',
-					paint: {
-						'line-color': ['get', 'glowColor'],
-						'line-width': 12,
-						'line-opacity': 0.5,
-						'line-blur': 6
-					}
-				});
-
-				// Arc main layer - solid curved line
-				map.addLayer({
-					id: 'arcs-layer',
+					id: 'arcs-glow-outer',
 					type: 'line',
 					source: 'arcs',
 					paint: {
 						'line-color': ['get', 'color'],
-						'line-width': 3,
-						'line-opacity': 1
+						'line-width': 16,
+						'line-opacity': 0.08,
+						'line-blur': 8
 					}
 				});
 
-				// Arc animated dash layer - creates flowing effect
+				// Layer 2: Middle glow
 				map.addLayer({
-					id: 'arcs-flow',
+					id: 'arcs-glow-middle',
 					type: 'line',
 					source: 'arcs',
 					paint: {
-						'line-color': '#ffffff',
-						'line-width': 3,
-						'line-opacity': 0.9,
-						'line-dasharray': [2, 4]
+						'line-color': ['get', 'color'],
+						'line-width': 10,
+						'line-opacity': 0.15,
+						'line-blur': 4
 					}
 				});
 
-				// Arc highlight layer - thin bright line on top
+				// Layer 3: Inner glow
+				map.addLayer({
+					id: 'arcs-glow-inner',
+					type: 'line',
+					source: 'arcs',
+					paint: {
+						'line-color': ['get', 'color'],
+						'line-width': 5,
+						'line-opacity': 0.3,
+						'line-blur': 1.5
+					}
+				});
+
+				// Layer 4: Main arc line - solid colored core
+				map.addLayer({
+					id: 'arcs-main',
+					type: 'line',
+					source: 'arcs',
+					paint: {
+						'line-color': ['get', 'color'],
+						'line-width': 2.5,
+						'line-opacity': 0.9
+					}
+				});
+
+				// Layer 5: White highlight center line - gives depth
 				map.addLayer({
 					id: 'arcs-highlight',
 					type: 'line',
@@ -1051,34 +1261,63 @@
 					paint: {
 						'line-color': '#ffffff',
 						'line-width': 1,
-						'line-opacity': 0.6
+						'line-opacity': 0.5
 					}
 				});
 
-				// Arc particles - moving dots that travel along the arcs
+				// ========== ARC PARTICLES - Hidden (per user request) ==========
+				// Particle layers are kept but invisible for potential future use
+
+				// Particle outer glow (hidden)
 				map.addLayer({
-					id: 'arc-particles-glow',
+					id: 'arc-particles-glow-outer',
 					type: 'circle',
 					source: 'arc-particles',
 					paint: {
-						'circle-radius': 8,
+						'circle-radius': 0,
 						'circle-color': ['get', 'color'],
-						'circle-opacity': 0.4,
+						'circle-opacity': 0,
 						'circle-blur': 1
 					}
 				});
 
+				// Particle middle glow (hidden)
 				map.addLayer({
-					id: 'arc-particles-layer',
+					id: 'arc-particles-glow-middle',
 					type: 'circle',
 					source: 'arc-particles',
 					paint: {
-						'circle-radius': 5,
+						'circle-radius': 0,
+						'circle-color': ['get', 'color'],
+						'circle-opacity': 0,
+						'circle-blur': 0.5
+					}
+				});
+
+				// Particle core (hidden)
+				map.addLayer({
+					id: 'arc-particles-core',
+					type: 'circle',
+					source: 'arc-particles',
+					paint: {
+						'circle-radius': 0,
+						'circle-color': ['get', 'color'],
+						'circle-opacity': 0,
+						'circle-stroke-color': '#ffffff',
+						'circle-stroke-width': 0,
+						'circle-stroke-opacity': 0
+					}
+				});
+
+				// Particle bright center dot (hidden)
+				map.addLayer({
+					id: 'arc-particles-center',
+					type: 'circle',
+					source: 'arc-particles',
+					paint: {
+						'circle-radius': 0,
 						'circle-color': '#ffffff',
-						'circle-opacity': 1,
-						'circle-stroke-color': ['get', 'color'],
-						'circle-stroke-width': 2,
-						'circle-stroke-opacity': 1
+						'circle-opacity': 0
 					}
 				});
 
@@ -1218,15 +1457,360 @@
 					}
 				});
 
+				// ========== CABLE LANDINGS - Small emerald markers for digital infrastructure ==========
+				// Outer glow
+				map.addLayer({
+					id: 'cables-glow-outer',
+					type: 'circle',
+					source: 'cables',
+					paint: {
+						'circle-radius': ['coalesce', ['get', 'glowSize'], 10],
+						'circle-color': ['coalesce', ['get', 'color'], '#10b981'],
+						'circle-opacity': 0.1,
+						'circle-blur': 1
+					}
+				});
+				// Inner glow
+				map.addLayer({
+					id: 'cables-glow-inner',
+					type: 'circle',
+					source: 'cables',
+					paint: {
+						'circle-radius': ['*', ['coalesce', ['get', 'size'], 6], 1.3],
+						'circle-color': ['coalesce', ['get', 'color'], '#10b981'],
+						'circle-opacity': 0.25,
+						'circle-blur': 0.5
+					}
+				});
+				// Main marker
+				map.addLayer({
+					id: 'cables-layer',
+					type: 'circle',
+					source: 'cables',
+					paint: {
+						'circle-radius': ['coalesce', ['get', 'size'], 6],
+						'circle-color': ['coalesce', ['get', 'innerColor'], '#059669'],
+						'circle-stroke-color': ['coalesce', ['get', 'color'], '#10b981'],
+						'circle-stroke-width': ['coalesce', ['get', 'strokeWidth'], 1.5],
+						'circle-stroke-opacity': 0.9
+					}
+				});
+
+				// ========== MILITARY BASES - Blue star markers for defense installations ==========
+				// Outer glow
+				map.addLayer({
+					id: 'military-glow-outer',
+					type: 'circle',
+					source: 'military',
+					paint: {
+						'circle-radius': ['coalesce', ['get', 'glowSize'], 14],
+						'circle-color': ['coalesce', ['get', 'color'], '#3b82f6'],
+						'circle-opacity': 0.12,
+						'circle-blur': 1
+					}
+				});
+				// Inner glow
+				map.addLayer({
+					id: 'military-glow-inner',
+					type: 'circle',
+					source: 'military',
+					paint: {
+						'circle-radius': ['*', ['coalesce', ['get', 'size'], 8], 1.4],
+						'circle-color': ['coalesce', ['get', 'color'], '#3b82f6'],
+						'circle-opacity': 0.3,
+						'circle-blur': 0.4
+					}
+				});
+				// Main marker
+				map.addLayer({
+					id: 'military-layer',
+					type: 'circle',
+					source: 'military',
+					paint: {
+						'circle-radius': ['coalesce', ['get', 'size'], 8],
+						'circle-color': ['coalesce', ['get', 'innerColor'], '#2563eb'],
+						'circle-stroke-color': '#ffffff',
+						'circle-stroke-width': ['coalesce', ['get', 'strokeWidth'], 1.5],
+						'circle-stroke-opacity': 0.6
+					}
+				});
+				// Icon symbol
+				map.addLayer({
+					id: 'military-icons',
+					type: 'symbol',
+					source: 'military',
+					layout: {
+						'text-field': ['coalesce', ['get', 'icon'], '✦'],
+						'text-size': 10,
+						'text-allow-overlap': true,
+						'text-ignore-placement': true,
+						'text-anchor': 'center'
+					},
+					paint: {
+						'text-color': '#ffffff',
+						'text-halo-color': 'rgba(37, 99, 235, 0.8)',
+						'text-halo-width': 1
+					}
+				});
+
+				// ========== CHOKEPOINTS - Cyan diamond markers for maritime strategic routes ==========
+				// Outer glow
+				map.addLayer({
+					id: 'chokepoints-glow-outer',
+					type: 'circle',
+					source: 'chokepoints',
+					paint: {
+						'circle-radius': ['coalesce', ['get', 'glowSize'], 16],
+						'circle-color': ['coalesce', ['get', 'color'], '#06b6d4'],
+						'circle-opacity': 0.15,
+						'circle-blur': 1
+					}
+				});
+				// Inner glow
+				map.addLayer({
+					id: 'chokepoints-glow-inner',
+					type: 'circle',
+					source: 'chokepoints',
+					paint: {
+						'circle-radius': ['*', ['coalesce', ['get', 'size'], 9], 1.4],
+						'circle-color': ['coalesce', ['get', 'color'], '#06b6d4'],
+						'circle-opacity': 0.35,
+						'circle-blur': 0.4
+					}
+				});
+				// Main marker - diamond shape via rotated square stroke
+				map.addLayer({
+					id: 'chokepoints-layer',
+					type: 'circle',
+					source: 'chokepoints',
+					paint: {
+						'circle-radius': ['coalesce', ['get', 'size'], 9],
+						'circle-color': 'rgba(6, 182, 212, 0.15)', // Semi-transparent fill
+						'circle-stroke-color': ['coalesce', ['get', 'color'], '#06b6d4'],
+						'circle-stroke-width': ['coalesce', ['get', 'strokeWidth'], 2],
+						'circle-stroke-opacity': 1
+					}
+				});
+				// Icon symbol
+				map.addLayer({
+					id: 'chokepoints-icons',
+					type: 'symbol',
+					source: 'chokepoints',
+					layout: {
+						'text-field': '⛵',
+						'text-size': 11,
+						'text-allow-overlap': true,
+						'text-ignore-placement': true,
+						'text-anchor': 'center'
+					},
+					paint: {
+						'text-color': '#06b6d4',
+						'text-halo-color': 'rgba(0, 0, 0, 0.8)',
+						'text-halo-width': 1.5
+					}
+				});
+
+				// ========== NUCLEAR SITES - Orange warning markers with radiation symbol ==========
+				// Outer warning glow
+				map.addLayer({
+					id: 'nuclear-glow-outer',
+					type: 'circle',
+					source: 'nuclear',
+					paint: {
+						'circle-radius': ['coalesce', ['get', 'glowSize'], 18],
+						'circle-color': ['coalesce', ['get', 'color'], '#f97316'],
+						'circle-opacity': 0.18,
+						'circle-blur': 1.2
+					}
+				});
+				// Inner glow
+				map.addLayer({
+					id: 'nuclear-glow-inner',
+					type: 'circle',
+					source: 'nuclear',
+					paint: {
+						'circle-radius': ['*', ['coalesce', ['get', 'size'], 10], 1.5],
+						'circle-color': ['coalesce', ['get', 'color'], '#f97316'],
+						'circle-opacity': 0.4,
+						'circle-blur': 0.5
+					}
+				});
+				// Main marker
+				map.addLayer({
+					id: 'nuclear-layer',
+					type: 'circle',
+					source: 'nuclear',
+					paint: {
+						'circle-radius': ['coalesce', ['get', 'size'], 10],
+						'circle-color': ['coalesce', ['get', 'innerColor'], '#ea580c'],
+						'circle-stroke-color': '#fbbf24', // Amber warning border
+						'circle-stroke-width': ['coalesce', ['get', 'strokeWidth'], 2],
+						'circle-stroke-opacity': 0.9
+					}
+				});
+				// Radiation symbol
+				map.addLayer({
+					id: 'nuclear-icons',
+					type: 'symbol',
+					source: 'nuclear',
+					layout: {
+						'text-field': '☢',
+						'text-size': 12,
+						'text-allow-overlap': true,
+						'text-ignore-placement': true,
+						'text-anchor': 'center'
+					},
+					paint: {
+						'text-color': '#fef3c7', // Amber-100 for visibility
+						'text-halo-color': 'rgba(234, 88, 12, 0.9)',
+						'text-halo-width': 1
+					}
+				});
+
+				// ========== CUSTOM MONITORS - User-defined watch markers ==========
+				// Outer glow
+				map.addLayer({
+					id: 'monitors-glow-outer',
+					type: 'circle',
+					source: 'monitors',
+					paint: {
+						'circle-radius': ['coalesce', ['get', 'glowSize'], 16],
+						'circle-color': ['coalesce', ['get', 'color'], '#06b6d4'],
+						'circle-opacity': 0.15,
+						'circle-blur': 1
+					}
+				});
+				// Inner glow
+				map.addLayer({
+					id: 'monitors-glow-inner',
+					type: 'circle',
+					source: 'monitors',
+					paint: {
+						'circle-radius': ['*', ['coalesce', ['get', 'size'], 10], 1.4],
+						'circle-color': ['coalesce', ['get', 'color'], '#06b6d4'],
+						'circle-opacity': 0.35,
+						'circle-blur': 0.4
+					}
+				});
+				// Main marker
+				map.addLayer({
+					id: 'monitors-layer',
+					type: 'circle',
+					source: 'monitors',
+					paint: {
+						'circle-radius': ['coalesce', ['get', 'size'], 10],
+						'circle-color': ['coalesce', ['get', 'innerColor'], '#0891b2'],
+						'circle-stroke-color': '#ffffff',
+						'circle-stroke-width': ['coalesce', ['get', 'strokeWidth'], 2],
+						'circle-stroke-opacity': 0.7
+					}
+				});
+				// Target icon
+				map.addLayer({
+					id: 'monitors-icons',
+					type: 'symbol',
+					source: 'monitors',
+					layout: {
+						'text-field': '◎',
+						'text-size': 12,
+						'text-allow-overlap': true,
+						'text-ignore-placement': true,
+						'text-anchor': 'center'
+					},
+					paint: {
+						'text-color': '#ffffff',
+						'text-halo-color': 'rgba(8, 145, 178, 0.8)',
+						'text-halo-width': 1
+					}
+				});
+
+				// ========== HOTSPOTS - Main geopolitical threat markers (highest priority) ==========
+				// Outer glow - dramatic for critical/high threats
+				map.addLayer({
+					id: 'hotspots-glow-outer',
+					type: 'circle',
+					source: 'hotspots',
+					paint: {
+						'circle-radius': ['coalesce', ['get', 'glowSize'], 18],
+						'circle-color': ['coalesce', ['get', 'color'], '#ef4444'],
+						'circle-opacity': ['case',
+							['==', ['get', 'level'], 'critical'], 0.35,
+							['==', ['get', 'level'], 'high'], 0.25,
+							0.15
+						],
+						'circle-blur': 1.5
+					}
+				});
+				// Middle glow ring
+				map.addLayer({
+					id: 'hotspots-glow-middle',
+					type: 'circle',
+					source: 'hotspots',
+					paint: {
+						'circle-radius': ['*', ['coalesce', ['get', 'size'], 12], 1.6],
+						'circle-color': ['coalesce', ['get', 'color'], '#ef4444'],
+						'circle-opacity': ['case',
+							['==', ['get', 'level'], 'critical'], 0.4,
+							['==', ['get', 'level'], 'high'], 0.3,
+							0.2
+						],
+						'circle-blur': 0.8
+					}
+				});
+				// Inner glow
+				map.addLayer({
+					id: 'hotspots-glow-inner',
+					type: 'circle',
+					source: 'hotspots',
+					paint: {
+						'circle-radius': ['*', ['coalesce', ['get', 'size'], 12], 1.2],
+						'circle-color': ['coalesce', ['get', 'color'], '#ef4444'],
+						'circle-opacity': 0.5,
+						'circle-blur': 0.3
+					}
+				});
+				// Main marker
+				map.addLayer({
+					id: 'hotspots-layer',
+					type: 'circle',
+					source: 'hotspots',
+					paint: {
+						'circle-radius': ['coalesce', ['get', 'size'], 12],
+						'circle-color': ['coalesce', ['get', 'color'], '#ef4444'],
+						'circle-stroke-color': '#ffffff',
+						'circle-stroke-width': ['coalesce', ['get', 'strokeWidth'], 2],
+						'circle-stroke-opacity': 0.8
+					}
+				});
+				// Alert icon for hotspots with alerts
+				map.addLayer({
+					id: 'hotspots-alert-icon',
+					type: 'symbol',
+					source: 'hotspots',
+					filter: ['==', ['get', 'hasAlert'], true],
+					layout: {
+						'text-field': '⚠',
+						'text-size': 11,
+						'text-allow-overlap': true,
+						'text-ignore-placement': true,
+						'text-anchor': 'center'
+					},
+					paint: {
+						'text-color': '#fef3c7',
+						'text-halo-color': 'rgba(0, 0, 0, 0.9)',
+						'text-halo-width': 1.5
+					}
+				});
+
+				// Legacy points layers for backward compatibility (now mainly used by interactivity)
 				map.addLayer({
 					id: 'points-glow',
 					type: 'circle',
 					source: 'points',
 					paint: {
-						'circle-radius': ['*', ['coalesce', ['get', 'size'], 8], 1.3],
-						'circle-color': ['coalesce', ['get', 'color'], '#5b8a8a'],
-						'circle-opacity': 0.15, // Reduced glow for less neon effect
-						'circle-blur': 0.8
+						'circle-radius': 0, // Hidden - use type-specific layers instead
+						'circle-color': 'transparent',
+						'circle-opacity': 0
 					}
 				});
 
@@ -1236,10 +1820,8 @@
 					source: 'points',
 					paint: {
 						'circle-radius': ['coalesce', ['get', 'size'], 8],
-						'circle-color': ['coalesce', ['get', 'color'], '#06b6d4'],
-						'circle-stroke-color': '#ffffff',
-						'circle-stroke-width': 1,
-						'circle-stroke-opacity': 0.5
+						'circle-color': 'transparent', // Transparent - visual handled by type-specific layers
+						'circle-opacity': 0 // Invisible but interactive
 					}
 				});
 
@@ -1257,9 +1839,10 @@
 						'text-ignore-placement': true
 					},
 					paint: {
-						'text-color': ['get', 'color'],
-						'text-halo-color': 'rgba(0, 0, 0, 0.8)',
-						'text-halo-width': 1
+						// Use readable light color instead of threat color (red is hard to read)
+						'text-color': '#fef3c7',
+						'text-halo-color': 'rgba(0, 0, 0, 0.9)',
+						'text-halo-width': 1.5
 					}
 				});
 
@@ -1284,7 +1867,19 @@
 	function setupInteractivity() {
 		if (!map) return;
 
-		const interactiveLayers = ['points-layer', 'news-events-layer', 'outages-layer'];
+		// Interactive layers for cursor and click handling
+		// Includes both the main points-layer (transparent for clicks) and type-specific visible layers
+		const interactiveLayers = [
+			'points-layer',
+			'hotspots-layer',
+			'chokepoints-layer',
+			'cables-layer',
+			'nuclear-layer',
+			'military-layer',
+			'monitors-layer',
+			'news-events-layer',
+			'outages-layer'
+		];
 
 		interactiveLayers.forEach((layerId) => {
 			map!.on('mouseenter', layerId, () => {
@@ -1414,13 +2009,20 @@
 		const props = feature.properties;
 
 		let recentNews: Array<{ title: string; link?: string }> = [];
+		let allNews: Array<{ title: string; link?: string; source?: string }> = [];
 		try {
 			recentNews = props?.recentNews ? JSON.parse(props.recentNews) : [];
 		} catch {
 			recentNews = [];
 		}
+		try {
+			allNews = props?.allNews ? JSON.parse(props.allNews) : [];
+		} catch {
+			allNews = [];
+		}
 
 		const isFeedNews = props?.type === 'feed-news';
+		tooltipExpanded = false; // Reset expansion state when clicking new item
 		tooltipData = {
 			label: isFeedNews ? `${props?.count || 0} ${props?.categoryLabel || 'News'} Items` : (props?.label || ''),
 			type: props?.type || '',
@@ -1428,9 +2030,11 @@
 			level: props?.level,
 			newsCount: props?.newsCount || props?.count || 0,
 			recentNews,
+			allNews: allNews.length > 0 ? allNews : undefined,
 			isAlert: props?.hasAlerts || props?.hasAlert,
 			category: props?.category,
-			categoryLabel: props?.categoryLabel
+			categoryLabel: props?.categoryLabel,
+			hotspotName: props?.hotspotName
 		};
 		tooltipVisible = true;
 		tooltipLocked = true;
@@ -1537,62 +2141,113 @@
 		return () => clearInterval(pulseInterval);
 	});
 
-	// Animate threat corridor arcs with flowing dash effect and moving particles
+	// Animate enhanced marker glow effects for visual hierarchy
+	$effect(() => {
+		if (!map || !isInitialized) return;
+
+		let markerPhase = 0;
+		const markerInterval = setInterval(() => {
+			if (!map) return;
+			markerPhase = (markerPhase + 1) % 120;
+
+			try {
+				// Hotspots - dramatic pulsing glow (critical threats pulse faster)
+				const hotspotOuterOpacity = 0.15 + Math.sin((markerPhase / 40) * Math.PI * 2) * 0.15;
+				const hotspotMiddleOpacity = 0.2 + Math.sin((markerPhase / 30) * Math.PI * 2) * 0.15;
+				map.setPaintProperty('hotspots-glow-outer', 'circle-opacity', ['case',
+					['==', ['get', 'level'], 'critical'], hotspotOuterOpacity + 0.2,
+					['==', ['get', 'level'], 'high'], hotspotOuterOpacity + 0.1,
+					hotspotOuterOpacity
+				]);
+				map.setPaintProperty('hotspots-glow-middle', 'circle-opacity', ['case',
+					['==', ['get', 'level'], 'critical'], hotspotMiddleOpacity + 0.2,
+					['==', ['get', 'level'], 'high'], hotspotMiddleOpacity + 0.1,
+					hotspotMiddleOpacity
+				]);
+
+				// Nuclear sites - warning pulse
+				const nuclearPulse = Math.sin((markerPhase / 25) * Math.PI * 2);
+				const nuclearOuterOpacity = 0.15 + nuclearPulse * 0.12;
+				const nuclearInnerOpacity = 0.35 + nuclearPulse * 0.15;
+				map.setPaintProperty('nuclear-glow-outer', 'circle-opacity', nuclearOuterOpacity);
+				map.setPaintProperty('nuclear-glow-inner', 'circle-opacity', nuclearInnerOpacity);
+
+				// Chokepoints - subtle wave effect
+				const chokePulse = Math.sin((markerPhase / 60) * Math.PI * 2);
+				const chokeOuterOpacity = 0.12 + chokePulse * 0.08;
+				map.setPaintProperty('chokepoints-glow-outer', 'circle-opacity', chokeOuterOpacity);
+
+				// Monitors - watch indicator pulse
+				const monitorPulse = Math.sin((markerPhase / 45) * Math.PI * 2);
+				const monitorOpacity = 0.12 + monitorPulse * 0.1;
+				map.setPaintProperty('monitors-glow-outer', 'circle-opacity', monitorOpacity);
+
+				// Cables - very subtle breathing
+				const cablePulse = Math.sin((markerPhase / 80) * Math.PI * 2);
+				const cableOpacity = 0.08 + cablePulse * 0.05;
+				map.setPaintProperty('cables-glow-outer', 'circle-opacity', cableOpacity);
+			} catch {
+				// Layers might not exist yet
+			}
+		}, 40);
+
+		return () => clearInterval(markerInterval);
+	});
+
+	// Animate threat corridor arcs - pulsing glow and moving particles
 	$effect(() => {
 		if (!map || !isInitialized) return;
 
 		let arcPhase = 0;
 
-		const arcInterval = setInterval(() => {
-			if (!map) return;
-			arcPhase = (arcPhase + 3) % 360;
-
-			try {
-				// Pulsing glow that breathes - more dramatic
-				const glowOpacity = 0.3 + Math.sin((arcPhase / 180) * Math.PI) * 0.4;
-				const glowWidth = 8 + Math.sin((arcPhase / 180) * Math.PI) * 8;
-				map.setPaintProperty('arcs-glow', 'line-opacity', glowOpacity);
-				map.setPaintProperty('arcs-glow', 'line-width', glowWidth);
-
-				// Main arc line pulsing
-				const mainWidth = 2.5 + Math.sin((arcPhase / 180) * Math.PI) * 1.5;
-				map.setPaintProperty('arcs-layer', 'line-width', mainWidth);
-
-				// Flow layer opacity pulsing
-				const flowOpacity = 0.6 + Math.sin((arcPhase / 60) * Math.PI) * 0.4;
-				map.setPaintProperty('arcs-flow', 'line-opacity', flowOpacity);
-
-				// Highlight shimmer
-				const highlightOpacity = 0.3 + Math.sin((arcPhase / 45) * Math.PI) * 0.5;
-				map.setPaintProperty('arcs-highlight', 'line-opacity', highlightOpacity);
-			} catch {
-				// Layers might not exist yet
-			}
-		}, 30);
-
-		// Animate particles moving along arcs - directly mutate and update source
-		const particleInterval = setInterval(() => {
+		// Arc glow pulsing animation - subtle breathing effect
+		const arcGlowInterval = setInterval(() => {
 			if (!map || !dataLayers.arcs.visible) return;
+			arcPhase = (arcPhase + 2) % 360;
 
-			// Directly mutate each particle's progress (faster, no reactivity needed)
-			for (let i = 0; i < arcParticlePositions.length; i++) {
-				arcParticlePositions[i].progress = (arcParticlePositions[i].progress + 0.012) % 1;
-			}
-
-			// Update the particle source with new positions
 			try {
-				const arcParticlesSource = map.getSource('arc-particles') as mapboxgl.GeoJSONSource;
-				if (arcParticlesSource) {
-					arcParticlesSource.setData(getArcParticlesGeoJSON());
-				}
-			} catch {
-				// Source might not exist yet
+				// Outer glow breathing - subtle
+				const outerGlowOpacity = 0.06 + Math.sin((arcPhase / 90) * Math.PI) * 0.04;
+				const outerGlowWidth = 14 + Math.sin((arcPhase / 90) * Math.PI) * 4;
+				map.setPaintProperty('arcs-glow-outer', 'line-opacity', outerGlowOpacity);
+				map.setPaintProperty('arcs-glow-outer', 'line-width', outerGlowWidth);
+
+				// Middle glow breathing
+				const middleGlowOpacity = 0.12 + Math.sin((arcPhase / 60) * Math.PI) * 0.06;
+				const middleGlowWidth = 8 + Math.sin((arcPhase / 60) * Math.PI) * 3;
+				map.setPaintProperty('arcs-glow-middle', 'line-opacity', middleGlowOpacity);
+				map.setPaintProperty('arcs-glow-middle', 'line-width', middleGlowWidth);
+
+				// Inner glow subtle pulse
+				const innerGlowOpacity = 0.25 + Math.sin((arcPhase / 45) * Math.PI) * 0.1;
+				map.setPaintProperty('arcs-glow-inner', 'line-opacity', innerGlowOpacity);
+
+				// Main arc line subtle width pulse
+				const mainWidth = 2.3 + Math.sin((arcPhase / 120) * Math.PI) * 0.5;
+				map.setPaintProperty('arcs-main', 'line-width', mainWidth);
+
+				// Highlight shimmer - subtle sparkle effect
+				const highlightOpacity = 0.4 + Math.sin((arcPhase / 30) * Math.PI) * 0.2;
+				map.setPaintProperty('arcs-highlight', 'line-opacity', highlightOpacity);
+			} catch (e) {
+				// Layers might not exist yet - this is expected during initialization
 			}
-		}, 50); // 20fps for smooth particle movement
+		}, 40);
+
+		// Particle intervals removed - particles are hidden per user request
+		// Keep source updates for potential future reactivation
+		const particleInterval = setInterval(() => {
+			// Particles are hidden - no need to animate
+		}, 1000);
+
+		const particleGlowInterval = setInterval(() => {
+			// Particles are hidden - no need to animate glow
+		}, 1000);
 
 		return () => {
-			clearInterval(arcInterval);
+			clearInterval(arcGlowInterval);
 			clearInterval(particleInterval);
+			clearInterval(particleGlowInterval);
 		};
 	});
 
@@ -1958,21 +2613,41 @@
 					<span class="news-badge">{tooltipData.newsCount} news items</span>
 				</div>
 			{/if}
+			{#if tooltipData.hotspotName}
+				<div class="tooltip-hotspot">Near {tooltipData.hotspotName}</div>
+			{/if}
 			{#if tooltipData.recentNews && tooltipData.recentNews.length > 0}
-				<div class="tooltip-news">
-					<span class="news-label">Recent Headlines:</span>
-					{#each tooltipData.recentNews as newsItem}
-						{#if typeof newsItem === 'object' && newsItem.link}
-							<a
-								class="news-headline clickable"
-								href={newsItem.link}
-								target="_blank"
-								rel="noopener noreferrer"
-							>{newsItem.title}</a>
-						{:else}
-							<div class="news-headline">{typeof newsItem === 'string' ? newsItem : newsItem.title}</div>
+				<div class="tooltip-news" class:expanded={tooltipExpanded}>
+					<div class="news-header">
+						<span class="news-label">{tooltipExpanded ? 'All Headlines' : 'Recent Headlines'}:</span>
+						{#if tooltipData.allNews && tooltipData.allNews.length > 3}
+							<button
+								class="expand-btn"
+								onclick={() => tooltipExpanded = !tooltipExpanded}
+							>
+								{tooltipExpanded ? 'Show Less' : `Show All (${tooltipData.allNews.length})`}
+							</button>
 						{/if}
-					{/each}
+					</div>
+					<div class="news-list" class:scrollable={tooltipExpanded}>
+						{#each (tooltipExpanded && tooltipData.allNews ? tooltipData.allNews : tooltipData.recentNews) as newsItem}
+							{#if typeof newsItem === 'object' && newsItem.link}
+								<a
+									class="news-headline clickable"
+									href={newsItem.link}
+									target="_blank"
+									rel="noopener noreferrer"
+								>
+									<span class="news-title">{newsItem.title}</span>
+									{#if tooltipExpanded && 'source' in newsItem && newsItem.source}
+										<span class="news-source">{newsItem.source}</span>
+									{/if}
+								</a>
+							{:else}
+								<div class="news-headline">{typeof newsItem === 'string' ? newsItem : newsItem.title}</div>
+							{/if}
+						{/each}
+					</div>
 				</div>
 			{/if}
 		</div>
@@ -2655,6 +3330,82 @@
 
 	.news-headline.clickable:hover {
 		color: rgb(34 211 238);
+	}
+
+	.tooltip-hotspot {
+		font-size: 0.5rem;
+		font-family: 'SF Mono', Monaco, monospace;
+		color: rgb(148 163 184);
+		margin-top: 0.25rem;
+		padding: 0.125rem 0.25rem;
+		background: rgb(30 41 59 / 0.5);
+		border-radius: 2px;
+		display: inline-block;
+	}
+
+	.news-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 0.5rem;
+		margin-bottom: 0.25rem;
+	}
+
+	.expand-btn {
+		font-size: 0.5rem;
+		font-family: 'SF Mono', Monaco, monospace;
+		padding: 0.125rem 0.375rem;
+		background: rgb(6 182 212 / 0.15);
+		color: rgb(34 211 238);
+		border: 1px solid rgb(6 182 212 / 0.3);
+		border-radius: 2px;
+		cursor: pointer;
+		transition: all 0.15s ease;
+	}
+
+	.expand-btn:hover {
+		background: rgb(6 182 212 / 0.25);
+		border-color: rgb(6 182 212 / 0.5);
+	}
+
+	.news-list.scrollable {
+		max-height: 200px;
+		overflow-y: auto;
+		padding-right: 0.25rem;
+	}
+
+	.news-list.scrollable::-webkit-scrollbar {
+		width: 4px;
+	}
+
+	.news-list.scrollable::-webkit-scrollbar-track {
+		background: rgb(30 41 59 / 0.3);
+		border-radius: 2px;
+	}
+
+	.news-list.scrollable::-webkit-scrollbar-thumb {
+		background: rgb(71 85 105);
+		border-radius: 2px;
+	}
+
+	.news-list.scrollable::-webkit-scrollbar-thumb:hover {
+		background: rgb(100 116 139);
+	}
+
+	.tooltip-news.expanded {
+		min-width: 280px;
+	}
+
+	.news-title {
+		display: block;
+		flex: 1;
+	}
+
+	.news-source {
+		display: block;
+		font-size: 0.45rem;
+		color: rgb(100 116 139);
+		margin-top: 0.125rem;
 	}
 
 	@media (max-width: 480px) {
