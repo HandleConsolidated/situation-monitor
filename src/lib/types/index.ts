@@ -131,13 +131,12 @@ export interface PredictionData {
  * Whale transaction data
  */
 export interface WhaleTransaction {
+	coin: string;
+	amount: number;
+	usd: number;
 	hash: string;
-	from: string;
-	to: string;
-	value: number;
-	token: string;
-	timestamp: number;
-	type: 'transfer' | 'swap' | 'mint' | 'burn';
+	direction: 'buy' | 'sell' | 'transfer';
+	timestamp?: number;
 }
 
 /**

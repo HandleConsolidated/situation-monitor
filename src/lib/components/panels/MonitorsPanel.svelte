@@ -13,6 +13,7 @@
 		onEditMonitor?: (monitor: CustomMonitor) => void;
 		onDeleteMonitor?: (id: string) => void;
 		onToggleMonitor?: (id: string) => void;
+		onViewMatches?: (monitor: CustomMonitor) => void;
 	}
 
 	let {
@@ -23,7 +24,8 @@
 		onCreateMonitor,
 		onEditMonitor,
 		onDeleteMonitor,
-		onToggleMonitor
+		onToggleMonitor,
+		onViewMatches
 	}: Props = $props();
 
 	const activeMonitors = $derived(monitors.filter((m) => m.enabled));
@@ -34,7 +36,7 @@
 	}
 </script>
 
-<Panel id="monitors" title="Custom Monitors" {count} {loading} {error}>
+<Panel id="monitors" title="Custom Monitors" {count} {loading} {error} skeletonType="monitor" skeletonCount={3}>
 	<div class="monitors-content">
 		{#if monitors.length === 0 && !loading && !error}
 			<div class="empty-state">
@@ -55,7 +57,13 @@
 				{#each monitors as monitor (monitor.id)}
 					<div class="monitor-item" class:disabled={!monitor.enabled}>
 						<div class="monitor-header">
-							<div class="monitor-info">
+							<!-- svelte-ignore a11y_click_events_have_key_events -->
+							<!-- svelte-ignore a11y_no_static_element_interactions -->
+							<div
+								class="monitor-info"
+								class:clickable={monitor.matchCount > 0 && onViewMatches}
+								onclick={() => monitor.matchCount > 0 && onViewMatches?.(monitor)}
+							>
 								{#if monitor.color}
 									<span
 										class="monitor-color"
@@ -65,6 +73,7 @@
 								<span class="monitor-name text-[10px] sm:text-xs">{monitor.name}</span>
 								{#if monitor.matchCount > 0}
 									<Badge text={String(monitor.matchCount)} variant="info" />
+									<span class="view-all-hint">VIEW ALL</span>
 								{/if}
 							</div>
 							<div class="monitor-actions">
@@ -155,10 +164,11 @@
 	}
 
 	.active-count {
-		font-size: 0.5625rem;
+		font-size: var(--fs-2xs); /* 8px → 9px responsive */
 		font-family: 'SF Mono', Monaco, monospace;
 		color: var(--text-dim);
 		letter-spacing: 0.1em;
+		line-height: var(--lh-tight);
 	}
 
 	.add-btn {
@@ -171,7 +181,7 @@
 		border: 1px solid var(--border);
 		border-radius: 2px;
 		color: var(--text-dim);
-		font-size: 0.8rem;
+		font-size: var(--fs-sm); /* 10px → 12px responsive */
 		cursor: pointer;
 		transition: all 0.15s ease;
 	}
@@ -217,6 +227,31 @@
 		gap: 0.3rem;
 	}
 
+	.monitor-info.clickable {
+		cursor: pointer;
+		padding: 0.125rem 0.25rem;
+		margin: -0.125rem -0.25rem;
+		border-radius: 2px;
+		transition: background-color 0.15s;
+	}
+
+	.monitor-info.clickable:hover {
+		background: var(--surface-hover, rgb(30 41 59 / 0.5));
+	}
+
+	.view-all-hint {
+		font-size: var(--fs-2xs, 9px);
+		font-family: 'SF Mono', Monaco, monospace;
+		color: var(--accent, rgb(34 211 238));
+		opacity: 0;
+		transition: opacity 0.15s;
+		margin-left: 0.25rem;
+	}
+
+	.monitor-info.clickable:hover .view-all-hint {
+		opacity: 1;
+	}
+
 	.monitor-color {
 		width: 8px;
 		height: 8px;
@@ -224,9 +259,10 @@
 	}
 
 	.monitor-name {
-		font-size: 0.65rem;
+		font-size: var(--fs-sm); /* 10px → 12px responsive */
 		font-weight: 700;
 		color: var(--text-primary);
+		line-height: var(--lh-snug);
 	}
 
 	.monitor-actions {
@@ -243,7 +279,7 @@
 		background: transparent;
 		border: none;
 		color: var(--text-muted);
-		font-size: 0.65rem;
+		font-size: var(--fs-sm); /* 10px → 12px responsive */
 		cursor: pointer;
 		border-radius: 2px;
 		transition: all 0.15s;
@@ -270,13 +306,14 @@
 	}
 
 	.keyword {
-		font-size: 0.5rem;
+		font-size: var(--fs-2xs); /* 8px → 9px responsive */
 		font-family: 'SF Mono', Monaco, monospace;
 		padding: 0.1rem 0.3rem;
 		background: var(--interactive-bg);
 		border: 1px solid var(--border);
 		border-radius: 2px;
 		color: var(--text-secondary);
+		line-height: var(--lh-tight);
 	}
 
 	.keyword.more {
@@ -284,10 +321,11 @@
 	}
 
 	.monitor-location {
-		font-size: 0.5rem;
+		font-size: var(--fs-2xs); /* 8px → 9px responsive */
 		font-family: 'SF Mono', Monaco, monospace;
 		color: var(--text-muted);
 		margin-bottom: 0.3rem;
+		line-height: var(--lh-tight);
 	}
 
 	.monitor-matches {
@@ -302,10 +340,10 @@
 
 	.match-title {
 		display: block;
-		font-size: 0.5625rem;
+		font-size: var(--fs-xs); /* 9px → 10px responsive */
 		color: var(--text);
 		text-decoration: none;
-		line-height: 1.3;
+		line-height: var(--lh-snug);
 		transition: color 0.15s;
 	}
 
@@ -320,15 +358,17 @@
 	}
 
 	.match-keyword {
-		font-size: 0.5rem;
+		font-size: var(--fs-2xs); /* 8px → 9px responsive */
 		font-family: 'SF Mono', Monaco, monospace;
 		color: var(--warning);
+		line-height: var(--lh-tight);
 	}
 
 	.match-time {
-		font-size: 0.5rem;
+		font-size: var(--fs-2xs); /* 8px → 9px responsive */
 		font-family: 'SF Mono', Monaco, monospace;
 		color: var(--text-muted);
+		line-height: var(--lh-tight);
 	}
 
 	.empty-state {
@@ -338,10 +378,11 @@
 
 	.empty-state p {
 		color: var(--text-dim);
-		font-size: 0.65rem;
+		font-size: var(--fs-sm); /* 10px → 12px responsive */
 		margin-bottom: 0.5rem;
 		text-transform: uppercase;
 		letter-spacing: 0.1em;
+		line-height: var(--lh-normal);
 	}
 
 	.create-btn {
@@ -350,11 +391,12 @@
 		border: 1px solid var(--border);
 		border-radius: 2px;
 		color: var(--text-dim);
-		font-size: 0.5625rem;
+		font-size: var(--fs-2xs); /* 8px → 9px responsive */
 		font-family: 'SF Mono', Monaco, monospace;
 		letter-spacing: 0.1em;
 		cursor: pointer;
 		transition: all 0.15s;
+		line-height: var(--lh-tight);
 	}
 
 	.create-btn:hover {

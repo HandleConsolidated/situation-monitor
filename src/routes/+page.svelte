@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { Header } from '$lib/components/layout';
-	import { SettingsModal, MonitorFormModal, OnboardingModal } from '$lib/components/modals';
+	import { SettingsModal, MonitorFormModal, MonitorMatchesModal, OnboardingModal } from '$lib/components/modals';
 	import {
 		NewsPanel,
 		MarketsPanel,
@@ -21,7 +21,8 @@
 		IntelPanel,
 		SituationPanel,
 		WorldLeadersPanel,
-		PrinterPanel
+		PrinterPanel,
+		GridStressPanel
 	} from '$lib/components/panels';
 	import {
 		news,
@@ -44,9 +45,10 @@
 		fetchWhaleTransactions,
 		fetchGovContracts,
 		fetchLayoffs,
-		fetchWorldLeaders
+		fetchWorldLeaders,
+		fetchAllGridStress
 	} from '$lib/api';
-	import type { Prediction, WhaleTransaction, Contract, Layoff } from '$lib/api';
+	import type { Prediction, WhaleTransaction, Contract, Layoff, GridStressData } from '$lib/api';
 	import type { CustomMonitor, WorldLeader } from '$lib/types';
 	import type { PanelId } from '$lib/config';
 	import { HOTSPOTS } from '$lib/config/map';
@@ -64,8 +66,10 @@
 	// Modal state
 	let settingsOpen = $state(false);
 	let monitorFormOpen = $state(false);
+	let monitorMatchesOpen = $state(false);
 	let onboardingOpen = $state(false);
 	let editingMonitor = $state<CustomMonitor | null>(null);
+	let viewingMonitor = $state<CustomMonitor | null>(null);
 
 	// Misc panel data
 	let predictions = $state<Prediction[]>([]);
@@ -74,6 +78,8 @@
 	let layoffs = $state<Layoff[]>([]);
 	let leaders = $state<WorldLeader[]>([]);
 	let leadersLoading = $state(false);
+	let gridStress = $state<GridStressData[]>([]);
+	let gridStressLoading = $state(false);
 
 	// Data fetching
 	async function loadNews() {
@@ -140,6 +146,18 @@
 		}
 	}
 
+	async function loadGridStress() {
+		if (!isPanelVisible('gridstress')) return;
+		gridStressLoading = true;
+		try {
+			gridStress = await fetchAllGridStress();
+		} catch (error) {
+			console.error('Failed to load grid stress data:', error);
+		} finally {
+			gridStressLoading = false;
+		}
+	}
+
 	async function handleRefresh() {
 		refresh.startRefresh();
 		try {
@@ -168,6 +186,11 @@
 		monitors.toggleMonitor(id);
 	}
 
+	function handleViewMatches(monitor: CustomMonitor) {
+		viewingMonitor = monitor;
+		monitorMatchesOpen = true;
+	}
+
 	function isPanelVisible(id: PanelId): boolean {
 		return $settings.enabled[id] !== false;
 	}
@@ -189,6 +212,24 @@
 		onboardingOpen = true;
 	}
 
+	// Scan for monitor matches whenever news items change
+	// IMPORTANT: Do NOT read $monitors inside this effect - scanForMatches updates it, causing infinite loop!
+	let lastScannedNewsCount = 0;
+	$effect(() => {
+		const items = $allNewsItems;
+		const newsCount = items.length;
+
+		// Only scan when news count changes (new items arrived)
+		if (newsCount > 0 && newsCount !== lastScannedNewsCount) {
+			lastScannedNewsCount = newsCount;
+			// Check monitors count without subscribing to changes
+			const monitorsState = monitors.getMonitors();
+			if (monitorsState.length > 0) {
+				monitors.scanForMatches(items);
+			}
+		}
+	});
+
 	onMount(() => {
 		if (!settings.isOnboardingComplete()) {
 			onboardingOpen = true;
@@ -197,7 +238,7 @@
 		async function initialLoad() {
 			refresh.startRefresh();
 			try {
-				await Promise.all([loadNews(), loadMarkets(), loadMiscData(), loadWorldLeaders()]);
+				await Promise.all([loadNews(), loadMarkets(), loadMiscData(), loadWorldLeaders(), loadGridStress()]);
 				refresh.endRefresh();
 			} catch (error) {
 				refresh.endRefresh([String(error)]);
@@ -274,6 +315,7 @@
 							onEditMonitor={handleEditMonitor}
 							onDeleteMonitor={handleDeleteMonitor}
 							onToggleMonitor={handleToggleMonitor}
+							onViewMatches={handleViewMatches}
 						/>
 					{:else if panelId === 'venezuela'}
 						<SituationPanel
@@ -329,6 +371,8 @@
 									n.title.toLowerCase().includes('irgc')
 							)}
 						/>
+					{:else if panelId === 'gridstress'}
+						<GridStressPanel gridData={gridStress} loading={gridStressLoading} />
 					{/if}
 				{/each}
 			</DropZone>
@@ -424,6 +468,7 @@
 							onEditMonitor={handleEditMonitor}
 							onDeleteMonitor={handleDeleteMonitor}
 							onToggleMonitor={handleToggleMonitor}
+							onViewMatches={handleViewMatches}
 						/>
 					{:else if panelId === 'venezuela'}
 						<SituationPanel
@@ -479,6 +524,8 @@
 									n.title.toLowerCase().includes('irgc')
 							)}
 						/>
+					{:else if panelId === 'gridstress'}
+						<GridStressPanel gridData={gridStress} loading={gridStressLoading} />
 					{/if}
 				{/each}
 			</DropZone>
@@ -587,6 +634,8 @@
 							n.title.toLowerCase().includes('irgc')
 					)}
 				/>
+			{:else if panelId === 'gridstress'}
+				<GridStressPanel gridData={gridStress} loading={gridStressLoading} />
 			{/if}
 		{/each}
 	</DropZone>
@@ -601,6 +650,12 @@
 		open={monitorFormOpen}
 		onClose={() => (monitorFormOpen = false)}
 		editMonitor={editingMonitor}
+	/>
+	<MonitorMatchesModal
+		open={monitorMatchesOpen}
+		onClose={() => (monitorMatchesOpen = false)}
+		monitor={viewingMonitor}
+		matches={$monitors.matches}
 	/>
 	<OnboardingModal open={onboardingOpen} onSelectPreset={handleSelectPreset} />
 </div>

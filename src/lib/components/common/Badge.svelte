@@ -7,11 +7,6 @@
 
 	let { text, variant = 'default', size = 'sm' }: Props = $props();
 
-	const sizeClasses: Record<string, string> = {
-		sm: 'text-[10px] px-1.5 py-0.5',
-		md: 'text-[11px] px-2 py-1'
-	};
-
 	const variantClasses: Record<string, string> = {
 		critical: 'bg-red-950/50 text-red-500 border-red-800/50',
 		danger: 'bg-red-950/50 text-red-500 border-red-800/50',
@@ -26,9 +21,30 @@
 </script>
 
 <span
-	class="inline-flex items-center font-mono uppercase tracking-wider rounded-sm border {sizeClasses[
-		size
-	]} {classes}"
+	class="badge {size === 'md' ? 'badge--md' : 'badge--sm'} {classes}"
 >
 	{text}
 </span>
+
+<style>
+	.badge {
+		display: inline-flex;
+		align-items: center;
+		font-family: 'SF Mono', Monaco, monospace;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		border-radius: 2px;
+		border-width: 1px;
+		line-height: var(--lh-tight);
+	}
+
+	.badge--sm {
+		font-size: var(--fs-2xs); /* 8px → 9px responsive */
+		padding: var(--sp-xs) var(--sp-sm);
+	}
+
+	.badge--md {
+		font-size: var(--fs-xs); /* 9px → 10px responsive */
+		padding: var(--sp-xs) var(--sp-md);
+	}
+</style>

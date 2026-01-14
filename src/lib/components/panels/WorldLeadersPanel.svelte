@@ -76,7 +76,7 @@
 	.leader-card {
 		background: var(--card-bg);
 		border: 1px solid var(--border-strong);
-		border-radius: 2px; /* rounded-sm per design system */
+		border-radius: 2px;
 		padding: 0.75rem;
 		transition: all 0.2s;
 	}
@@ -103,7 +103,7 @@
 	}
 
 	.leader-flag {
-		font-size: 1.5rem;
+		font-size: var(--icon-lg); /* 16px → 20px responsive */
 		line-height: 1;
 	}
 
@@ -113,33 +113,36 @@
 	}
 
 	.leader-name {
-		font-size: 0.8rem;
+		font-size: var(--fs-md); /* 11px → 13px responsive */
 		font-weight: 600;
 		color: var(--text-primary);
-		line-height: 1.2;
+		line-height: var(--lh-tight);
 	}
 
 	.leader-title {
-		font-size: 0.65rem;
+		font-size: var(--fs-sm); /* 10px → 12px responsive */
 		color: var(--text-dim);
 		margin-top: 0.1rem;
+		line-height: var(--lh-snug);
 	}
 
 	.leader-country {
-		font-size: 0.6rem;
+		font-size: var(--fs-xs); /* 9px → 10px responsive */
 		color: var(--text-muted);
 		margin-top: 0.15rem;
+		line-height: var(--lh-tight);
 	}
 
 	.leader-activity-badge {
 		background: var(--info);
 		color: #000;
-		font-size: 0.55rem;
+		font-size: var(--fs-2xs); /* 8px → 9px responsive */
 		font-weight: bold;
 		padding: 0.15rem 0.35rem;
 		border-radius: 2px;
 		min-width: 18px;
 		text-align: center;
+		line-height: var(--lh-tight);
 	}
 
 	.leader-card.high-activity .leader-activity-badge {
@@ -149,9 +152,10 @@
 	.leader-meta {
 		display: flex;
 		gap: 0.5rem;
-		font-size: 0.55rem;
+		font-size: var(--fs-2xs); /* 8px → 9px responsive */
 		color: var(--text-muted);
 		margin-bottom: 0.5rem;
+		line-height: var(--lh-tight);
 	}
 
 	.leader-since {
@@ -171,12 +175,13 @@
 	}
 
 	.leader-focus {
-		font-size: 0.5rem;
+		font-size: var(--fs-2xs); /* 8px → 9px responsive */
 		background: rgba(68, 136, 255, 0.15);
 		color: var(--info);
 		padding: 0.1rem 0.35rem;
 		border-radius: 2px;
 		text-transform: lowercase;
+		line-height: var(--lh-tight);
 	}
 
 	.leader-news {
@@ -187,11 +192,11 @@
 
 	.leader-news-item {
 		display: block;
-		font-size: 0.6rem;
+		font-size: var(--fs-xs); /* 9px → 10px responsive */
 		color: var(--text-dim);
 		text-decoration: none;
 		padding: 0.25rem 0;
-		line-height: 1.3;
+		line-height: var(--lh-snug);
 		border-bottom: 1px solid var(--border);
 	}
 
@@ -206,7 +211,8 @@
 	.empty-state {
 		text-align: center;
 		color: var(--text-secondary);
-		font-size: 0.7rem;
+		font-size: var(--fs-sm); /* 10px → 12px responsive */
 		padding: 1rem;
+		line-height: var(--lh-normal);
 	}
 </style>

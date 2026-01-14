@@ -243,37 +243,190 @@ a:hover {
 
 /* ========================================
    TYPOGRAPHY UTILITIES
+   Responsive text sizing system with safe minimums
    ======================================== */
+
+/* Font Size Scale (with safe minimums):
+   --text-2xs: 8px  → 9px   (tiny labels, timestamps - absolute minimum)
+   --text-xs:  9px  → 10px  (metadata, small labels)
+   --text-sm:  10px → 12px  (body text, descriptions)
+   --text-md:  11px → 13px  (primary content)
+   --text-lg:  12px → 14px  (titles, headers)
+   --text-xl:  14px → 16px  (panel titles)
+*/
+
+:root {
+	/* Responsive font sizes using clamp for smooth scaling */
+	--fs-2xs: clamp(0.5rem, 0.45rem + 0.25vw, 0.5625rem);     /* 8px → 9px */
+	--fs-xs: clamp(0.5625rem, 0.5rem + 0.25vw, 0.625rem);     /* 9px → 10px */
+	--fs-sm: clamp(0.625rem, 0.55rem + 0.35vw, 0.75rem);      /* 10px → 12px */
+	--fs-md: clamp(0.6875rem, 0.6rem + 0.35vw, 0.8125rem);    /* 11px → 13px */
+	--fs-lg: clamp(0.75rem, 0.65rem + 0.4vw, 0.875rem);       /* 12px → 14px */
+	--fs-xl: clamp(0.875rem, 0.75rem + 0.5vw, 1rem);          /* 14px → 16px */
+
+	/* Spacing scale for responsive padding/margins */
+	--sp-xs: clamp(0.125rem, 0.1rem + 0.1vw, 0.1875rem);      /* 2px → 3px */
+	--sp-sm: clamp(0.25rem, 0.2rem + 0.15vw, 0.375rem);       /* 4px → 6px */
+	--sp-md: clamp(0.375rem, 0.3rem + 0.2vw, 0.5rem);         /* 6px → 8px */
+	--sp-lg: clamp(0.5rem, 0.4rem + 0.3vw, 0.75rem);          /* 8px → 12px */
+
+	/* Icon sizes */
+	--icon-xs: clamp(0.625rem, 0.55rem + 0.3vw, 0.75rem);     /* 10px → 12px */
+	--icon-sm: clamp(0.75rem, 0.65rem + 0.35vw, 0.875rem);    /* 12px → 14px */
+	--icon-md: clamp(0.875rem, 0.75rem + 0.4vw, 1rem);        /* 14px → 16px */
+	--icon-lg: clamp(1rem, 0.85rem + 0.5vw, 1.25rem);         /* 16px → 20px */
+
+	/* Line heights for different text sizes */
+	--lh-tight: 1.2;
+	--lh-snug: 1.35;
+	--lh-normal: 1.5;
+	--lh-relaxed: 1.65;
+}
+
+/* Responsive text classes */
+.text-responsive-2xs {
+	font-size: var(--fs-2xs);
+	line-height: var(--lh-snug);
+}
+
+.text-responsive-xs {
+	font-size: var(--fs-xs);
+	line-height: var(--lh-snug);
+}
+
+.text-responsive-sm {
+	font-size: var(--fs-sm);
+	line-height: var(--lh-normal);
+}
+
+.text-responsive-md {
+	font-size: var(--fs-md);
+	line-height: var(--lh-normal);
+}
+
+.text-responsive-lg {
+	font-size: var(--fs-lg);
+	line-height: var(--lh-normal);
+}
+
+.text-responsive-xl {
+	font-size: var(--fs-xl);
+	line-height: var(--lh-normal);
+}
 
 /* Panel/section headers */
 .text-heading {
-	font-size: 0.875rem; /* 14px - text-sm */
+	font-size: var(--fs-lg);
 	font-weight: 700;
 	text-transform: uppercase;
 	letter-spacing: 0.1em;
 	color: var(--text-primary);
+	line-height: var(--lh-tight);
+}
+
+/* Section subheadings */
+.text-subheading {
+	font-size: var(--fs-xs);
+	font-weight: 700;
+	font-family: 'SF Mono', Monaco, Inconsolata, 'Fira Code', monospace;
+	text-transform: uppercase;
+	letter-spacing: 0.15em;
+	color: var(--accent);
+	line-height: var(--lh-tight);
+}
+
+/* Content titles (news headlines, item names) */
+.text-content-title {
+	font-size: var(--fs-sm);
+	font-weight: 700;
+	color: var(--text-primary);
+	line-height: var(--lh-snug);
 }
 
 /* Body text */
 .text-body {
-	font-size: 0.75rem; /* 12px - text-xs */
+	font-size: var(--fs-sm);
 	color: var(--text);
-	line-height: 1.5;
+	line-height: var(--lh-normal);
 }
 
-/* Metadata/labels */
-.text-meta {
-	font-size: 0.625rem; /* 10px */
+/* Source labels */
+.text-source {
+	font-size: var(--fs-xs);
 	font-family: 'SF Mono', Monaco, Inconsolata, 'Fira Code', monospace;
 	color: var(--text-dim);
 	text-transform: uppercase;
 	letter-spacing: 0.05em;
+	line-height: var(--lh-tight);
+}
+
+/* Metadata/labels */
+.text-meta {
+	font-size: var(--fs-xs);
+	font-family: 'SF Mono', Monaco, Inconsolata, 'Fira Code', monospace;
+	color: var(--text-dim);
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	line-height: var(--lh-tight);
+}
+
+/* Timestamps */
+.text-timestamp {
+	font-size: var(--fs-2xs);
+	font-family: 'SF Mono', Monaco, Inconsolata, 'Fira Code', monospace;
+	color: var(--text-muted);
+	line-height: var(--lh-tight);
 }
 
 /* Nano text for tiny labels */
 .text-nano {
-	font-size: 0.5625rem; /* 9px */
+	font-size: var(--fs-2xs);
 	font-family: 'SF Mono', Monaco, Inconsolata, 'Fira Code', monospace;
+	line-height: var(--lh-tight);
+}
+
+/* Numeric values (prices, percentages) */
+.text-value {
+	font-size: var(--fs-sm);
+	font-family: 'SF Mono', Monaco, Inconsolata, 'Fira Code', monospace;
+	font-variant-numeric: tabular-nums;
+	line-height: var(--lh-tight);
+}
+
+/* Large numeric displays */
+.text-value-lg {
+	font-size: var(--fs-xl);
+	font-family: 'SF Mono', Monaco, Inconsolata, 'Fira Code', monospace;
+	font-weight: 700;
+	font-variant-numeric: tabular-nums;
+	line-height: var(--lh-tight);
+}
+
+/* Responsive icon wrapper */
+.icon-xs { font-size: var(--icon-xs); }
+.icon-sm { font-size: var(--icon-sm); }
+.icon-md { font-size: var(--icon-md); }
+.icon-lg { font-size: var(--icon-lg); }
+
+/* Responsive spacing utilities */
+.gap-responsive-xs { gap: var(--sp-xs); }
+.gap-responsive-sm { gap: var(--sp-sm); }
+.gap-responsive-md { gap: var(--sp-md); }
+.gap-responsive-lg { gap: var(--sp-lg); }
+
+.p-responsive-xs { padding: var(--sp-xs); }
+.p-responsive-sm { padding: var(--sp-sm); }
+.p-responsive-md { padding: var(--sp-md); }
+.p-responsive-lg { padding: var(--sp-lg); }
+
+/* Empty state text */
+.text-empty-state {
+	font-size: var(--fs-sm);
+	color: var(--text-dim);
+	text-transform: uppercase;
+	letter-spacing: 0.1em;
+	text-align: center;
+	padding: var(--sp-lg);
 }
 
 /* ========================================

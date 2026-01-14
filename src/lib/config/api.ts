@@ -22,21 +22,19 @@ export const FINNHUB_BASE_URL = 'https://finnhub.io/api/v1';
 const isDev = browser ? (import.meta.env?.DEV ?? false) : false;
 
 /**
- * CORS proxy URLs for external API requests
- * Multiple proxies for redundancy - tries each in order until one works
- * Primary: Custom Cloudflare Worker (faster, dedicated)
- * Fallbacks: Various public proxies (may rate limit or block certain traffic)
+ * CORS proxy URL for external API requests
+ * Using custom Cloudflare Worker for reliable CORS handling
+ * Format: https://bitter-sea-8577.ahandle.workers.dev/?url=encodedUrl
  */
-export const CORS_PROXIES = {
-	primary: 'https://situation-monitor-proxy.seanthielen-e.workers.dev/?url=',
-	fallback: 'https://corsproxy.io/?url=',
-	// Additional fallback proxies for better reliability
-	allOrigins: 'https://api.allorigins.win/raw?url=',
-	corsfix: 'https://proxy.cors.sh/'
-} as const;
+export const CORS_PROXY_URL = 'https://bitter-sea-8577.ahandle.workers.dev/?url=';
 
-// Default export for backward compatibility
-export const CORS_PROXY_URL = CORS_PROXIES.fallback;
+// Legacy export for backward compatibility
+export const CORS_PROXIES = {
+	primary: CORS_PROXY_URL,
+	fallback: CORS_PROXY_URL,
+	allOrigins: CORS_PROXY_URL,
+	corsfix: CORS_PROXY_URL
+} as const;
 
 /**
  * Fetch options for CORS proxy requests
@@ -48,63 +46,54 @@ export interface FetchWithProxyOptions {
 }
 
 /**
- * Fetch with CORS proxy fallback and retry logic
- * Tries multiple proxies in order, with configurable retries
+ * Fetch with CORS proxy and retry logic
+ * Uses api.cors.lol as the CORS proxy
  * Supports custom headers for authenticated APIs
  */
 export async function fetchWithProxy(
 	url: string,
 	options: FetchWithProxyOptions = {}
 ): Promise<Response> {
-	const { headers = {}, maxRetries = 2, retryDelay = 1000 } = options;
-	const encodedUrl = encodeURIComponent(url);
-
-	// List of proxies to try in order
-	const proxiesToTry = [
-		{ name: 'primary', url: CORS_PROXIES.primary + encodedUrl },
-		{ name: 'corsproxy', url: CORS_PROXIES.fallback + encodedUrl },
-		{ name: 'allOrigins', url: CORS_PROXIES.allOrigins + encodedUrl }
-	];
+	const { headers = {}, maxRetries = 3, retryDelay = 1000 } = options;
+	// Cloudflare Worker expects URL to be encoded
+	const proxyUrl = CORS_PROXY_URL + encodeURIComponent(url);
 
 	let lastError: Error | null = null;
 
-	for (const proxy of proxiesToTry) {
-		for (let attempt = 0; attempt < maxRetries; attempt++) {
-			try {
-				const response = await fetch(proxy.url, {
-					headers: {
-						Accept: 'application/json',
-						...headers
-					}
-				});
+	for (let attempt = 0; attempt < maxRetries; attempt++) {
+		try {
+			const response = await fetch(proxyUrl, {
+				headers: {
+					Accept: 'application/json',
+					...headers
+				},
+				signal: AbortSignal.timeout(15000)
+			});
 
-				if (response.ok) {
-					return response;
-				}
-
-				// Log non-OK responses but continue trying
-				if (response.status >= 400 && response.status < 500) {
-					// Client errors (4xx) - likely won't succeed with retry
-					logger.warn('API', `${proxy.name} proxy returned ${response.status} for ${url}`);
-					break; // Try next proxy
-				}
-
-				// Server errors (5xx) - might succeed with retry
-				logger.warn('API', `${proxy.name} proxy returned ${response.status}, attempt ${attempt + 1}/${maxRetries}`);
-			} catch (error) {
-				lastError = error instanceof Error ? error : new Error(String(error));
-				logger.warn('API', `${proxy.name} proxy error (attempt ${attempt + 1}/${maxRetries}):`, lastError.message);
+			if (response.ok) {
+				return response;
 			}
 
-			// Wait before retry (but not after last attempt)
-			if (attempt < maxRetries - 1) {
-				await new Promise((resolve) => setTimeout(resolve, retryDelay));
+			// Log non-OK responses
+			logger.warn('API', `CORS proxy returned ${response.status} for ${url}, attempt ${attempt + 1}/${maxRetries}`);
+
+			// Client errors (4xx) - likely won't succeed with retry
+			if (response.status >= 400 && response.status < 500) {
+				throw new Error(`HTTP ${response.status}`);
 			}
+		} catch (error) {
+			lastError = error instanceof Error ? error : new Error(String(error));
+			logger.warn('API', `CORS proxy error (attempt ${attempt + 1}/${maxRetries}):`, lastError.message);
+		}
+
+		// Wait before retry (but not after last attempt)
+		if (attempt < maxRetries - 1) {
+			await new Promise((resolve) => setTimeout(resolve, retryDelay));
 		}
 	}
 
-	// All proxies failed - throw the last error
-	throw lastError || new Error(`All CORS proxies failed for ${url}`);
+	// All attempts failed - throw the last error
+	throw lastError || new Error(`CORS proxy failed for ${url}`);
 }
 
 /**

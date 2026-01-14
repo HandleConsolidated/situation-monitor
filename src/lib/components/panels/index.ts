@@ -18,3 +18,4 @@ export { default as MonitorsPanel } from './MonitorsPanel.svelte';
 export { default as MapPanel } from './MapPanel.svelte';
 export { default as GlobePanel } from './MapboxGlobePanel.svelte';
 export { default as WorldLeadersPanel } from './WorldLeadersPanel.svelte';
+export { default as GridStressPanel } from './GridStressPanel.svelte';

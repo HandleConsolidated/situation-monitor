@@ -36,43 +36,47 @@
 <style>
 	.main-char-display {
 		text-align: center;
-		padding: 0.5rem;
+		padding: var(--sp-md);
 	}
 
 	.main-char-label {
-		font-size: 0.5rem;
+		font-size: var(--fs-2xs); /* 8px → 9px responsive */
 		font-family: 'SF Mono', Monaco, monospace;
 		color: var(--text-muted);
 		text-transform: uppercase;
 		letter-spacing: 0.15em;
-		margin-bottom: 0.5rem;
+		margin-bottom: var(--sp-md);
+		line-height: var(--lh-tight);
 	}
 
 	.main-char-name {
-		font-size: 1.1rem;
+		font-size: var(--fs-xl); /* 14px → 16px responsive */
 		font-weight: 700;
 		color: var(--accent);
-		margin-bottom: 0.25rem;
+		margin-bottom: var(--sp-sm);
 		text-shadow: 0 0 20px var(--accent-glow);
+		line-height: var(--lh-tight);
 	}
 
 	.main-char-count {
-		font-size: 0.5625rem;
+		font-size: var(--fs-2xs); /* 8px → 9px responsive */
 		font-family: 'SF Mono', Monaco, monospace;
 		color: var(--text-dim);
-		margin-bottom: 1rem;
+		margin-bottom: var(--sp-lg);
+		line-height: var(--lh-tight);
 	}
 
 	.main-char-list {
 		border-top: 1px solid var(--border-divider);
-		padding-top: 0.75rem;
+		padding-top: var(--sp-md);
 	}
 
 	.char-row {
 		display: flex;
 		align-items: center;
-		padding: 0.25rem 0;
-		font-size: 0.625rem;
+		padding: var(--sp-sm) 0;
+		font-size: var(--fs-xs); /* 9px → 10px responsive */
+		line-height: var(--lh-snug);
 	}
 
 	.rank {
@@ -95,9 +99,10 @@
 	.empty-state {
 		text-align: center;
 		color: var(--text-dim);
-		font-size: 0.65rem;
-		padding: 1rem;
+		font-size: var(--fs-sm); /* 10px → 12px responsive */
+		padding: var(--sp-lg);
 		text-transform: uppercase;
 		letter-spacing: 0.1em;
+		line-height: var(--lh-normal);
 	}
 </style>

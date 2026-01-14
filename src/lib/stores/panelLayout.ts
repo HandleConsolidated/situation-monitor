@@ -42,6 +42,7 @@ const DEFAULT_POSITIONS: Record<PanelId, PanelPosition> = {
 	contracts: { zone: 'right', index: 3 },
 	layoffs: { zone: 'right', index: 4 },
 	leaders: { zone: 'right', index: 5 },
+	gridstress: { zone: 'right', index: 6 },
 
 	// Bottom row - Financial panels (Money Printer, Whale Watch, Markets, Sector Heatmap, Crypto, Commodities)
 	printer: { zone: 'bottom', index: 0 },
@@ -90,8 +91,10 @@ function saveToStorage(positions: Record<PanelId, PanelPosition>): void {
 function createPanelLayoutStore() {
 	const savedPositions = loadFromStorage();
 
+	// Merge saved positions with defaults so new panels (like gridstress) appear
+	// even if the user has saved positions from before those panels existed
 	const initialState: PanelLayoutState = {
-		positions: savedPositions ?? { ...DEFAULT_POSITIONS },
+		positions: { ...DEFAULT_POSITIONS, ...savedPositions },
 		draggedPanel: null,
 		dropTarget: null
 	};

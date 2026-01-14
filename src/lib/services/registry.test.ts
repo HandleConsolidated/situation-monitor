@@ -47,7 +47,7 @@ describe('ServiceRegistry', () => {
 
 			expect(proxies).toBeInstanceOf(Array);
 			expect(proxies.length).toBeGreaterThan(0);
-			expect(proxies[0]).toContain('situation-monitor-proxy');
+			expect(proxies[0]).toContain('bitter-sea-8577.ahandle.workers.dev');
 		});
 	});
 

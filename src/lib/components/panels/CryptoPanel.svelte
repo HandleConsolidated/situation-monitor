@@ -9,34 +9,21 @@
 	const count = $derived(items.length);
 </script>
 
-<Panel id="crypto" title="Crypto" {count} {loading} {error}>
+<Panel id="crypto" title="Crypto" {count} {loading} {error} skeletonType="crypto" skeletonCount={3}>
 	{#if items.length === 0 && !loading && !error}
-		<div class="text-center text-slate-500 text-[10px] uppercase tracking-widest py-4">
-			No crypto data available
-		</div>
+		<div class="crypto-empty">No crypto data available</div>
 	{:else}
-		<div class="flex flex-col">
+		<div class="crypto-list">
 			{#each items as coin, i (coin.id)}
 				{@const isPositive = coin.price_change_percentage_24h >= 0}
-				<div
-					class="flex justify-between items-center py-2 px-1 hover:bg-white/5 transition-colors {i <
-					items.length - 1
-						? 'border-b border-slate-800'
-						: ''}"
-				>
-					<div class="flex flex-col gap-0.5">
-						<div class="text-xs font-bold text-white">{coin.name}</div>
-						<div class="text-[10px] font-mono text-slate-400">{coin.symbol.toUpperCase()}</div>
+				<div class="crypto-item" class:crypto-item--border={i < items.length - 1}>
+					<div class="crypto-info">
+						<div class="crypto-name">{coin.name}</div>
+						<div class="crypto-symbol">{coin.symbol.toUpperCase()}</div>
 					</div>
-					<div class="flex flex-col items-end gap-0.5">
-						<div class="text-xs font-mono text-slate-200 tabular-nums">
-							{formatCurrency(coin.current_price)}
-						</div>
-						<div
-							class="text-[10px] font-mono tabular-nums {isPositive
-								? 'text-emerald-500'
-								: 'text-red-500'}"
-						>
+					<div class="crypto-values">
+						<div class="crypto-price">{formatCurrency(coin.current_price)}</div>
+						<div class="crypto-change" class:crypto-change--positive={isPositive} class:crypto-change--negative={!isPositive}>
 							{formatPercentChange(coin.price_change_percentage_24h)}
 						</div>
 					</div>
@@ -45,3 +32,86 @@
 		</div>
 	{/if}
 </Panel>
+
+<style>
+	.crypto-empty {
+		text-align: center;
+		color: rgb(100 116 139); /* slate-500 */
+		font-size: var(--fs-sm); /* 10px → 12px responsive */
+		text-transform: uppercase;
+		letter-spacing: 0.1em;
+		padding: 1rem;
+		line-height: var(--lh-normal);
+	}
+
+	.crypto-list {
+		display: flex;
+		flex-direction: column;
+	}
+
+	.crypto-item {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 0.5rem 0.25rem;
+		transition: background-color 0.15s;
+	}
+
+	.crypto-item:hover {
+		background: rgb(255 255 255 / 0.05);
+	}
+
+	.crypto-item--border {
+		border-bottom: 1px solid rgb(30 41 59); /* slate-800 */
+	}
+
+	.crypto-info {
+		display: flex;
+		flex-direction: column;
+		gap: 0.125rem;
+	}
+
+	.crypto-name {
+		font-size: var(--fs-sm); /* 10px → 12px responsive */
+		font-weight: 700;
+		color: white;
+		line-height: var(--lh-tight);
+	}
+
+	.crypto-symbol {
+		font-size: var(--fs-xs); /* 9px → 10px responsive */
+		font-family: 'SF Mono', Monaco, monospace;
+		color: rgb(148 163 184); /* slate-400 */
+		line-height: var(--lh-tight);
+	}
+
+	.crypto-values {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-end;
+		gap: 0.125rem;
+	}
+
+	.crypto-price {
+		font-size: var(--fs-sm); /* 10px → 12px responsive */
+		font-family: 'SF Mono', Monaco, monospace;
+		color: rgb(226 232 240); /* slate-200 */
+		font-variant-numeric: tabular-nums;
+		line-height: var(--lh-tight);
+	}
+
+	.crypto-change {
+		font-size: var(--fs-xs); /* 9px → 10px responsive */
+		font-family: 'SF Mono', Monaco, monospace;
+		font-variant-numeric: tabular-nums;
+		line-height: var(--lh-tight);
+	}
+
+	.crypto-change--positive {
+		color: rgb(16 185 129); /* emerald-500 */
+	}
+
+	.crypto-change--negative {
+		color: rgb(239 68 68); /* red-500 */
+	}
+</style>

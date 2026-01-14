@@ -34,7 +34,7 @@
 	{error}
 >
 	{#if items.length === 0 && !loading && !error}
-		<div class="text-center text-[10px] sm:text-xs text-[var(--text-dim)] uppercase tracking-widest p-4">No commodity data available</div>
+		<div class="commodities-empty">No commodity data available</div>
 	{:else}
 		<div class="commodities-list">
 			{#each items as item (item.symbol)}
@@ -45,6 +45,16 @@
 </Panel>
 
 <style>
+	.commodities-empty {
+		text-align: center;
+		font-size: var(--fs-sm); /* 10px → 12px responsive */
+		color: var(--text-dim);
+		text-transform: uppercase;
+		letter-spacing: 0.1em;
+		padding: 1rem;
+		line-height: var(--lh-normal);
+	}
+
 	.commodities-list {
 		display: flex;
 		flex-direction: column;

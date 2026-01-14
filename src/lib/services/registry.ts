@@ -89,8 +89,7 @@ const SERVICE_CONFIG: Record<ServiceId, ServiceConfig> = {
 		id: 'cors_proxy',
 		baseUrl: null, // Uses proxy URLs from list
 		proxies: [
-			'https://situation-monitor-proxy.seanthielen-e.workers.dev/?url=',
-			'https://api.allorigins.win/raw?url='
+			'https://bitter-sea-8577.ahandle.workers.dev/?url='
 		],
 		timeout: 12000,
 		retries: 1, // Already has proxy fallback

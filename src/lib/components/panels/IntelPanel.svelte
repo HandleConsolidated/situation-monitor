@@ -105,12 +105,14 @@
 	.intel-list {
 		display: flex;
 		flex-direction: column;
+		overflow: hidden; /* Prevent horizontal overflow */
 	}
 
 	.intel-item {
 		padding: 0.5rem 0;
 		border-bottom: 1px solid var(--border-divider);
 		transition: background-color 0.15s;
+		min-width: 0; /* Allow shrinking in flex context */
 	}
 
 	.intel-item:last-child {
@@ -128,33 +130,45 @@
 	.intel-header {
 		display: flex;
 		justify-content: space-between;
-		align-items: center;
+		align-items: flex-start;
 		margin-bottom: 0.3rem;
 		gap: 0.5rem;
+		min-width: 0; /* Allow shrinking */
 	}
 
 	.intel-source {
-		font-size: 0.5625rem;
+		font-size: var(--fs-2xs); /* 8px → 9px responsive */
 		font-weight: 700;
 		font-family: 'SF Mono', Monaco, monospace;
 		color: var(--text-dim);
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
+		line-height: var(--lh-tight);
+		flex-shrink: 0; /* Don't shrink the source name */
+		max-width: 40%; /* But limit its width */
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.intel-tags {
 		display: flex;
 		flex-wrap: wrap;
 		gap: 0.2rem;
+		justify-content: flex-end;
+		min-width: 0; /* Allow shrinking */
+		flex-shrink: 1;
 	}
 
 	.intel-title {
 		display: block;
-		font-size: 0.65rem;
+		font-size: var(--fs-sm); /* 10px → 12px responsive */
 		color: var(--text);
 		text-decoration: none;
-		line-height: 1.35;
+		line-height: var(--lh-snug);
 		transition: color 0.15s;
+		overflow-wrap: break-word;
+		word-break: break-word;
 	}
 
 	.intel-title:hover {
@@ -163,17 +177,19 @@
 
 	.intel-meta {
 		margin-top: 0.25rem;
-		font-size: 0.5625rem;
+		font-size: var(--fs-2xs); /* 8px → 9px responsive */
 		font-family: 'SF Mono', Monaco, monospace;
 		color: var(--text-muted);
+		line-height: var(--lh-tight);
 	}
 
 	.empty-state {
 		text-align: center;
 		color: var(--text-dim);
-		font-size: 0.65rem;
+		font-size: var(--fs-sm); /* 10px → 12px responsive */
 		padding: 1rem;
 		text-transform: uppercase;
 		letter-spacing: 0.1em;
+		line-height: var(--lh-normal);
 	}
 </style>

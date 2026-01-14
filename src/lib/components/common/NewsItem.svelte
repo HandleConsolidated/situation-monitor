@@ -30,7 +30,7 @@
 </script>
 
 <div
-	class="cursor-pointer transition-all hover:bg-white/5 {compact
+	class="news-item cursor-pointer transition-all hover:bg-white/5 {compact
 		? 'py-1.5'
 		: 'py-2'} {isAlertItem
 		? 'bg-red-950/50 border-l-2 border-red-500 -mx-2 px-2 rounded-sm'
@@ -39,30 +39,18 @@
 			: 'border-b border-slate-800 last:border-b-0'}"
 >
 	{#if showSource}
-		<div
-			class="text-[10px] font-mono text-slate-400 uppercase tracking-wide mb-0.5 flex items-center gap-1.5"
-		>
+		<div class="news-source">
 			{item.source}
 			{#if isAlertItem}
-				<span
-					class="bg-red-600 text-white text-[9px] px-1.5 py-0.5 rounded-sm font-bold tracking-wide"
-				>
-					ALERT
-				</span>
+				<span class="news-badge news-badge--alert">ALERT</span>
 			{:else if isNewItem()}
-				<span
-					class="bg-cyan-600 text-white text-[9px] px-1.5 py-0.5 rounded-sm font-bold tracking-wide animate-pulse"
-				>
-					NEW
-				</span>
+				<span class="news-badge news-badge--new animate-pulse">NEW</span>
 			{/if}
 		</div>
 	{/if}
 
 	<a
-		class="block text-xs font-bold leading-snug text-slate-200 no-underline transition-colors hover:text-cyan-400 {compact
-			? 'text-[11px]'
-			: ''}"
+		class="news-title {compact ? 'news-title--compact' : ''}"
 		href={item.link}
 		target="_blank"
 		rel="noopener noreferrer"
@@ -71,19 +59,13 @@
 	</a>
 
 	{#if showDescription && item.description}
-		<p class="text-[10px] text-slate-400 mt-1.5 leading-relaxed border-l-2 border-slate-700 pl-2">
-			{item.description}
-		</p>
+		<p class="news-description">{item.description}</p>
 	{/if}
 
-	<div class="flex items-center gap-2 mt-1">
-		<span class="text-[10px] font-mono text-slate-500">{timeAgo(item.timestamp)}</span>
+	<div class="news-meta">
+		<span class="news-timestamp">{timeAgo(item.timestamp)}</span>
 		{#if item.region}
-			<span
-				class="text-[9px] font-mono text-cyan-400 bg-cyan-400/10 px-1.5 py-0.5 rounded-sm border border-cyan-400/30 uppercase tracking-wide"
-			>
-				{item.region}
-			</span>
+			<span class="news-region">{item.region}</span>
 		{/if}
 	</div>
 </div>
@@ -102,5 +84,92 @@
 
 	:global(.animate-fade-in) {
 		animation: fade-in 0.3s ease-out;
+	}
+
+	/* Responsive NewsItem styles using CSS custom properties */
+	.news-source {
+		font-size: var(--fs-xs); /* 9px → 10px responsive */
+		font-family: 'SF Mono', Monaco, monospace;
+		color: rgb(148 163 184); /* slate-400 */
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		margin-bottom: var(--sp-xs);
+		display: flex;
+		align-items: center;
+		gap: var(--sp-sm);
+		line-height: var(--lh-tight);
+	}
+
+	.news-badge {
+		font-size: var(--fs-2xs); /* 8px → 9px responsive */
+		padding: var(--sp-xs) var(--sp-sm);
+		border-radius: 2px;
+		font-weight: 700;
+		letter-spacing: 0.05em;
+		line-height: var(--lh-tight);
+	}
+
+	.news-badge--alert {
+		background: rgb(220 38 38); /* red-600 */
+		color: white;
+	}
+
+	.news-badge--new {
+		background: rgb(8 145 178); /* cyan-600 */
+		color: white;
+	}
+
+	.news-title {
+		display: block;
+		font-size: var(--fs-sm); /* 10px → 12px responsive */
+		font-weight: 700;
+		line-height: var(--lh-snug);
+		color: rgb(226 232 240); /* slate-200 */
+		text-decoration: none;
+		transition: color 0.15s;
+	}
+
+	.news-title:hover {
+		color: rgb(34 211 238); /* cyan-400 */
+	}
+
+	.news-title--compact {
+		font-size: var(--fs-md); /* 11px → 13px responsive */
+	}
+
+	.news-description {
+		font-size: var(--fs-xs); /* 9px → 10px responsive */
+		color: rgb(148 163 184); /* slate-400 */
+		margin-top: var(--sp-sm);
+		line-height: var(--lh-relaxed);
+		border-left: 2px solid rgb(51 65 85); /* slate-700 */
+		padding-left: var(--sp-md);
+	}
+
+	.news-meta {
+		display: flex;
+		align-items: center;
+		gap: var(--sp-md);
+		margin-top: var(--sp-xs);
+	}
+
+	.news-timestamp {
+		font-size: var(--fs-2xs); /* 8px → 9px responsive */
+		font-family: 'SF Mono', Monaco, monospace;
+		color: rgb(100 116 139); /* slate-500 */
+		line-height: var(--lh-tight);
+	}
+
+	.news-region {
+		font-size: var(--fs-2xs); /* 8px → 9px responsive */
+		font-family: 'SF Mono', Monaco, monospace;
+		color: rgb(34 211 238); /* cyan-400 */
+		background: rgb(34 211 238 / 0.1);
+		padding: var(--sp-xs) var(--sp-sm);
+		border-radius: 2px;
+		border: 1px solid rgb(34 211 238 / 0.3);
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		line-height: var(--lh-tight);
 	}
 </style>

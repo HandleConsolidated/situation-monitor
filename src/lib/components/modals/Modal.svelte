@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
+	import { portal } from '$lib/actions/portal';
 
 	interface Props {
 		open: boolean;
@@ -31,7 +32,7 @@
 {#if open}
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div class="modal-backdrop" onclick={handleBackdropClick}>
+	<div class="modal-backdrop" onclick={handleBackdropClick} use:portal>
 		<div class="modal modal-{size}" role="dialog" aria-modal="true" aria-labelledby="modal-title">
 			<!-- Tech Corner Decorations -->
 			<div class="tech-corner top-left"></div>

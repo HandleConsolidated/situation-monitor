@@ -2,6 +2,9 @@
 	import type { Snippet } from 'svelte';
 	import type { PanelId } from '$lib/config';
 	import { panelLayout, draggedPanelId, settings } from '$lib/stores';
+	import SkeletonList from './SkeletonList.svelte';
+
+	type SkeletonType = 'news' | 'market' | 'crypto' | 'contract' | 'prediction' | 'monitor' | 'whale' | 'layoff' | 'grid' | 'generic';
 
 	interface Props {
 		id: PanelId;
@@ -19,6 +22,12 @@
 		header?: Snippet;
 		actions?: Snippet;
 		children: Snippet;
+		/** Skeleton type to show during loading - if not provided, shows simple spinner */
+		skeletonType?: SkeletonType;
+		/** Number of skeleton items to show */
+		skeletonCount?: number;
+		/** Custom skeleton snippet for complex loading states */
+		skeleton?: Snippet;
 	}
 
 	let {
@@ -36,7 +45,10 @@
 		onCollapse,
 		header,
 		actions,
-		children
+		children,
+		skeletonType,
+		skeletonCount = 4,
+		skeleton
 	}: Props = $props();
 
 	// Drag state
@@ -54,11 +66,12 @@
 	// Get saved panel size from settings store
 	const panelSize = $derived($settings.sizes[id] || {});
 
-	// Computed panel style
+	// Computed panel style - use max-width to prevent overflow
 	const panelStyle = $derived(() => {
 		const styles: string[] = [];
 		if (panelSize.width && panelSize.width > 0) {
-			styles.push(`width: ${panelSize.width}px`);
+			// Use max-width instead of width to allow panel to shrink if container is smaller
+			styles.push(`max-width: ${panelSize.width}px`);
 		}
 		if (panelSize.height && panelSize.height > 0) {
 			styles.push(`height: ${panelSize.height}px`);
@@ -105,7 +118,8 @@
 		if (resizeDirection === 'width' || resizeDirection === 'both') {
 			const newWidth = Math.max(200, Math.min(800, startWidth + deltaX));
 			newSize.width = newWidth;
-			panelElement.style.width = `${newWidth}px`;
+			// Use max-width to allow shrinking if container is smaller
+			panelElement.style.maxWidth = `${newWidth}px`;
 		}
 
 		if (resizeDirection === 'height' || resizeDirection === 'both') {
@@ -144,7 +158,7 @@
 	// Reset panel size to default
 	function resetSize() {
 		settings.updateSize(id, { width: undefined, height: undefined });
-		panelElement.style.width = '';
+		panelElement.style.maxWidth = '';
 		panelElement.style.height = '';
 	}
 
@@ -286,10 +300,23 @@
 				<div class="error-hint">Check connection or refresh</div>
 			</div>
 		{:else if loading}
-			<div class="loading-state">
-				<div class="loading-spinner-small"></div>
-				<div class="loading-msg">FETCHING DATA</div>
-			</div>
+			{#if skeleton}
+				<!-- Custom skeleton snippet provided -->
+				<div class="skeleton-state">
+					{@render skeleton()}
+				</div>
+			{:else if skeletonType}
+				<!-- Use pre-built skeleton pattern -->
+				<div class="skeleton-state">
+					<SkeletonList type={skeletonType} count={skeletonCount} />
+				</div>
+			{:else}
+				<!-- Fallback to simple spinner -->
+				<div class="loading-state">
+					<div class="loading-spinner-small"></div>
+					<div class="loading-msg">FETCHING DATA</div>
+				</div>
+			{/if}
 		{:else}
 			{@render children()}
 		{/if}
@@ -311,6 +338,9 @@
 		isolation: isolate;
 		/* shadow-2xl */
 		box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.25);
+		/* Prevent panel from exceeding container width */
+		min-width: 0;
+		max-width: 100%;
 	}
 
 	.panel.draggable {
@@ -463,46 +493,57 @@
 		background: rgb(15 23 42 / 0.9); /* slate-900/90 */
 		border-bottom: 1px solid rgb(51 65 85 / 0.5); /* border-slate-700/50 */
 		min-height: 2.5rem;
+		min-width: 0; /* Allow shrinking */
+		gap: 0.5rem;
 	}
 
 	.panel-title-row {
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
+		min-width: 0; /* Allow shrinking */
+		flex-shrink: 1;
+		overflow: hidden;
 	}
 
 	.panel-title {
-		/* text-sm (14px), font-bold, uppercase, tracking-widest per design system */
-		font-size: 0.875rem; /* 14px */
+		/* Responsive panel title using CSS custom properties */
+		font-size: var(--fs-lg); /* 12px → 14px responsive */
 		font-weight: 700;
 		text-transform: uppercase;
-		letter-spacing: 0.1em; /* tracking-widest */
+		letter-spacing: 0.1em;
 		color: rgb(226 232 240); /* text-slate-200 */
 		margin: 0;
+		line-height: var(--lh-tight);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 
 	.panel-count {
-		/* text-[10px] for metadata per design system */
-		font-size: 0.625rem; /* 10px */
+		/* Responsive metadata using CSS custom properties */
+		font-size: var(--fs-xs); /* 9px → 10px responsive */
 		font-weight: 700;
 		font-family: 'SF Mono', Monaco, monospace;
 		color: rgb(34 211 238); /* cyan-400 */
 		background: rgb(34 211 238 / 0.1); /* cyan-400/10 */
-		padding: 0.125rem 0.5rem;
+		padding: var(--sp-xs) var(--sp-md);
 		border-radius: 2px;
 		border: 1px solid rgb(34 211 238 / 0.3); /* cyan-400/30 */
+		line-height: var(--lh-tight);
 	}
 
 	.panel-status {
-		/* text-[10px] for metadata per design system */
-		font-size: 0.625rem; /* 10px */
+		/* Responsive status badge using CSS custom properties */
+		font-size: var(--fs-xs); /* 9px → 10px responsive */
 		font-weight: 700;
 		font-family: 'SF Mono', Monaco, monospace;
-		padding: 0.125rem 0.5rem;
+		padding: var(--sp-xs) var(--sp-md);
 		border-radius: 2px;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 		border: 1px solid;
+		line-height: var(--lh-tight);
 	}
 
 	.panel-status.monitoring {
@@ -542,6 +583,7 @@
 		display: flex;
 		align-items: center;
 		gap: 0.375rem;
+		flex-shrink: 0; /* Don't shrink actions */
 	}
 
 	.panel-collapse-btn {
@@ -549,8 +591,8 @@
 		border: none;
 		color: rgb(148 163 184); /* slate-400 */
 		cursor: pointer;
-		padding: 0.25rem;
-		font-size: 0.625rem; /* 10px */
+		padding: var(--sp-sm);
+		font-size: var(--fs-xs); /* 9px → 10px responsive */
 		line-height: 1;
 		transition: color 0.15s;
 	}
@@ -564,8 +606,8 @@
 		border: none;
 		color: rgb(100 116 139); /* slate-500 */
 		cursor: pointer;
-		padding: 0.25rem;
-		font-size: 0.75rem; /* 12px */
+		padding: var(--sp-sm);
+		font-size: var(--fs-sm); /* 10px → 12px responsive */
 		line-height: 1;
 		transition: color 0.15s;
 		opacity: 0.6;
@@ -579,9 +621,12 @@
 	.panel-content {
 		flex: 1;
 		overflow-y: auto;
-		padding: 1rem; /* p-4 (16px) per design system */
-		/* text-xs (12px) for content per design system */
-		font-size: 0.75rem;
+		overflow-x: hidden; /* Prevent horizontal overflow */
+		padding: 0.75rem; /* Keep fixed padding for panel content stability */
+		/* Responsive content text */
+		font-size: var(--fs-sm); /* 10px → 12px responsive */
+		/* Allow content to shrink in flex context */
+		min-width: 0;
 	}
 
 	.panel-content.hidden {
@@ -594,31 +639,33 @@
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		gap: 0.5rem;
-		padding: 1.5rem 1rem;
+		gap: var(--sp-md);
+		padding: var(--sp-lg);
 		text-align: center;
 	}
 
 	.error-icon {
-		font-size: 1.25rem;
+		font-size: var(--icon-lg);
 		color: rgb(251 191 36); /* amber-400 */
 	}
 
 	.error-msg {
 		color: rgb(248 113 113); /* red-400 */
-		font-size: 0.625rem; /* 10px */
+		font-size: var(--fs-xs); /* 9px → 10px responsive */
 		font-family: 'SF Mono', Monaco, monospace;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 		max-width: 200px;
+		line-height: var(--lh-snug);
 	}
 
 	.error-hint {
 		color: rgb(100 116 139); /* slate-500 */
-		font-size: 0.5625rem; /* 9px */
+		font-size: var(--fs-2xs); /* 8px → 9px responsive */
 		font-family: 'SF Mono', Monaco, monospace;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
+		line-height: var(--lh-snug);
 	}
 
 	/* Loading State Styling */
@@ -627,13 +674,13 @@
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		gap: 0.75rem;
-		padding: 1.5rem 1rem;
+		gap: var(--sp-md);
+		padding: var(--sp-lg);
 	}
 
 	.loading-spinner-small {
-		width: 20px;
-		height: 20px;
+		width: var(--icon-lg);
+		height: var(--icon-lg);
 		border: 2px solid rgb(51 65 85); /* slate-700 */
 		border-top-color: rgb(34 211 238); /* cyan-400 */
 		border-radius: 50%;
@@ -643,9 +690,16 @@
 	.loading-msg {
 		color: rgb(148 163 184); /* slate-400 */
 		text-align: center;
-		font-size: 0.5625rem; /* 9px */
+		font-size: var(--fs-2xs); /* 8px → 9px responsive */
 		font-family: 'SF Mono', Monaco, monospace;
 		text-transform: uppercase;
 		letter-spacing: 0.15em;
+		line-height: var(--lh-snug);
+	}
+
+	/* Skeleton Loading State */
+	.skeleton-state {
+		padding: 4px 0;
+		min-height: 100px;
 	}
 </style>

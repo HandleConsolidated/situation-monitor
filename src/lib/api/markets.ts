@@ -7,15 +7,19 @@
 
 import { INDICES, SECTORS, COMMODITIES, CRYPTO } from '$lib/config/markets';
 import type { MarketItem, SectorPerformance, CryptoItem } from '$lib/types';
-import { fetchWithProxy, logger, FINNHUB_API_KEY, FINNHUB_BASE_URL } from '$lib/config/api';
+import { logger, FINNHUB_API_KEY, FINNHUB_BASE_URL } from '$lib/config/api';
 
-interface CoinGeckoPrice {
-	usd: number;
-	usd_24h_change?: number;
+interface CoinCapAsset {
+	id: string;
+	symbol: string;
+	name: string;
+	priceUsd: string;
+	changePercent24Hr: string;
 }
 
-interface CoinGeckoPricesResponse {
-	[key: string]: CoinGeckoPrice;
+interface CoinCapResponse {
+	data: CoinCapAsset[];
+	timestamp: number;
 }
 
 interface FinnhubQuote {
@@ -88,36 +92,73 @@ async function fetchFinnhubQuote(symbol: string): Promise<FinnhubQuote | null> {
 	}
 }
 
+// Simple cache for crypto prices to avoid rate limiting
+let cryptoCache: { data: CryptoItem[]; timestamp: number } | null = null;
+const CRYPTO_CACHE_TTL = 60000; // 1 minute cache
+
+// Map CRYPTO config ids to CoinCap ids
+const COINCAP_ID_MAP: Record<string, string> = {
+	bitcoin: 'bitcoin',
+	ethereum: 'ethereum',
+	solana: 'solana'
+};
+
 /**
- * Fetch crypto prices from CoinGecko via proxy
+ * Fetch crypto prices from CoinCap API
+ * CoinCap is free, no API key required, and supports CORS directly
  */
 export async function fetchCryptoPrices(): Promise<CryptoItem[]> {
+	// Return cached data if fresh
+	if (cryptoCache && Date.now() - cryptoCache.timestamp < CRYPTO_CACHE_TTL) {
+		logger.log('Markets API', 'Using cached crypto data');
+		return cryptoCache.data;
+	}
+
 	try {
-		const ids = CRYPTO.map((c) => c.id).join(',');
-		const coinGeckoUrl = `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true`;
+		const ids = CRYPTO.map((c) => COINCAP_ID_MAP[c.id] || c.id).join(',');
+		const coinCapUrl = `https://api.coincap.io/v2/assets?ids=${ids}`;
 
-		logger.log('Markets API', 'Fetching crypto from CoinGecko');
+		logger.log('Markets API', 'Fetching crypto from CoinCap');
 
-		const response = await fetchWithProxy(coinGeckoUrl);
+		// CoinCap supports CORS directly - no proxy needed
+		const response = await fetch(coinCapUrl, {
+			headers: { Accept: 'application/json' },
+			signal: AbortSignal.timeout(10000)
+		});
+
 		if (!response.ok) {
 			throw new Error(`HTTP ${response.status}: ${response.statusText}`);
 		}
 
-		const data: CoinGeckoPricesResponse = await response.json();
+		const data: CoinCapResponse = await response.json();
 
-		return CRYPTO.map((crypto) => {
-			const priceData = data[crypto.id];
+		const result = CRYPTO.map((crypto) => {
+			const coinCapId = COINCAP_ID_MAP[crypto.id] || crypto.id;
+			const asset = data.data.find((a) => a.id === coinCapId);
+			const price = asset ? parseFloat(asset.priceUsd) : 0;
+			const changePercent = asset ? parseFloat(asset.changePercent24Hr) : 0;
+
 			return {
 				id: crypto.id,
 				symbol: crypto.symbol,
 				name: crypto.name,
-				current_price: priceData?.usd || 0,
-				price_change_24h: priceData?.usd_24h_change || 0,
-				price_change_percentage_24h: priceData?.usd_24h_change || 0
+				current_price: price,
+				price_change_24h: changePercent, // CoinCap gives percent, not dollar amount
+				price_change_percentage_24h: changePercent
 			};
 		});
+
+		// Cache the result
+		cryptoCache = { data: result, timestamp: Date.now() };
+		logger.log('Markets API', `Fetched ${result.length} crypto prices`);
+		return result;
 	} catch (error) {
 		logger.error('Markets API', 'Error fetching crypto:', error);
+		// Return cached data if available, even if stale
+		if (cryptoCache) {
+			logger.log('Markets API', 'Using stale cached crypto data');
+			return cryptoCache.data;
+		}
 		return CRYPTO.map((c) => ({
 			id: c.id,
 			symbol: c.symbol,

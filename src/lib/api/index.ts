@@ -11,6 +11,6 @@ export {
 	fetchCommodities,
 	fetchAllMarkets
 } from './markets';
-export { fetchPolymarket, fetchWhaleTransactions, fetchGovContracts, fetchLayoffs, fetchOutageData } from './misc';
-export type { Prediction, WhaleTransaction, Contract, Layoff, OutageData } from './misc';
+export { fetchPolymarket, fetchWhaleTransactions, fetchGovContracts, fetchLayoffs, fetchOutageData, fetchVIEWSConflicts, fetchUCDPConflicts, fetchGridStress, fetchAllGridStress, gridStressToOutages } from './misc';
+export type { Prediction, PredictionCategory, WhaleTransaction, Contract, Layoff, OutageData, VIEWSConflictData, VIEWSConflictHotspot, VIEWSConflictArc, VIEWSCountryPrediction, VIEWSResponse, UCDPConflictData, UCDPConflictHotspot, UCDPConflictArc, GridStressData, GridRegion } from './misc';
 export { fetchWorldLeaders } from './leaders';

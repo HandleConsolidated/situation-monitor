@@ -11,8 +11,8 @@
 		THREAT_COLORS,
 		HOTSPOT_KEYWORDS
 	} from '$lib/config/map';
-	import { fetchOutageData } from '$lib/api';
-	import type { OutageData } from '$lib/api';
+	import { fetchOutageData, fetchVIEWSConflicts } from '$lib/api';
+	import type { OutageData, VIEWSConflictData } from '$lib/api';
 	import type { CustomMonitor, NewsItem, NewsCategory } from '$lib/types';
 
 	// Feed category colors for map visualization
@@ -73,7 +73,8 @@
 		outages: { visible: true, paused: false },
 		monitors: { visible: true, paused: false },
 		news: { visible: true, paused: false },
-		arcs: { visible: true, paused: false }
+		arcs: { visible: true, paused: false },
+		smartHotspots: { visible: false, paused: false } // VIEWS conflict forecasts - off by default
 	});
 
 	// Individual feed category visibility
@@ -125,6 +126,10 @@
 	// Real outage data from API
 	let outageData = $state<OutageData[]>([]);
 	let outageDataLoading = $state(false);
+
+	// VIEWS Conflict Forecast data (Smart Hotspots)
+	let conflictData = $state<VIEWSConflictData | null>(null);
+	let conflictDataLoading = $state(false);
 
 	// Arc particle animation - stored as mutable array for direct manipulation
 	// Each particle has a progress value (0-1) along its arc
@@ -798,6 +803,14 @@
 			partial: '#ca8a04' // Yellow - partial issues
 		};
 
+		// Carbon intensity colors (for WattTime data - NOT grid stress/reliability)
+		const carbonIntensityColors = {
+			critical: '#dc2626', // Red - extreme emissions
+			high: '#f97316', // Orange - very high emissions
+			elevated: '#eab308', // Yellow - above normal emissions
+			normal: '#22c55e' // Green - normal emissions
+		};
+
 		const typeIcons = {
 			internet: '⊘', // No internet symbol
 			power: '⚡', // Power/lightning
@@ -806,6 +819,24 @@
 
 		// Use real outage data from API
 		outageData.filter((e) => e.active).forEach((event) => {
+			// Determine if this is a carbon intensity event (WattTime data)
+			const isCarbonIntensity = event.source === 'WattTime Carbon Intensity' || event.source === 'WattTime Grid Monitor' || event.gridStressLevel;
+
+			// Select appropriate color based on data type
+			const markerColor = isCarbonIntensity && event.gridStressLevel
+				? carbonIntensityColors[event.gridStressLevel]
+				: severityColors[event.severity];
+
+			// Carbon intensity events get leaf icon, regular outages use their type icon
+			const icon = isCarbonIntensity ? '🌿' : typeIcons[event.type];
+
+			// Size based on intensity level or severity
+			let size = event.severity === 'total' ? 14 : event.severity === 'major' ? 12 : 10;
+			if (isCarbonIntensity) {
+				size = event.gridStressLevel === 'critical' ? 14 :
+				       event.gridStressLevel === 'high' ? 12 : 10;
+			}
+
 			features.push({
 				type: 'Feature',
 				geometry: { type: 'Point', coordinates: [event.lon, event.lat] },
@@ -817,11 +848,16 @@
 					severity: event.severity,
 					desc: event.description,
 					affectedPopulation: event.affectedPopulation,
-					color: severityColors[event.severity],
-					icon: typeIcons[event.type],
-					size: event.severity === 'total' ? 14 : event.severity === 'major' ? 12 : 10,
+					color: markerColor,
+					icon,
+					size,
 					radiusKm: event.radiusKm || 100,
-					source: event.source
+					source: event.source,
+					// Carbon intensity specific properties (NOT grid stress/reliability)
+					isCarbonIntensity,
+					gridStressLevel: event.gridStressLevel, // Legacy name for compatibility
+					gridStressPercent: event.gridStressPercent, // Legacy name for compatibility
+					hasBoundary: Boolean(event.boundaryCoords && event.boundaryCoords.length > 0)
 				}
 			});
 		});
@@ -829,7 +865,8 @@
 		return { type: 'FeatureCollection', features };
 	}
 
-	// Generate outage radius circles GeoJSON for area visualization
+	// Generate outage area GeoJSON for geographic visualization
+	// Uses actual boundary polygons when available, falls back to circles
 	function getOutageRadiusGeoJSON(): GeoJSON.FeatureCollection {
 		if (!dataLayers.outages.visible) {
 			return { type: 'FeatureCollection', features: [] };
@@ -842,21 +879,58 @@
 			partial: '#ca8a04'
 		};
 
-		outageData.filter((e) => e.active).forEach((event) => {
-			// Create a circle polygon for the radius
-			const radiusKm = event.radiusKm || 100;
-			const circleCoords = generateCircleCoordinates(event.lon, event.lat, radiusKm);
+		// Carbon intensity colors (NOT grid stress/reliability)
+		const carbonIntensityColors = {
+			critical: '#dc2626', // Red - extreme emissions
+			high: '#f97316', // Orange - very high emissions
+			elevated: '#eab308', // Yellow - above normal emissions
+			normal: '#22c55e' // Green - normal emissions
+		};
 
-			features.push({
-				type: 'Feature',
-				geometry: { type: 'Polygon', coordinates: [circleCoords] },
-				properties: {
-					id: `${event.id}-radius`,
-					severity: event.severity,
-					color: severityColors[event.severity],
-					radiusKm
-				}
-			});
+		outageData.filter((e) => e.active).forEach((event) => {
+			// Determine if this is a carbon intensity event (WattTime data)
+			const isCarbonIntensity = event.source === 'WattTime Carbon Intensity' || event.source === 'WattTime Grid Monitor' || event.gridStressLevel;
+
+			// Use carbon intensity color if applicable
+			const fillColor = isCarbonIntensity && event.gridStressLevel
+				? carbonIntensityColors[event.gridStressLevel]
+				: severityColors[event.severity];
+
+			// Check if we have actual boundary coordinates
+			if (event.boundaryCoords && event.boundaryCoords.length > 0) {
+				// Use the actual boundary polygon for accurate geographic coverage
+				features.push({
+					type: 'Feature',
+					geometry: { type: 'Polygon', coordinates: event.boundaryCoords },
+					properties: {
+						id: `${event.id}-boundary`,
+						severity: event.severity,
+						color: fillColor,
+						isCarbonIntensity,
+						gridStressLevel: event.gridStressLevel, // Legacy name
+						gridStressPercent: event.gridStressPercent, // Legacy name
+						areaKm2: event.areaKm2
+					}
+				});
+			} else {
+				// Fall back to circle polygon based on radius
+				const radiusKm = event.radiusKm || 100;
+				const circleCoords = generateCircleCoordinates(event.lon, event.lat, radiusKm);
+
+				features.push({
+					type: 'Feature',
+					geometry: { type: 'Polygon', coordinates: [circleCoords] },
+					properties: {
+						id: `${event.id}-radius`,
+						severity: event.severity,
+						color: fillColor,
+						radiusKm,
+						isCarbonIntensity,
+						gridStressLevel: event.gridStressLevel, // Legacy name
+						gridStressPercent: event.gridStressPercent // Legacy name
+					}
+				});
+			}
 		});
 
 		return { type: 'FeatureCollection', features };
@@ -944,9 +1018,84 @@
 			monitor: 'CUSTOM MONITOR',
 			outage: 'CONNECTIVITY OUTAGE',
 			'news-cluster': 'NEWS ACTIVITY',
-			'feed-news': category ? FEED_LABELS[category as keyof typeof FEED_LABELS] || 'NEWS FEED' : 'NEWS FEED'
+			'feed-news': category ? FEED_LABELS[category as keyof typeof FEED_LABELS] || 'NEWS FEED' : 'NEWS FEED',
+			'views-conflict': 'CONFLICT FORECAST (VIEWS)',
+			'views-arc': 'TENSION CORRIDOR'
 		};
 		return labels[type] || type.toUpperCase();
+	}
+
+	// VIEWS Conflict intensity colors (matches VIEWS API intensity levels)
+	const CONFLICT_INTENSITY_COLORS = {
+		critical: '#dc2626', // Red-600
+		high: '#ef4444', // Red-500
+		elevated: '#f97316', // Orange-500
+		low: '#fbbf24' // Amber-400
+	};
+
+	// Generate GeoJSON for VIEWS conflict forecast hotspots (Smart Hotspots)
+	function getConflictHotspotsGeoJSON(): GeoJSON.FeatureCollection {
+		if (!dataLayers.smartHotspots.visible || !conflictData) {
+			return { type: 'FeatureCollection', features: [] };
+		}
+
+		const features: GeoJSON.Feature[] = conflictData.hotspots.map((hotspot) => ({
+			type: 'Feature',
+			geometry: { type: 'Point', coordinates: [hotspot.lon, hotspot.lat] },
+			properties: {
+				id: hotspot.id,
+				label: hotspot.name,
+				type: 'views-conflict',
+				country: hotspot.country,
+				isoCode: hotspot.isoCode,
+				intensity: hotspot.intensity,
+				forecastedFatalities: hotspot.forecastedFatalities,
+				fatalityProbability: hotspot.fatalityProbability,
+				forecastMonth: hotspot.forecastMonth,
+				forecastYear: hotspot.forecastYear,
+				color: CONFLICT_INTENSITY_COLORS[hotspot.intensity as keyof typeof CONFLICT_INTENSITY_COLORS],
+				size: hotspot.intensity === 'critical' ? 12 : hotspot.intensity === 'high' ? 10 : 8,
+				glowSize: hotspot.intensity === 'critical' ? 20 : hotspot.intensity === 'high' ? 16 : 12,
+				desc: `Forecast: ${hotspot.forecastedFatalities} fatalities/month (${hotspot.fatalityProbability}% probability) - ${hotspot.forecastMonth}`
+			}
+		}));
+
+		return { type: 'FeatureCollection', features };
+	}
+
+	// Generate GeoJSON for VIEWS conflict tension arcs
+	function getConflictArcsGeoJSON(): GeoJSON.FeatureCollection {
+		if (!dataLayers.smartHotspots.visible || !conflictData) {
+			return { type: 'FeatureCollection', features: [] };
+		}
+
+		const features: GeoJSON.Feature[] = [];
+
+		for (const arc of conflictData.arcs) {
+			// Generate arc coordinates using the same geodesic algorithm as existing arcs
+			const coords = generateArcCoordinates(
+				[arc.from.lon, arc.from.lat],
+				[arc.to.lon, arc.to.lat],
+				40
+			);
+
+			features.push({
+				type: 'Feature',
+				geometry: { type: 'LineString', coordinates: coords },
+				properties: {
+					id: arc.id,
+					type: 'views-arc',
+					from: arc.from.name,
+					to: arc.to.name,
+					color: arc.color,
+					intensity: arc.intensity,
+					description: arc.description,
+					glowColor: `${arc.color}66` // Add alpha for glow
+				}
+			});
+		}
+
+		return { type: 'FeatureCollection', features };
 	}
 
 	// Pause/resume layer data
@@ -1020,6 +1169,13 @@
 
 			const outageRadiusSource = map.getSource('outage-radius') as mapboxgl.GeoJSONSource;
 			if (outageRadiusSource) outageRadiusSource.setData(getOutageRadiusGeoJSON());
+
+			// Update UCDP conflict sources (Smart Hotspots)
+			const conflictHotspotsSource = map.getSource('ucdp-hotspots') as mapboxgl.GeoJSONSource;
+			if (conflictHotspotsSource) conflictHotspotsSource.setData(getConflictHotspotsGeoJSON());
+
+			const conflictArcsSource = map.getSource('ucdp-arcs') as mapboxgl.GeoJSONSource;
+			if (conflictArcsSource) conflictArcsSource.setData(getConflictArcsGeoJSON());
 		} catch (e) {
 			// Sources might not exist yet
 		}
@@ -1195,9 +1351,22 @@
 				map.addSource('arc-particles', { type: 'geojson', data: getArcParticlesGeoJSON() });
 				map.addSource('pulsing-rings', { type: 'geojson', data: getPulsingRingsGeoJSON() });
 				map.addSource('labels', { type: 'geojson', data: getLabelsGeoJSON() });
-				map.addSource('news-events', { type: 'geojson', data: getNewsEventsGeoJSON() });
+				map.addSource('news-events', {
+					type: 'geojson',
+					data: getNewsEventsGeoJSON(),
+					cluster: true,
+					clusterRadius: 50,
+					clusterMaxZoom: 14,
+					clusterProperties: {
+						hasAlerts: ['any', ['get', 'hasAlerts']]
+					}
+				});
 				map.addSource('outages', { type: 'geojson', data: getOutagesGeoJSON() });
 				map.addSource('outage-radius', { type: 'geojson', data: getOutageRadiusGeoJSON() });
+
+				// UCDP Conflict sources (Smart Hotspots)
+				map.addSource('ucdp-hotspots', { type: 'geojson', data: getConflictHotspotsGeoJSON() });
+				map.addSource('ucdp-arcs', { type: 'geojson', data: getConflictArcsGeoJSON() });
 
 				// Add layers
 
@@ -1347,10 +1516,84 @@
 					}
 				});
 
+				// ========== NEWS CLUSTERING LAYERS ==========
+				// Cluster outer glow
+				map.addLayer({
+					id: 'news-cluster-glow',
+					type: 'circle',
+					source: 'news-events',
+					filter: ['has', 'point_count'],
+					paint: {
+						'circle-radius': [
+							'step',
+							['get', 'point_count'],
+							20, // base radius
+							5, 25, // >= 5 points
+							10, 30, // >= 10 points
+							25, 35 // >= 25 points
+						],
+						'circle-color': [
+							'case',
+							['get', 'hasAlerts'],
+							'#ef4444', // red if has alerts
+							'#3b82f6' // blue default
+						],
+						'circle-opacity': 0.25,
+						'circle-blur': 1
+					}
+				});
+
+				// Cluster circles
+				map.addLayer({
+					id: 'news-clusters',
+					type: 'circle',
+					source: 'news-events',
+					filter: ['has', 'point_count'],
+					paint: {
+						'circle-radius': [
+							'step',
+							['get', 'point_count'],
+							15, // base radius
+							5, 18, // >= 5 points
+							10, 22, // >= 10 points
+							25, 26 // >= 25 points
+						],
+						'circle-color': [
+							'case',
+							['get', 'hasAlerts'],
+							'#ef4444', // red if has alerts
+							'#3b82f6' // blue default
+						],
+						'circle-opacity': 0.85,
+						'circle-stroke-color': '#ffffff',
+						'circle-stroke-width': 2,
+						'circle-stroke-opacity': 0.6
+					}
+				});
+
+				// Cluster count labels
+				map.addLayer({
+					id: 'news-cluster-count',
+					type: 'symbol',
+					source: 'news-events',
+					filter: ['has', 'point_count'],
+					layout: {
+						'text-field': '{point_count_abbreviated}',
+						'text-font': ['DIN Pro Medium', 'Arial Unicode MS Bold'],
+						'text-size': 12,
+						'text-allow-overlap': true
+					},
+					paint: {
+						'text-color': '#ffffff'
+					}
+				});
+
+				// Individual news points (non-clustered) - glow
 				map.addLayer({
 					id: 'news-events-glow',
 					type: 'circle',
 					source: 'news-events',
+					filter: ['!', ['has', 'point_count']],
 					paint: {
 						'circle-radius': ['*', ['get', 'size'], 1.8],
 						'circle-color': ['get', 'color'],
@@ -1359,10 +1602,12 @@
 					}
 				});
 
+				// Individual news points (non-clustered) - main
 				map.addLayer({
 					id: 'news-events-layer',
 					type: 'circle',
 					source: 'news-events',
+					filter: ['!', ['has', 'point_count']],
 					paint: {
 						'circle-radius': ['coalesce', ['get', 'size'], 8],
 						'circle-color': ['coalesce', ['get', 'color'], '#3b82f6'],
@@ -1802,6 +2047,125 @@
 					}
 				});
 
+				// ========== UCDP CONFLICT LAYERS - Smart Hotspots (armed conflict data) ==========
+				// Arc outer glow
+				map.addLayer({
+					id: 'ucdp-arcs-glow-outer',
+					type: 'line',
+					source: 'ucdp-arcs',
+					paint: {
+						'line-color': ['get', 'color'],
+						'line-width': 14,
+						'line-opacity': 0.1,
+						'line-blur': 6
+					}
+				});
+
+				// Arc middle glow
+				map.addLayer({
+					id: 'ucdp-arcs-glow-middle',
+					type: 'line',
+					source: 'ucdp-arcs',
+					paint: {
+						'line-color': ['get', 'color'],
+						'line-width': 8,
+						'line-opacity': 0.2,
+						'line-blur': 3
+					}
+				});
+
+				// Arc inner glow
+				map.addLayer({
+					id: 'ucdp-arcs-glow-inner',
+					type: 'line',
+					source: 'ucdp-arcs',
+					paint: {
+						'line-color': ['get', 'color'],
+						'line-width': 4,
+						'line-opacity': 0.35,
+						'line-blur': 1
+					}
+				});
+
+				// Main arc line
+				map.addLayer({
+					id: 'ucdp-arcs-main',
+					type: 'line',
+					source: 'ucdp-arcs',
+					paint: {
+						'line-color': ['get', 'color'],
+						'line-width': 2,
+						'line-opacity': 0.8
+					}
+				});
+
+				// UCDP Conflict hotspot outer glow
+				map.addLayer({
+					id: 'ucdp-hotspots-glow-outer',
+					type: 'circle',
+					source: 'ucdp-hotspots',
+					paint: {
+						'circle-radius': ['coalesce', ['get', 'glowSize'], 16],
+						'circle-color': ['coalesce', ['get', 'color'], '#ef4444'],
+						'circle-opacity': ['case',
+							['==', ['get', 'intensity'], 'critical'], 0.3,
+							['==', ['get', 'intensity'], 'high'], 0.25,
+							0.15
+						],
+						'circle-blur': 1.2
+					}
+				});
+
+				// UCDP Conflict hotspot middle glow
+				map.addLayer({
+					id: 'ucdp-hotspots-glow-middle',
+					type: 'circle',
+					source: 'ucdp-hotspots',
+					paint: {
+						'circle-radius': ['*', ['coalesce', ['get', 'size'], 10], 1.5],
+						'circle-color': ['coalesce', ['get', 'color'], '#ef4444'],
+						'circle-opacity': ['case',
+							['==', ['get', 'intensity'], 'critical'], 0.4,
+							['==', ['get', 'intensity'], 'high'], 0.35,
+							0.25
+						],
+						'circle-blur': 0.6
+					}
+				});
+
+				// UCDP Conflict hotspot main marker
+				map.addLayer({
+					id: 'ucdp-hotspots-layer',
+					type: 'circle',
+					source: 'ucdp-hotspots',
+					paint: {
+						'circle-radius': ['coalesce', ['get', 'size'], 10],
+						'circle-color': ['coalesce', ['get', 'color'], '#ef4444'],
+						'circle-stroke-color': '#ffffff',
+						'circle-stroke-width': 1.5,
+						'circle-stroke-opacity': 0.7
+					}
+				});
+
+				// UCDP Conflict icon (crossed swords)
+				map.addLayer({
+					id: 'ucdp-hotspots-icon',
+					type: 'symbol',
+					source: 'ucdp-hotspots',
+					layout: {
+						'text-field': '⚔',
+						'text-size': 10,
+						'text-allow-overlap': true,
+						'text-ignore-placement': true,
+						'text-anchor': 'center'
+					},
+					paint: {
+						'text-color': '#ffffff',
+						'text-halo-color': 'rgba(0, 0, 0, 0.8)',
+						'text-halo-width': 1
+					}
+				});
+
 				// Legacy points layers for backward compatibility (now mainly used by interactivity)
 				map.addLayer({
 					id: 'points-glow',
@@ -1853,6 +2217,8 @@
 				setupInteractivity();
 				// Globe starts paused - user must click play to start rotation
 				isInitialized = true;
+				// Start polling for data changes
+				startMapUpdatePolling();
 			});
 
 			map.on('mousedown', pauseRotation);
@@ -1878,7 +2244,9 @@
 			'military-layer',
 			'monitors-layer',
 			'news-events-layer',
-			'outages-layer'
+			'outages-layer',
+			'news-clusters',
+			'ucdp-hotspots-layer' // UCDP conflict markers
 		];
 
 		interactiveLayers.forEach((layerId) => {
@@ -1951,16 +2319,63 @@
 			const feature = e.features[0];
 			const props = feature.properties;
 
-			const affectedPop = props?.affectedPopulation
-				? `~${(props.affectedPopulation / 1000000).toFixed(1)}M people affected`
-				: '';
+			// Check if this is a carbon intensity event (WattTime data - NOT grid stress)
+			const isCarbonIntensity = props?.isCarbonIntensity || props?.source === 'WattTime Carbon Intensity' || props?.source === 'WattTime Grid Monitor';
+
+			let label: string;
+			let desc: string;
+			let level: string;
+			let isAlert: boolean;
+
+			if (isCarbonIntensity) {
+				// Carbon intensity hover tooltip (NOT grid stress - this is emissions data)
+				const intensityLevel = props?.gridStressLevel || 'elevated';
+				const intensityPercent = props?.gridStressPercent ? `${Math.round(props.gridStressPercent)}th percentile` : '';
+
+				label = props?.label || 'Grid Region';
+				desc = `Carbon Intensity: ${intensityPercent || intensityLevel} (emissions, not reliability)`;
+				level = intensityLevel;
+				// Only flag as alert for truly extreme emissions (98th+ percentile)
+				isAlert = intensityLevel === 'critical';
+			} else {
+				// Regular outage hover tooltip
+				const affectedPop = props?.affectedPopulation
+					? `~${(props.affectedPopulation / 1000000).toFixed(1)}M people affected`
+					: '';
+
+				label = props?.label || '';
+				desc = `${props?.desc || ''}${affectedPop ? ` — ${affectedPop}` : ''}`;
+				level = props?.severity;
+				isAlert = props?.severity === 'total';
+			}
 
 			tooltipData = {
-				label: props?.label || '',
+				label,
 				type: 'outage',
-				desc: `${props?.desc || ''}${affectedPop ? ` — ${affectedPop}` : ''}`,
-				level: props?.severity,
-				isAlert: props?.severity === 'total'
+				desc,
+				level,
+				isAlert
+			};
+			tooltipVisible = true;
+			updateTooltipPosition(e.point);
+			pauseRotation();
+		});
+
+		// UCDP Conflict hotspot tooltip
+		map.on('mousemove', 'ucdp-hotspots-layer', (e) => {
+			if (!e.features || e.features.length === 0 || tooltipLocked) return;
+
+			const feature = e.features[0];
+			const props = feature.properties;
+
+			const violenceType = props?.typeOfViolence === 1 ? 'State-based' : props?.typeOfViolence === 2 ? 'Non-state' : 'One-sided';
+
+			tooltipData = {
+				label: props?.conflictName || props?.label || 'Armed Conflict',
+				type: 'ucdp-conflict',
+				desc: `${props?.sideA || ''} vs ${props?.sideB || ''} (${violenceType})`,
+				level: props?.intensity,
+				isAlert: props?.intensity === 'critical' || props?.intensity === 'high'
 			};
 			tooltipVisible = true;
 			updateTooltipPosition(e.point);
@@ -1970,14 +2385,35 @@
 		map.on('mouseleave', 'points-layer', handleMouseLeave);
 		map.on('mouseleave', 'news-events-layer', handleMouseLeave);
 		map.on('mouseleave', 'outages-layer', handleMouseLeave);
+		map.on('mouseleave', 'ucdp-hotspots-layer', handleMouseLeave);
 
 		map.on('click', 'points-layer', (e) => handlePointClick(e));
 		map.on('click', 'news-events-layer', (e) => handlePointClick(e));
 		map.on('click', 'outages-layer', (e) => handleOutageClick(e));
+		map.on('click', 'ucdp-hotspots-layer', (e) => handleConflictClick(e));
+
+		// Cluster click handler - zoom in to expand cluster
+		map.on('click', 'news-clusters', (e) => {
+			const features = e.features;
+			if (!features || features.length === 0 || !map) return;
+
+			const clusterId = features[0].properties?.cluster_id;
+			const source = map.getSource('news-events') as mapboxgl.GeoJSONSource;
+
+			source.getClusterExpansionZoom(clusterId, (err, expansionZoom) => {
+				if (err || !map || expansionZoom == null) return;
+
+				const geometry = features[0].geometry as GeoJSON.Point;
+				map.easeTo({
+					center: geometry.coordinates as [number, number],
+					zoom: expansionZoom
+				});
+			});
+		});
 
 		map.on('click', (e) => {
 			const features = map?.queryRenderedFeatures(e.point, {
-				layers: ['points-layer', 'news-events-layer', 'outages-layer']
+				layers: ['points-layer', 'news-events-layer', 'outages-layer', 'news-clusters']
 			});
 			if (!features || features.length === 0) {
 				if (tooltipLocked) {
@@ -2048,22 +2484,73 @@
 		const feature = e.features[0];
 		const props = feature.properties;
 
-		const affectedPop = props?.affectedPopulation
-			? `~${(props.affectedPopulation / 1000000).toFixed(1)}M people affected`
-			: '';
+		// Check if this is a carbon intensity event (WattTime data - NOT grid stress)
+		const isCarbonIntensity = props?.isCarbonIntensity || props?.source === 'WattTime Carbon Intensity' || props?.source === 'WattTime Grid Monitor';
 
-		const outageTypeLabel = props?.outageType === 'both'
-			? 'Internet + Power'
-			: props?.outageType === 'internet'
-				? 'Internet Blackout'
-				: 'Power Outage';
+		let label: string;
+		let desc: string;
+		let level: string;
+		let isAlert: boolean;
+
+		if (isCarbonIntensity) {
+			// Carbon intensity tooltip (NOT grid stress - this is emissions data)
+			const intensityLevel = props?.gridStressLevel || 'elevated';
+			const intensityPercent = props?.gridStressPercent ? `${Math.round(props.gridStressPercent)}th percentile` : '';
+			const intensityLevelLabel = intensityLevel.charAt(0).toUpperCase() + intensityLevel.slice(1);
+
+			label = props?.label || 'Grid Region';
+			desc = `Carbon Intensity: ${intensityLevelLabel}${intensityPercent ? ` (${intensityPercent})` : ''}. ${props?.desc || ''} Note: This is emissions data, not grid reliability.`;
+			level = intensityLevel === 'critical' ? 'critical' : intensityLevel === 'high' ? 'high' : 'elevated';
+			// Only flag as alert for truly extreme emissions
+			isAlert = intensityLevel === 'critical';
+		} else {
+			// Regular outage tooltip
+			const affectedPop = props?.affectedPopulation
+				? `~${(props.affectedPopulation / 1000000).toFixed(1)}M people affected`
+				: '';
+
+			const outageTypeLabel = props?.outageType === 'both'
+				? 'Internet + Power'
+				: props?.outageType === 'internet'
+					? 'Internet Blackout'
+					: 'Power Outage';
+
+			label = props?.label || '';
+			desc = `${outageTypeLabel}. ${props?.desc || ''}${affectedPop ? ` — ${affectedPop}` : ''}`;
+			level = props?.severity;
+			isAlert = props?.severity === 'total';
+		}
 
 		tooltipData = {
-			label: props?.label || '',
+			label,
 			type: 'outage',
-			desc: `${outageTypeLabel}. ${props?.desc || ''}${affectedPop ? ` — ${affectedPop}` : ''}`,
-			level: props?.severity,
-			isAlert: props?.severity === 'total'
+			desc,
+			level,
+			isAlert
+		};
+		tooltipVisible = true;
+		tooltipLocked = true;
+		updateTooltipPosition(e.point);
+		pauseRotation();
+	}
+
+	function handleConflictClick(e: mapboxgl.MapMouseEvent & { features?: mapboxgl.MapboxGeoJSONFeature[] }) {
+		if (!e.features || e.features.length === 0) return;
+
+		const feature = e.features[0];
+		const props = feature.properties;
+
+		const violenceType = props?.typeOfViolence === 1 ? 'State-based conflict' : props?.typeOfViolence === 2 ? 'Non-state conflict' : 'One-sided violence';
+		const deathInfo = props?.totalDeaths ? `${props.totalDeaths} deaths` : '';
+		const eventInfo = props?.eventCount ? `${props.eventCount} events` : '';
+		const dateRange = props?.dateStart && props?.dateEnd ? `${props.dateStart} to ${props.dateEnd}` : '';
+
+		tooltipData = {
+			label: props?.conflictName || props?.label || 'Armed Conflict',
+			type: 'ucdp-conflict',
+			desc: `${props?.sideA || ''} vs ${props?.sideB || ''}\n${violenceType}. ${[deathInfo, eventInfo].filter(Boolean).join(', ')}${dateRange ? ` (${dateRange})` : ''}`,
+			level: props?.intensity,
+			isAlert: props?.intensity === 'critical' || props?.intensity === 'high'
 		};
 		tooltipVisible = true;
 		tooltipLocked = true;
@@ -2110,12 +2597,60 @@
 		}
 	}
 
-	// React to data changes
-	$effect(() => {
-		if (map && isInitialized) {
-			updateMapLayers();
+	// =============================================================================
+	// MAP UPDATE SYSTEM - Using interval-based polling instead of $effect
+	// This avoids Svelte 5's fine-grained reactivity causing infinite loops
+	// =============================================================================
+
+	// Track last update timestamps to detect changes
+	let lastUpdateKey = '';
+	let mapUpdateInterval: ReturnType<typeof setInterval> | null = null;
+
+	// Start polling for updates after map initializes
+	function startMapUpdatePolling() {
+		if (mapUpdateInterval) return;
+
+		mapUpdateInterval = setInterval(() => {
+			if (!map || !isInitialized) return;
+
+			// Create a key from current data state
+			const currentKey = [
+				monitors?.length ?? 0,
+				news?.length ?? 0,
+				outageData?.length ?? 0,
+				dataLayers.hotspots.visible,
+				dataLayers.chokepoints.visible,
+				dataLayers.cables.visible,
+				dataLayers.nuclear.visible,
+				dataLayers.military.visible,
+				dataLayers.outages.visible,
+				dataLayers.monitors.visible,
+				dataLayers.news.visible,
+				dataLayers.arcs.visible,
+				dataLayers.smartHotspots.visible,
+				newsTTL,
+				newsTimeFilter,
+				showAlertsOnly
+			].join(',');
+
+			// Only update if something changed
+			if (currentKey !== lastUpdateKey) {
+				lastUpdateKey = currentKey;
+				updateMapLayers();
+			}
+		}, 500); // Poll every 500ms
+	}
+
+	function stopMapUpdatePolling() {
+		if (mapUpdateInterval) {
+			clearInterval(mapUpdateInterval);
+			mapUpdateInterval = null;
 		}
-	});
+	}
+
+	// UCDP Conflict loading - manual trigger only, no reactive effects
+	// The loadConflictData function is called when the Smart Hotspots toggle is clicked
+	// See the toggle handler in the UI section below
 
 	// Animate pulsing rings
 	$effect(() => {
@@ -2306,6 +2841,24 @@
 		}
 	}
 
+	// Load UCDP conflict data (Smart Hotspots)
+	async function loadConflictData() {
+		if (conflictDataLoading) return;
+		conflictDataLoading = true;
+		try {
+			const data = await fetchUCDPConflicts();
+			conflictData = data;
+			// Update map layers with new conflict data
+			if (map && isInitialized) {
+				updateMapLayers();
+			}
+		} catch (error) {
+			console.warn('Failed to fetch UCDP conflict data:', error);
+		} finally {
+			conflictDataLoading = false;
+		}
+	}
+
 	onMount(() => {
 		requestAnimationFrame(() => initMap());
 		// Fetch outage data immediately
@@ -2317,6 +2870,7 @@
 
 	onDestroy(() => {
 		stopRotation();
+		stopMapUpdatePolling();
 		if (map) {
 			map.remove();
 			map = null;
@@ -2379,9 +2933,26 @@
 				<div class="layer-section">
 					<span class="layer-section-title">VISIBILITY</span>
 					{#each Object.entries(dataLayers) as [layer, state]}
-						<label class="layer-toggle">
-							<input type="checkbox" bind:checked={state.visible} onchange={() => updateMapLayers()} />
-							<span class="layer-name">{layer.charAt(0).toUpperCase() + layer.slice(1)}</span>
+						<label class="layer-toggle" class:smart-hotspots={layer === 'smartHotspots'}>
+							<input type="checkbox" bind:checked={state.visible} onchange={() => {
+								updateMapLayers();
+								// Load UCDP conflict data when Smart Hotspots is enabled
+								if (layer === 'smartHotspots' && state.visible && !conflictData && !conflictDataLoading) {
+									loadConflictData();
+								}
+							}} />
+							<span class="layer-name">
+								{#if layer === 'smartHotspots'}
+									Smart Hotspots (UCDP)
+								{:else}
+									{layer.charAt(0).toUpperCase() + layer.slice(1)}
+								{/if}
+							</span>
+							{#if layer === 'smartHotspots' && conflictDataLoading}
+								<span class="loading-indicator">...</span>
+							{:else if layer === 'smartHotspots' && conflictData}
+								<span class="data-count">{conflictData.hotspots.length}</span>
+							{/if}
 							{#if layer === 'news' || layer === 'hotspots'}
 								<button
 									class="pause-btn"
@@ -2551,6 +3122,27 @@
 							<div class="legend-item">
 								<span class="legend-marker outage-partial"></span>
 								<span class="legend-label">Partial Outage</span>
+							</div>
+						</div>
+					</div>
+					<div class="legend-section">
+						<span class="legend-section-title">SMART HOTSPOTS (UCDP)</span>
+						<div class="legend-items">
+							<div class="legend-item">
+								<span class="legend-marker conflict-critical"></span>
+								<span class="legend-label">Critical Conflict</span>
+							</div>
+							<div class="legend-item">
+								<span class="legend-marker conflict-high"></span>
+								<span class="legend-label">High Intensity</span>
+							</div>
+							<div class="legend-item">
+								<span class="legend-marker conflict-medium"></span>
+								<span class="legend-label">Medium Intensity</span>
+							</div>
+							<div class="legend-item">
+								<span class="legend-marker conflict-low"></span>
+								<span class="legend-label">Low Intensity</span>
 							</div>
 						</div>
 					</div>
@@ -2892,6 +3484,33 @@
 		color: rgb(239 68 68);
 	}
 
+	.layer-toggle.smart-hotspots {
+		border-top: 1px solid rgb(51 65 85 / 0.3);
+		margin-top: 0.375rem;
+		padding-top: 0.375rem;
+	}
+
+	.loading-indicator {
+		font-size: 0.5625rem;
+		font-family: 'SF Mono', Monaco, monospace;
+		color: rgb(251 191 36);
+		animation: pulse 1s infinite;
+	}
+
+	@keyframes pulse {
+		0%, 100% { opacity: 1; }
+		50% { opacity: 0.5; }
+	}
+
+	.data-count {
+		font-size: 0.5rem;
+		font-family: 'SF Mono', Monaco, monospace;
+		color: rgb(34 211 238);
+		background: rgb(34 211 238 / 0.1);
+		padding: 0.125rem 0.25rem;
+		border-radius: 2px;
+	}
+
 	.filter-row {
 		display: flex;
 		align-items: center;
@@ -3083,6 +3702,27 @@
 		background: #ca8a04;
 		box-shadow: 0 0 3px #ca8a04;
 		animation: outage-pulse 2.5s ease-in-out infinite;
+	}
+
+	/* UCDP Conflict intensity markers */
+	.legend-marker.conflict-critical {
+		background: #dc2626;
+		box-shadow: 0 0 6px #dc2626;
+	}
+
+	.legend-marker.conflict-high {
+		background: #ef4444;
+		box-shadow: 0 0 5px #ef4444;
+	}
+
+	.legend-marker.conflict-medium {
+		background: #f97316;
+		box-shadow: 0 0 4px #f97316;
+	}
+
+	.legend-marker.conflict-low {
+		background: #fbbf24;
+		box-shadow: 0 0 3px #fbbf24;
 	}
 
 	@keyframes outage-pulse {

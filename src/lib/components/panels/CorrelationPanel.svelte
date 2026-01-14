@@ -48,22 +48,22 @@
 
 <Panel id="correlation" title="Pattern Analysis" {loading} {error}>
 	{#if news.length === 0 && !loading && !error}
-		<div class="empty-state text-[10px] sm:text-xs">Insufficient data for analysis</div>
+		<div class="empty-state">Insufficient data for analysis</div>
 	{:else if analysis}
 		<div class="correlation-content">
 			{#if analysis.emergingPatterns.length > 0}
 				<div class="section">
-					<div class="section-title text-[10px] sm:text-xs">Emerging Patterns</div>
+					<div class="section-title">Emerging Patterns</div>
 					{#each analysis.emergingPatterns.slice(0, 3) as pattern}
 						<div class="pattern-item">
 							<div class="pattern-header">
-								<span class="pattern-topic text-xs sm:text-sm">{pattern.name}</span>
+								<span class="pattern-topic">{pattern.name}</span>
 								<Badge
 									text={pattern.level.toUpperCase()}
 									variant={getLevelVariant(pattern.level)}
 								/>
 							</div>
-							<div class="pattern-sources text-[10px] sm:text-xs">
+							<div class="pattern-sources">
 								{pattern.sources.slice(0, 3).join(' · ')} ({pattern.count} items)
 							</div>
 						</div>
@@ -73,12 +73,12 @@
 
 			{#if analysis.momentumSignals.length > 0}
 				<div class="section">
-					<div class="section-title text-[10px] sm:text-xs">Momentum Signals</div>
+					<div class="section-title">Momentum Signals</div>
 					{#each analysis.momentumSignals.slice(0, 3) as signal}
 						<div class="signal-item {getMomentumClass(signal.momentum)}">
-							<span class="signal-topic text-[10px] sm:text-xs">{signal.name}</span>
+							<span class="signal-topic">{signal.name}</span>
 							<span
-								class="signal-direction text-[10px] sm:text-xs"
+								class="signal-direction"
 								class:up={signal.delta > 0}
 								class:down={signal.delta < 0}
 							>
@@ -92,13 +92,13 @@
 
 			{#if analysis.crossSourceCorrelations.length > 0}
 				<div class="section">
-					<div class="section-title text-[10px] sm:text-xs">Cross-Source Links</div>
+					<div class="section-title">Cross-Source Links</div>
 					{#each analysis.crossSourceCorrelations.slice(0, 3) as corr}
 						<div class="correlation-item">
-							<div class="correlation-sources text-[10px] sm:text-xs">
+							<div class="correlation-sources">
 								{corr.sources.slice(0, 2).join(' ↔ ')}
 							</div>
-							<div class="correlation-topic text-[10px] sm:text-xs">{corr.name} ({corr.sourceCount} sources)</div>
+							<div class="correlation-topic">{corr.name} ({corr.sourceCount} sources)</div>
 						</div>
 					{/each}
 				</div>
@@ -106,11 +106,11 @@
 
 			{#if analysis.predictiveSignals.length > 0}
 				<div class="section">
-					<div class="section-title text-[10px] sm:text-xs">Predictive Signals</div>
+					<div class="section-title">Predictive Signals</div>
 					{#each analysis.predictiveSignals.slice(0, 2) as signal}
 						<div class="predictive-item">
-							<div class="predictive-pattern text-[10px] sm:text-xs">{signal.prediction}</div>
-							<div class="predictive-confidence text-[10px] sm:text-xs">
+							<div class="predictive-pattern">{signal.prediction}</div>
+							<div class="predictive-confidence">
 								Confidence: {Math.round(signal.confidence * 100)}%
 							</div>
 						</div>
@@ -119,11 +119,11 @@
 			{/if}
 
 			{#if analysis.emergingPatterns.length === 0 && analysis.momentumSignals.length === 0}
-				<div class="empty-state text-[10px] sm:text-xs">No significant patterns detected</div>
+				<div class="empty-state">No significant patterns detected</div>
 			{/if}
 		</div>
 	{:else}
-		<div class="empty-state text-[10px] sm:text-xs">No significant patterns detected</div>
+		<div class="empty-state">No significant patterns detected</div>
 	{/if}
 </Panel>
 
@@ -145,12 +145,14 @@
 	}
 
 	.section-title {
+		font-size: var(--fs-2xs); /* 8px → 9px responsive */
 		font-weight: 700;
 		font-family: 'SF Mono', Monaco, monospace;
 		color: var(--accent);
 		text-transform: uppercase;
 		letter-spacing: 0.15em;
 		margin-bottom: 0.4rem;
+		line-height: var(--lh-tight);
 	}
 
 	.pattern-item {
@@ -165,13 +167,17 @@
 	}
 
 	.pattern-topic {
+		font-size: var(--fs-sm); /* 10px → 12px responsive */
 		font-weight: 700;
 		color: var(--text-primary);
+		line-height: var(--lh-snug);
 	}
 
 	.pattern-sources {
+		font-size: var(--fs-xs); /* 9px → 10px responsive */
 		font-family: 'SF Mono', Monaco, monospace;
 		color: var(--text-muted);
+		line-height: var(--lh-tight);
 	}
 
 	.signal-item {
@@ -196,12 +202,16 @@
 	}
 
 	.signal-topic {
+		font-size: var(--fs-xs); /* 9px → 10px responsive */
 		color: var(--text-primary);
+		line-height: var(--lh-snug);
 	}
 
 	.signal-direction {
+		font-size: var(--fs-xs); /* 9px → 10px responsive */
 		font-weight: 700;
 		font-family: 'SF Mono', Monaco, monospace;
+		line-height: var(--lh-tight);
 	}
 
 	.signal-direction.up {
@@ -217,12 +227,16 @@
 	}
 
 	.correlation-sources {
+		font-size: var(--fs-xs); /* 9px → 10px responsive */
 		color: var(--text-secondary);
+		line-height: var(--lh-snug);
 	}
 
 	.correlation-topic {
+		font-size: var(--fs-xs); /* 9px → 10px responsive */
 		font-family: 'SF Mono', Monaco, monospace;
 		color: var(--text-muted);
+		line-height: var(--lh-tight);
 	}
 
 	.predictive-item {
@@ -230,19 +244,25 @@
 	}
 
 	.predictive-pattern {
+		font-size: var(--fs-xs); /* 9px → 10px responsive */
 		color: var(--text-primary);
+		line-height: var(--lh-snug);
 	}
 
 	.predictive-confidence {
+		font-size: var(--fs-xs); /* 9px → 10px responsive */
 		font-family: 'SF Mono', Monaco, monospace;
 		color: var(--text-muted);
+		line-height: var(--lh-tight);
 	}
 
 	.empty-state {
 		text-align: center;
 		color: var(--text-dim);
+		font-size: var(--fs-sm); /* 10px → 12px responsive */
 		padding: 1rem;
 		text-transform: uppercase;
 		letter-spacing: 0.1em;
+		line-height: var(--lh-normal);
 	}
 </style>

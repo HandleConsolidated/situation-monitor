@@ -31,35 +31,126 @@
 </script>
 
 <div
-	class="flex justify-between items-center py-2 border-b border-white/10 last:border-b-0 hover:bg-white/5 transition-colors"
-	class:py-1.5={compact}
+	class="market-item"
+	class:market-item--compact={compact}
 >
-	<div class="flex flex-col gap-0.5">
-		<div class="text-xs sm:text-sm font-bold text-white" class:text-[10px]={compact}>{item.name}</div>
+	<div class="market-item__info">
+		<div class="market-item__name" class:market-item__name--compact={compact}>{item.name}</div>
 		{#if showSymbol}
-			<div class="text-[9px] sm:text-[10px] font-mono text-slate-500 uppercase tracking-wide">{item.symbol}</div>
+			<div class="market-item__symbol">{item.symbol}</div>
 		{/if}
 	</div>
 
-	<div class="flex flex-col items-end gap-0.5">
+	<div class="market-item__values">
 		{#if showPrice}
 			<div
-				class="text-xs sm:text-sm font-mono text-slate-200 tabular-nums"
-				class:text-[10px]={compact}
-				class:text-slate-500={!isDataAvailable}
-				class:opacity-50={!isDataAvailable}
+				class="market-item__price"
+				class:market-item__price--compact={compact}
+				class:market-item__price--unavailable={!isDataAvailable}
 			>
 				{isDataAvailable ? `${currencySymbol}${priceDisplay}` : priceDisplay}
 			</div>
 		{/if}
 		<div
-			class="text-[10px] sm:text-xs font-mono tabular-nums"
-			class:text-emerald-500={isDataAvailable && isPositive}
-			class:text-red-500={isDataAvailable && !isPositive}
-			class:text-slate-500={!isDataAvailable}
-			class:opacity-50={!isDataAvailable}
+			class="market-item__change"
+			class:market-item__change--positive={isDataAvailable && isPositive}
+			class:market-item__change--negative={isDataAvailable && !isPositive}
+			class:market-item__change--unavailable={!isDataAvailable}
 		>
 			{changeText}
 		</div>
 	</div>
 </div>
+
+<style>
+	.market-item {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: var(--sp-md) 0;
+		border-bottom: 1px solid rgb(255 255 255 / 0.1);
+		transition: background-color 0.15s;
+	}
+
+	.market-item:last-child {
+		border-bottom: none;
+	}
+
+	.market-item:hover {
+		background: rgb(255 255 255 / 0.05);
+	}
+
+	.market-item--compact {
+		padding: var(--sp-sm) 0;
+	}
+
+	.market-item__info {
+		display: flex;
+		flex-direction: column;
+		gap: var(--sp-xs);
+	}
+
+	.market-item__name {
+		font-size: var(--fs-sm); /* 10px → 12px responsive */
+		font-weight: 700;
+		color: white;
+		line-height: var(--lh-tight);
+	}
+
+	.market-item__name--compact {
+		font-size: var(--fs-xs); /* 9px → 10px responsive */
+	}
+
+	.market-item__symbol {
+		font-size: var(--fs-2xs); /* 8px → 9px responsive */
+		font-family: 'SF Mono', Monaco, monospace;
+		color: rgb(100 116 139); /* slate-500 */
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		line-height: var(--lh-tight);
+	}
+
+	.market-item__values {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-end;
+		gap: var(--sp-xs);
+	}
+
+	.market-item__price {
+		font-size: var(--fs-sm); /* 10px → 12px responsive */
+		font-family: 'SF Mono', Monaco, monospace;
+		color: rgb(226 232 240); /* slate-200 */
+		font-variant-numeric: tabular-nums;
+		line-height: var(--lh-tight);
+	}
+
+	.market-item__price--compact {
+		font-size: var(--fs-xs); /* 9px → 10px responsive */
+	}
+
+	.market-item__price--unavailable {
+		color: rgb(100 116 139); /* slate-500 */
+		opacity: 0.5;
+	}
+
+	.market-item__change {
+		font-size: var(--fs-xs); /* 9px → 10px responsive */
+		font-family: 'SF Mono', Monaco, monospace;
+		font-variant-numeric: tabular-nums;
+		line-height: var(--lh-tight);
+	}
+
+	.market-item__change--positive {
+		color: rgb(16 185 129); /* emerald-500 */
+	}
+
+	.market-item__change--negative {
+		color: rgb(239 68 68); /* red-500 */
+	}
+
+	.market-item__change--unavailable {
+		color: rgb(100 116 139); /* slate-500 */
+		opacity: 0.5;
+	}
+</style>

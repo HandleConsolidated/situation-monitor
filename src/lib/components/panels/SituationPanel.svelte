@@ -59,22 +59,22 @@
 	{loading}
 	{error}
 >
-	<div class="flex flex-col gap-2">
-		<div class="text-center pb-2 border-b border-[var(--border)]">
-			<div class="text-xs sm:text-sm font-semibold text-[var(--text-primary)]">{config.title}</div>
-			<div class="text-[10px] sm:text-xs text-[var(--text-secondary)] mt-0.5">{config.subtitle}</div>
+	<div class="situation-container">
+		<div class="situation-header">
+			<div class="situation-title">{config.title}</div>
+			<div class="situation-subtitle">{config.subtitle}</div>
 		</div>
 
 		{#if news.length === 0 && !loading && !error}
-			<div class="text-center text-[10px] sm:text-xs text-[var(--text-secondary)] p-4">No recent news</div>
+			<div class="situation-empty">No recent news</div>
 		{:else}
-			<div class="flex flex-col">
+			<div class="situation-list">
 				{#each news.slice(0, 8) as item (item.id)}
-					<div class="py-1.5 border-b border-[var(--border)] last:border-b-0">
-						<a href={item.link} target="_blank" rel="noopener noreferrer" class="block text-[10px] sm:text-xs text-[var(--text-primary)] no-underline leading-snug hover:text-[var(--accent)]">
+					<div class="situation-item">
+						<a href={item.link} target="_blank" rel="noopener noreferrer" class="situation-link">
 							{item.title}
 						</a>
-						<div class="text-[9px] sm:text-[10px] text-[var(--text-muted)] mt-0.5">{item.source} · {timeAgo(item.timestamp)}</div>
+						<div class="situation-meta">{item.source} · {timeAgo(item.timestamp)}</div>
 					</div>
 				{/each}
 			</div>
@@ -82,4 +82,72 @@
 	</div>
 </Panel>
 
-<!-- Styles moved to Tailwind classes for responsive text sizing -->
+<style>
+	.situation-container {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.situation-header {
+		text-align: center;
+		padding-bottom: 0.5rem;
+		border-bottom: 1px solid var(--border);
+	}
+
+	.situation-title {
+		font-size: var(--fs-sm); /* 10px → 12px responsive */
+		font-weight: 600;
+		color: var(--text-primary);
+		line-height: var(--lh-snug);
+	}
+
+	.situation-subtitle {
+		font-size: var(--fs-xs); /* 9px → 10px responsive */
+		color: var(--text-secondary);
+		margin-top: 0.125rem;
+		line-height: var(--lh-snug);
+	}
+
+	.situation-empty {
+		text-align: center;
+		font-size: var(--fs-sm); /* 10px → 12px responsive */
+		color: var(--text-secondary);
+		padding: 1rem;
+		line-height: var(--lh-normal);
+	}
+
+	.situation-list {
+		display: flex;
+		flex-direction: column;
+	}
+
+	.situation-item {
+		padding: 0.375rem 0;
+		border-bottom: 1px solid var(--border);
+	}
+
+	.situation-item:last-child {
+		border-bottom: none;
+	}
+
+	.situation-link {
+		display: block;
+		font-size: var(--fs-xs); /* 9px → 10px responsive */
+		color: var(--text-primary);
+		text-decoration: none;
+		line-height: var(--lh-snug);
+		transition: color 0.15s;
+	}
+
+	.situation-link:hover {
+		color: var(--accent);
+	}
+
+	.situation-meta {
+		font-size: var(--fs-2xs); /* 8px → 9px responsive */
+		color: var(--text-muted);
+		margin-top: 0.125rem;
+		line-height: var(--lh-tight);
+	}
+</style>
