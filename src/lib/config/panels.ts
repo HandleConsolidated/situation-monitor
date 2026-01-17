@@ -32,7 +32,10 @@ export type PanelId =
 	| 'intel'
 	| 'correlation'
 	| 'narrative'
-	| 'gridstress';
+	| 'gridstress'
+	| 'earthquakes'
+	| 'radiation'
+	| 'outbreaks';
 
 export const PANELS: Record<PanelId, PanelConfig> = {
 	map: { name: 'Global Map', priority: 1 },
@@ -59,7 +62,10 @@ export const PANELS: Record<PanelId, PanelConfig> = {
 	intel: { name: 'Intel Feed', priority: 2 },
 	correlation: { name: 'Correlation Engine', priority: 1 },
 	narrative: { name: 'Narrative Tracker', priority: 1 },
-	gridstress: { name: 'Grid Carbon Intensity', priority: 3 }
+	gridstress: { name: 'Grid Stress', priority: 3 },
+	earthquakes: { name: 'Earthquakes', priority: 2 },
+	radiation: { name: 'Radiation Monitor', priority: 3 },
+	outbreaks: { name: 'Disease Outbreaks', priority: 2 }
 };
 
 export const NON_DRAGGABLE_PANELS: PanelId[] = ['map'];

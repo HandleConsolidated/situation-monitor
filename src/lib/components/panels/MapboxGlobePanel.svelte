@@ -11,9 +11,9 @@
 		THREAT_COLORS,
 		HOTSPOT_KEYWORDS
 	} from '$lib/config/map';
-	import { fetchOutageData, fetchVIEWSConflicts } from '$lib/api';
-	import type { OutageData, VIEWSConflictData } from '$lib/api';
-	import type { CustomMonitor, NewsItem, NewsCategory } from '$lib/types';
+	import { fetchOutageData, fetchUCDPConflicts, fetchAircraftPositions, getAltitudeColor, formatAltitude, formatVelocity, formatHeading, fetchElevatedVolcanoes, VOLCANO_ALERT_COLORS, VOLCANO_ALERT_DESCRIPTIONS, getLatestRadarTileUrl, fetchVesselPositions, getShipTypeColor, formatVesselSpeed, formatVesselCourse, getFlagEmoji, fetchAirQualityData, AIR_QUALITY_COLORS, AIR_QUALITY_DESCRIPTIONS, RADIATION_LEVEL_COLORS } from '$lib/api';
+	import type { OutageData, VIEWSConflictData, Vessel, RadiationReading } from '$lib/api';
+	import type { CustomMonitor, NewsItem, NewsCategory, Aircraft, VolcanoData, AirQualityReading, DiseaseOutbreak } from '$lib/types';
 
 	// Feed category colors for map visualization
 	const FEED_COLORS: Record<NewsCategory, string> = {
@@ -43,13 +43,26 @@
 		intel: NewsItem[];
 	}
 
+	interface FlyToTarget {
+		lat: number;
+		lon: number;
+		zoom?: number;
+		_ts?: number; // Timestamp to force reactivity
+	}
+
 	interface Props {
 		monitors?: CustomMonitor[];
 		news?: NewsItem[];
 		categorizedNews?: CategorizedNews;
+		flyToTarget?: FlyToTarget | null;
+		radiationReadings?: RadiationReading[];
+		diseaseOutbreaks?: DiseaseOutbreak[];
 	}
 
-	let { monitors = [], news = [], categorizedNews }: Props = $props();
+	let { monitors = [], news = [], categorizedNews, flyToTarget = null, radiationReadings = [], diseaseOutbreaks = [] }: Props = $props();
+
+	// Create derived value to explicitly track flyToTarget changes for reactivity
+	const currentFlyTarget = $derived(flyToTarget ? { ...flyToTarget } : null);
 
 	// Mapbox access token
 	const MAPBOX_TOKEN =
@@ -74,7 +87,14 @@
 		monitors: { visible: true, paused: false },
 		news: { visible: true, paused: false },
 		arcs: { visible: true, paused: false },
-		smartHotspots: { visible: false, paused: false } // VIEWS conflict forecasts - off by default
+		smartHotspots: { visible: false, paused: false }, // VIEWS conflict forecasts - off by default
+		aircraft: { visible: false, paused: false }, // ADS-B aircraft tracking - off by default (API rate limited)
+		volcanoes: { visible: true, paused: false }, // USGS elevated volcanoes
+		vessels: { visible: false, paused: false }, // AIS vessel/ship tracking - off by default
+		airQuality: { visible: false, paused: false }, // OpenAQ air quality monitoring - off by default
+		radiation: { visible: true, paused: false }, // Safecast radiation readings
+		diseases: { visible: true, paused: false }, // WHO/ReliefWeb disease outbreaks
+		traffic: { visible: false, paused: false } // Mapbox traffic and roads - off by default
 	});
 
 	// Individual feed category visibility
@@ -130,6 +150,36 @@
 	// VIEWS Conflict Forecast data (Smart Hotspots)
 	let conflictData = $state<VIEWSConflictData | null>(null);
 	let conflictDataLoading = $state(false);
+
+	// Weather radar overlay state
+	let weatherRadarVisible = $state(false);
+	let weatherRadarTileUrl = $state<string | null>(null);
+	let weatherRadarLoading = $state(false);
+
+	// ADS-B Aircraft tracking data
+	let aircraftData = $state<Aircraft[]>([]);
+	let aircraftDataLoading = $state(false);
+	let aircraftRefreshInterval: ReturnType<typeof setInterval> | null = null;
+	const AIRCRAFT_REFRESH_INTERVAL = 45000; // 45 seconds (respecting OpenSky rate limits)
+	const MAX_AIRCRAFT_DISPLAY = 1000; // Limit displayed aircraft for performance
+	// Default high-traffic region for global view (US + Atlantic + Europe)
+	// Fetching all worldwide aircraft is too slow (~20MB payload)
+	const DEFAULT_AIRCRAFT_BOUNDS: [number, number, number, number] = [-130, 20, 40, 70];
+
+	// USGS Volcano data
+	let volcanoData = $state<VolcanoData[]>([]);
+	let volcanoDataLoading = $state(false);
+	const VOLCANO_REFRESH_INTERVAL = 30 * 60 * 1000; // 30 minutes (volcano status changes slowly)
+
+	// AIS Vessel/Ship tracking data
+	let vesselData = $state<Vessel[]>([]);
+	let vesselDataLoading = $state(false);
+	let vesselRefreshInterval: ReturnType<typeof setInterval> | null = null;
+	const VESSEL_REFRESH_INTERVAL = 3 * 60 * 1000; // 3 minutes (respecting free API rate limits)
+
+	// OpenAQ Air Quality data
+	let airQualityData = $state<AirQualityReading[]>([]);
+	let airQualityDataLoading = $state(false);
 
 	// Arc particle animation - stored as mutable array for direct manipulation
 	// Each particle has a progress value (0-1) along its arc
@@ -1020,7 +1070,9 @@
 			'news-cluster': 'NEWS ACTIVITY',
 			'feed-news': category ? FEED_LABELS[category as keyof typeof FEED_LABELS] || 'NEWS FEED' : 'NEWS FEED',
 			'views-conflict': 'CONFLICT FORECAST (VIEWS)',
-			'views-arc': 'TENSION CORRIDOR'
+			'views-arc': 'TENSION CORRIDOR',
+			aircraft: 'AIRCRAFT (ADS-B)',
+			vessel: 'VESSEL (AIS)'
 		};
 		return labels[type] || type.toUpperCase();
 	}
@@ -1094,6 +1146,295 @@
 				}
 			});
 		}
+
+		return { type: 'FeatureCollection', features };
+	}
+
+	// Generate GeoJSON for aircraft positions (ADS-B tracking)
+	function getAircraftGeoJSON(): GeoJSON.FeatureCollection {
+		if (!dataLayers.aircraft.visible || aircraftData.length === 0) {
+			return { type: 'FeatureCollection', features: [] };
+		}
+
+		const features: GeoJSON.Feature[] = aircraftData.map((aircraft) => {
+			const altitude = aircraft.geoAltitude ?? aircraft.baroAltitude;
+			const color = getAltitudeColor(altitude, aircraft.onGround);
+
+			return {
+				type: 'Feature',
+				geometry: {
+					type: 'Point',
+					coordinates: [aircraft.longitude!, aircraft.latitude!]
+				},
+				properties: {
+					icao24: aircraft.icao24,
+					callsign: aircraft.callsign || aircraft.icao24.toUpperCase(),
+					originCountry: aircraft.originCountry,
+					altitude: altitude,
+					altitudeFormatted: formatAltitude(altitude),
+					velocity: aircraft.velocity,
+					velocityFormatted: formatVelocity(aircraft.velocity),
+					heading: aircraft.trueTrack,
+					headingFormatted: formatHeading(aircraft.trueTrack),
+					verticalRate: aircraft.verticalRate,
+					onGround: aircraft.onGround,
+					squawk: aircraft.squawk,
+					color,
+					type: 'aircraft',
+					// Icon rotation based on heading (default 0 = north)
+					rotation: aircraft.trueTrack ?? 0
+				}
+			};
+		});
+
+		return { type: 'FeatureCollection', features };
+	}
+
+	// Generate GeoJSON for volcano markers
+	function getVolcanoGeoJSON(): GeoJSON.FeatureCollection {
+		if (!dataLayers.volcanoes.visible || volcanoData.length === 0) {
+			return { type: 'FeatureCollection', features: [] };
+		}
+
+		const features: GeoJSON.Feature[] = volcanoData.map((volcano) => {
+			// Get color based on alert level
+			const color = VOLCANO_ALERT_COLORS[volcano.colorCode] || '#f97316';
+			const alertDesc = VOLCANO_ALERT_DESCRIPTIONS[volcano.alertLevel] || '';
+
+			// Size based on alert level
+			let size = 8;
+			if (volcano.alertLevel === 'WARNING') size = 14;
+			else if (volcano.alertLevel === 'WATCH') size = 11;
+			else if (volcano.alertLevel === 'ADVISORY') size = 8;
+
+			return {
+				type: 'Feature',
+				geometry: {
+					type: 'Point',
+					coordinates: [volcano.lon, volcano.lat]
+				},
+				properties: {
+					id: volcano.id,
+					name: volcano.name,
+					type: 'volcano',
+					country: volcano.country,
+					region: volcano.region || '',
+					elevation: volcano.elevation,
+					alertLevel: volcano.alertLevel,
+					colorCode: volcano.colorCode,
+					lastUpdate: volcano.lastUpdate || '',
+					notice: volcano.notice || '',
+					description: volcano.description || '',
+					alertDescription: alertDesc,
+					color,
+					size,
+					// Glow intensity based on alert level
+					glowOpacity: volcano.alertLevel === 'WARNING' ? 0.6 : volcano.alertLevel === 'WATCH' ? 0.4 : 0.3
+				}
+			};
+		});
+
+		return { type: 'FeatureCollection', features };
+	}
+
+	// Generate GeoJSON for vessel/ship positions (AIS tracking)
+	function getVesselGeoJSON(): GeoJSON.FeatureCollection {
+		if (!dataLayers.vessels.visible || vesselData.length === 0) {
+			return { type: 'FeatureCollection', features: [] };
+		}
+
+		const features: GeoJSON.Feature[] = vesselData.map((vessel) => {
+			const color = getShipTypeColor(vessel.shipType);
+			const flag = getFlagEmoji(vessel.flag);
+
+			// Size based on ship type
+			let size = 8;
+			if (vessel.shipType) {
+				if (vessel.shipType >= 60 && vessel.shipType <= 69) size = 10; // Passenger
+				else if (vessel.shipType >= 70 && vessel.shipType <= 89) size = 9; // Cargo/Tanker
+			}
+
+			return {
+				type: 'Feature',
+				geometry: {
+					type: 'Point',
+					coordinates: [vessel.lon, vessel.lat]
+				},
+				properties: {
+					mmsi: vessel.mmsi,
+					name: vessel.name || `MMSI ${vessel.mmsi}`,
+					imo: vessel.imo || '',
+					type: 'vessel',
+					shipType: vessel.shipType || 0,
+					shipTypeName: vessel.shipTypeName || 'Unknown',
+					flag: vessel.flag || '',
+					flagEmoji: flag,
+					destination: vessel.destination || 'Not reported',
+					eta: vessel.eta || '',
+					speed: vessel.speed,
+					speedFormatted: formatVesselSpeed(vessel.speed),
+					course: vessel.course,
+					courseFormatted: formatVesselCourse(vessel.course),
+					heading: vessel.heading ?? vessel.course,
+					draught: vessel.draught || 0,
+					length: vessel.length || 0,
+					width: vessel.width || 0,
+					callsign: vessel.callsign || '',
+					color,
+					size,
+					// Icon rotation based on course/heading
+					rotation: vessel.heading ?? vessel.course ?? 0
+				}
+			};
+		});
+
+		return { type: 'FeatureCollection', features };
+	}
+
+	// Generate GeoJSON for air quality readings (OpenAQ PM2.5 data)
+	function getAirQualityGeoJSON(): GeoJSON.FeatureCollection {
+		if (!dataLayers.airQuality.visible || airQualityData.length === 0) {
+			return { type: 'FeatureCollection', features: [] };
+		}
+
+		const features: GeoJSON.Feature[] = airQualityData.map((reading) => {
+			const color = AIR_QUALITY_COLORS[reading.level] || '#22c55e';
+			const description = AIR_QUALITY_DESCRIPTIONS[reading.level] || '';
+
+			// Size based on PM2.5 value (logarithmic scale for better visualization)
+			// Base size 6, scales up with worse air quality
+			let size = 6;
+			if (reading.value > 150) size = 12;
+			else if (reading.value > 55) size = 10;
+			else if (reading.value > 35) size = 8;
+			else if (reading.value > 12) size = 7;
+
+			return {
+				type: 'Feature',
+				geometry: {
+					type: 'Point',
+					coordinates: [reading.lon, reading.lat]
+				},
+				properties: {
+					id: reading.id,
+					location: reading.location,
+					city: reading.city || '',
+					country: reading.country,
+					type: 'air-quality',
+					parameter: reading.parameter,
+					value: reading.value,
+					unit: reading.unit,
+					aqi: reading.aqi || 0,
+					level: reading.level,
+					levelDescription: description,
+					lastUpdated: reading.lastUpdated,
+					color,
+					size,
+					// Glow intensity based on severity
+					glowOpacity: reading.level === 'hazardous' ? 0.6 :
+						reading.level === 'very_unhealthy' ? 0.5 :
+						reading.level === 'unhealthy' ? 0.4 :
+						reading.level === 'unhealthy_sensitive' ? 0.35 :
+						reading.level === 'moderate' ? 0.3 : 0.25
+				}
+			};
+		});
+
+		return { type: 'FeatureCollection', features };
+	}
+
+	// Generate radiation readings GeoJSON from Safecast data
+	function getRadiationGeoJSON(): GeoJSON.FeatureCollection {
+		if (!dataLayers.radiation.visible || radiationReadings.length === 0) {
+			return { type: 'FeatureCollection', features: [] };
+		}
+
+		const features: GeoJSON.Feature[] = radiationReadings.map((reading) => {
+			const color = RADIATION_LEVEL_COLORS[reading.level] || '#22c55e';
+
+			// Size based on radiation level
+			let size = 6;
+			if (reading.level === 'dangerous') size = 14;
+			else if (reading.level === 'high') size = 11;
+			else if (reading.level === 'elevated') size = 8;
+
+			return {
+				type: 'Feature',
+				geometry: {
+					type: 'Point',
+					coordinates: [reading.lon, reading.lat]
+				},
+				properties: {
+					id: reading.id,
+					type: 'radiation',
+					location: reading.location || `${reading.lat.toFixed(2)}, ${reading.lon.toFixed(2)}`,
+					value: reading.value,
+					unit: reading.unit,
+					level: reading.level,
+					capturedAt: reading.capturedAt,
+					deviceId: reading.deviceId || '',
+					color,
+					size,
+					glowOpacity: reading.level === 'dangerous' ? 0.6 :
+						reading.level === 'high' ? 0.5 :
+						reading.level === 'elevated' ? 0.4 : 0.25
+				}
+			};
+		});
+
+		return { type: 'FeatureCollection', features };
+	}
+
+	// Disease outbreak severity colors
+	const DISEASE_SEVERITY_COLORS: Record<string, string> = {
+		critical: '#ef4444', // red-500
+		high: '#f97316', // orange-500
+		moderate: '#eab308', // yellow-500
+		low: '#22c55e' // green-500
+	};
+
+	// Generate disease outbreaks GeoJSON
+	function getDiseaseGeoJSON(): GeoJSON.FeatureCollection {
+		if (!dataLayers.diseases.visible || diseaseOutbreaks.length === 0) {
+			return { type: 'FeatureCollection', features: [] };
+		}
+
+		const features: GeoJSON.Feature[] = diseaseOutbreaks.map((outbreak) => {
+			const color = DISEASE_SEVERITY_COLORS[outbreak.severity] || '#eab308';
+
+			// Size based on severity and cases
+			let size = 8;
+			if (outbreak.severity === 'critical') size = 14;
+			else if (outbreak.severity === 'high') size = 11;
+			else if (outbreak.severity === 'moderate') size = 9;
+
+			return {
+				type: 'Feature',
+				geometry: {
+					type: 'Point',
+					coordinates: [outbreak.lon, outbreak.lat]
+				},
+				properties: {
+					id: outbreak.id,
+					type: 'disease',
+					disease: outbreak.disease,
+					country: outbreak.country,
+					region: outbreak.region || '',
+					cases: outbreak.cases || 0,
+					deaths: outbreak.deaths || 0,
+					severity: outbreak.severity,
+					status: outbreak.status,
+					lastUpdate: outbreak.lastUpdate,
+					source: outbreak.source,
+					url: outbreak.url || '',
+					color,
+					size,
+					glowOpacity: outbreak.severity === 'critical' ? 0.6 :
+						outbreak.severity === 'high' ? 0.5 :
+						outbreak.severity === 'moderate' ? 0.4 : 0.3
+				}
+			};
+		});
 
 		return { type: 'FeatureCollection', features };
 	}
@@ -1176,6 +1517,48 @@
 
 			const conflictArcsSource = map.getSource('ucdp-arcs') as mapboxgl.GeoJSONSource;
 			if (conflictArcsSource) conflictArcsSource.setData(getConflictArcsGeoJSON());
+
+			// Update ADS-B aircraft source
+			const aircraftSource = map.getSource('aircraft') as mapboxgl.GeoJSONSource;
+			if (aircraftSource) aircraftSource.setData(getAircraftGeoJSON());
+
+			// Update AIS vessel source
+			const vesselSource = map.getSource('vessels') as mapboxgl.GeoJSONSource;
+			if (vesselSource) vesselSource.setData(getVesselGeoJSON());
+
+			// Update USGS volcano source
+			const volcanoSource = map.getSource('volcanoes') as mapboxgl.GeoJSONSource;
+			if (volcanoSource) volcanoSource.setData(getVolcanoGeoJSON());
+
+			// Update OpenAQ air quality source
+			const airQualitySource = map.getSource('air-quality') as mapboxgl.GeoJSONSource;
+			if (airQualitySource) airQualitySource.setData(getAirQualityGeoJSON());
+
+			// Update radiation readings source
+			const radiationSource = map.getSource('radiation') as mapboxgl.GeoJSONSource;
+			if (radiationSource) radiationSource.setData(getRadiationGeoJSON());
+
+			// Update disease outbreaks source
+			const diseaseSource = map.getSource('diseases') as mapboxgl.GeoJSONSource;
+			if (diseaseSource) diseaseSource.setData(getDiseaseGeoJSON());
+
+			// Update traffic and road layer visibility
+			const trafficVisibility = dataLayers.traffic.visible ? 'visible' : 'none';
+			const trafficLayers = [
+				'roads-motorway',
+				'roads-primary',
+				'roads-secondary',
+				'roads-tertiary',
+				'traffic-low',
+				'traffic-moderate',
+				'traffic-heavy',
+				'traffic-severe'
+			];
+			for (const layerId of trafficLayers) {
+				if (map.getLayer(layerId)) {
+					map.setLayoutProperty(layerId, 'visibility', trafficVisibility);
+				}
+			}
 		} catch (e) {
 			// Sources might not exist yet
 		}
@@ -1271,7 +1654,7 @@
 								'raster-contrast': 0.2
 							}
 						},
-						// Country borders
+						// Country borders - cyan tactical style for visibility
 						{
 							id: 'admin-0-boundary',
 							type: 'line',
@@ -1279,12 +1662,12 @@
 							'source-layer': 'admin',
 							filter: ['all', ['==', ['get', 'admin_level'], 0], ['==', ['get', 'disputed'], 'false'], ['==', ['get', 'maritime'], 'false']],
 							paint: {
-								'line-color': 'rgba(100, 116, 139, 0.6)',
-								'line-width': 1,
-								'line-dasharray': [2, 1]
+								'line-color': 'rgba(6, 182, 212, 0.5)',
+								'line-width': ['interpolate', ['linear'], ['zoom'], 0, 0.5, 3, 1, 6, 1.5],
+								'line-dasharray': [3, 1]
 							}
 						},
-						// Disputed borders
+						// Disputed borders - red dashed for conflict zones
 						{
 							id: 'admin-0-boundary-disputed',
 							type: 'line',
@@ -1292,12 +1675,12 @@
 							'source-layer': 'admin',
 							filter: ['all', ['==', ['get', 'admin_level'], 0], ['==', ['get', 'disputed'], 'true']],
 							paint: {
-								'line-color': 'rgba(239, 68, 68, 0.4)',
-								'line-width': 1,
+								'line-color': 'rgba(239, 68, 68, 0.6)',
+								'line-width': ['interpolate', ['linear'], ['zoom'], 0, 0.5, 3, 1, 6, 1.5],
 								'line-dasharray': [3, 2]
 							}
 						},
-						// Country labels
+						// Country labels - more prominent for tactical awareness
 						{
 							id: 'country-labels',
 							type: 'symbol',
@@ -1307,15 +1690,153 @@
 							layout: {
 								'text-field': ['get', 'name_en'],
 								'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
-								'text-size': ['interpolate', ['linear'], ['zoom'], 1, 8, 4, 12, 8, 16],
+								'text-size': ['interpolate', ['linear'], ['zoom'], 0, 9, 2, 11, 4, 14, 8, 18],
 								'text-transform': 'uppercase',
-								'text-letter-spacing': 0.1,
-								'text-max-width': 8
+								'text-letter-spacing': 0.15,
+								'text-max-width': 10,
+								'text-allow-overlap': false,
+								'text-ignore-placement': false
 							},
 							paint: {
-								'text-color': 'rgba(148, 163, 184, 0.7)',
+								'text-color': 'rgba(203, 213, 225, 0.85)',
+								'text-halo-color': 'rgba(0, 0, 0, 0.9)',
+								'text-halo-width': 2
+							}
+						},
+						// Major cities (capitals, large metro areas) - visible from zoom 4+
+						{
+							id: 'city-labels-major',
+							type: 'symbol',
+							source: 'mapbox-streets',
+							'source-layer': 'place_label',
+							minzoom: 4,
+							filter: ['all',
+								['==', ['get', 'class'], 'settlement'],
+								['<=', ['get', 'filterrank'], 2]
+							],
+							layout: {
+								'text-field': ['get', 'name_en'],
+								'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
+								'text-size': ['interpolate', ['linear'], ['zoom'], 4, 11, 8, 16, 12, 20],
+								'text-max-width': 8,
+								'text-allow-overlap': false,
+								'text-ignore-placement': false,
+								'text-padding': 2
+							},
+							paint: {
+								'text-color': 'rgba(248, 250, 252, 0.95)',
+								'text-halo-color': 'rgba(0, 0, 0, 0.95)',
+								'text-halo-width': 1.5,
+								'text-halo-blur': 0.5
+							}
+						},
+						// Medium cities - visible from zoom 6+
+						{
+							id: 'city-labels-medium',
+							type: 'symbol',
+							source: 'mapbox-streets',
+							'source-layer': 'place_label',
+							minzoom: 6,
+							filter: ['all',
+								['==', ['get', 'class'], 'settlement'],
+								['>', ['get', 'filterrank'], 2],
+								['<=', ['get', 'filterrank'], 4]
+							],
+							layout: {
+								'text-field': ['get', 'name_en'],
+								'text-font': ['DIN Pro Regular', 'Arial Unicode MS Regular'],
+								'text-size': ['interpolate', ['linear'], ['zoom'], 6, 10, 10, 14, 14, 16],
+								'text-max-width': 8,
+								'text-allow-overlap': false,
+								'text-ignore-placement': false,
+								'text-padding': 2
+							},
+							paint: {
+								'text-color': 'rgba(226, 232, 240, 0.9)',
+								'text-halo-color': 'rgba(0, 0, 0, 0.9)',
+								'text-halo-width': 1.25,
+								'text-halo-blur': 0.5
+							}
+						},
+						// Small cities and towns - visible from zoom 8+
+						{
+							id: 'city-labels-small',
+							type: 'symbol',
+							source: 'mapbox-streets',
+							'source-layer': 'place_label',
+							minzoom: 8,
+							filter: ['all',
+								['==', ['get', 'class'], 'settlement'],
+								['>', ['get', 'filterrank'], 4],
+								['<=', ['get', 'filterrank'], 6]
+							],
+							layout: {
+								'text-field': ['get', 'name_en'],
+								'text-font': ['DIN Pro Regular', 'Arial Unicode MS Regular'],
+								'text-size': ['interpolate', ['linear'], ['zoom'], 8, 9, 12, 12, 16, 14],
+								'text-max-width': 7,
+								'text-allow-overlap': false,
+								'text-ignore-placement': false,
+								'text-padding': 1
+							},
+							paint: {
+								'text-color': 'rgba(203, 213, 225, 0.85)',
+								'text-halo-color': 'rgba(0, 0, 0, 0.85)',
+								'text-halo-width': 1,
+								'text-halo-blur': 0.5
+							}
+						},
+						// Villages and small places - visible from zoom 10+
+						{
+							id: 'city-labels-minor',
+							type: 'symbol',
+							source: 'mapbox-streets',
+							'source-layer': 'place_label',
+							minzoom: 10,
+							filter: ['all',
+								['==', ['get', 'class'], 'settlement'],
+								['>', ['get', 'filterrank'], 6]
+							],
+							layout: {
+								'text-field': ['get', 'name_en'],
+								'text-font': ['DIN Pro Regular', 'Arial Unicode MS Regular'],
+								'text-size': ['interpolate', ['linear'], ['zoom'], 10, 9, 14, 11, 18, 13],
+								'text-max-width': 6,
+								'text-allow-overlap': false,
+								'text-ignore-placement': false,
+								'text-padding': 1
+							},
+							paint: {
+								'text-color': 'rgba(148, 163, 184, 0.8)',
 								'text-halo-color': 'rgba(0, 0, 0, 0.8)',
-								'text-halo-width': 1.5
+								'text-halo-width': 1,
+								'text-halo-blur': 0.5
+							}
+						},
+						// Neighborhoods and subdivisions - visible from zoom 13+
+						{
+							id: 'neighborhood-labels',
+							type: 'symbol',
+							source: 'mapbox-streets',
+							'source-layer': 'place_label',
+							minzoom: 13,
+							filter: ['==', ['get', 'class'], 'settlement_subdivision'],
+							layout: {
+								'text-field': ['get', 'name_en'],
+								'text-font': ['DIN Pro Regular', 'Arial Unicode MS Regular'],
+								'text-size': ['interpolate', ['linear'], ['zoom'], 13, 9, 16, 11, 20, 13],
+								'text-max-width': 6,
+								'text-transform': 'uppercase',
+								'text-letter-spacing': 0.1,
+								'text-allow-overlap': false,
+								'text-ignore-placement': false,
+								'text-padding': 1
+							},
+							paint: {
+								'text-color': 'rgba(100, 116, 139, 0.7)',
+								'text-halo-color': 'rgba(0, 0, 0, 0.7)',
+								'text-halo-width': 1,
+								'text-halo-blur': 0.5
 							}
 						}
 					],
@@ -1337,6 +1858,118 @@
 					'horizon-blend': 0.02,
 					'space-color': 'rgb(2, 3, 5)',
 					'star-intensity': 0.6
+				});
+
+				// Add terrain DEM source for 3D terrain visualization
+				map.addSource('mapbox-dem', {
+					type: 'raster-dem',
+					url: 'mapbox://mapbox.mapbox-terrain-dem-v1',
+					tileSize: 512,
+					maxzoom: 14
+				});
+
+				// Calculate terrain exaggeration based on zoom level
+				// Multi-stage curve: dramatic at globe/continent, stays dramatic through region/county,
+				// only becoming subtle at city-level zoom for realistic close-up terrain
+				const calculateTerrainExaggeration = (zoom: number): number => {
+					// Define zoom level breakpoints and their exaggeration values
+					// Globe view (zoom 0-3): 20.0 - dramatic, mountains visible from space
+					// Continent view (zoom 3-5): 20.0 to 12.0 - still dramatic
+					// Region/Country view (zoom 5-8): 12.0 to 8.0 - dramatic, good for mountain ranges
+					// County level (zoom 8-10): 8.0 to 3.0 - moderately exaggerated, terrain features clear
+					// City and closer (zoom 10+): 1.5 - subtle, realistic
+
+					const breakpoints = [
+						{ zoom: 0, exaggeration: 20.0 },   // Globe view - maximum drama
+						{ zoom: 3, exaggeration: 20.0 },   // End of globe view
+						{ zoom: 5, exaggeration: 12.0 },   // Continent view
+						{ zoom: 8, exaggeration: 8.0 },    // Region/Country view
+						{ zoom: 10, exaggeration: 3.0 },   // County level
+						{ zoom: 14, exaggeration: 1.5 }    // City and closer - subtle, realistic
+					];
+
+					// Find the appropriate segment for interpolation
+					if (zoom <= breakpoints[0].zoom) return breakpoints[0].exaggeration;
+					if (zoom >= breakpoints[breakpoints.length - 1].zoom) {
+						return breakpoints[breakpoints.length - 1].exaggeration;
+					}
+
+					// Find the two breakpoints we're between
+					for (let i = 0; i < breakpoints.length - 1; i++) {
+						const lower = breakpoints[i];
+						const upper = breakpoints[i + 1];
+
+						if (zoom >= lower.zoom && zoom <= upper.zoom) {
+							// Linear interpolation between breakpoints
+							const t = (zoom - lower.zoom) / (upper.zoom - lower.zoom);
+							// Apply ease-in-out for smoother transitions
+							const easeInOut = t < 0.5
+								? 2 * t * t
+								: 1 - Math.pow(-2 * t + 2, 2) / 2;
+							return lower.exaggeration - (lower.exaggeration - upper.exaggeration) * easeInOut;
+						}
+					}
+
+					// Fallback (shouldn't reach here)
+					return 1.5;
+				};
+
+				// Set initial terrain with exaggeration based on current zoom
+				const initialZoom = map.getZoom();
+				map.setTerrain({
+					source: 'mapbox-dem',
+					exaggeration: calculateTerrainExaggeration(initialZoom)
+				});
+
+				// Add hillshade layer for enhanced terrain visualization
+				map.addLayer(
+					{
+						id: 'hillshade',
+						type: 'hillshade',
+						source: 'mapbox-dem',
+						paint: {
+							'hillshade-exaggeration': 0.5,
+							'hillshade-shadow-color': '#000000',
+							'hillshade-highlight-color': '#ffffff',
+							'hillshade-accent-color': '#0891b2',
+							'hillshade-illumination-direction': 315
+						}
+					},
+					'satellite' // Insert below satellite layer but above background
+				);
+
+				// Add 3D buildings layer - visible when zoomed in
+				map.addLayer({
+					id: '3d-buildings',
+					source: 'mapbox-streets',
+					'source-layer': 'building',
+					type: 'fill-extrusion',
+					minzoom: 13,
+					paint: {
+						'fill-extrusion-color': [
+							'interpolate',
+							['linear'],
+							['get', 'height'],
+							0, '#1e293b',  // slate-800 for low buildings
+							50, '#334155', // slate-700 for medium buildings
+							100, '#475569', // slate-600 for tall buildings
+							200, '#64748b'  // slate-500 for very tall buildings
+						],
+						'fill-extrusion-height': ['get', 'height'],
+						'fill-extrusion-base': ['get', 'min_height'],
+						'fill-extrusion-opacity': 0.8
+					}
+				});
+
+				// Update terrain exaggeration dynamically as user zooms
+				map.on('zoom', () => {
+					if (!map) return;
+					const currentZoom = map.getZoom();
+					const exaggeration = calculateTerrainExaggeration(currentZoom);
+					map.setTerrain({
+						source: 'mapbox-dem',
+						exaggeration: exaggeration
+					});
 				});
 
 				// Add all sources - now with separate sources for each marker type
@@ -1368,7 +2001,197 @@
 				map.addSource('ucdp-hotspots', { type: 'geojson', data: getConflictHotspotsGeoJSON() });
 				map.addSource('ucdp-arcs', { type: 'geojson', data: getConflictArcsGeoJSON() });
 
+				// USGS Volcano source
+				map.addSource('volcanoes', { type: 'geojson', data: getVolcanoGeoJSON() });
+
+				// AIS Vessel/Ship tracking source
+				map.addSource('vessels', { type: 'geojson', data: getVesselGeoJSON() });
+
+				// ADS-B Aircraft tracking source
+				map.addSource('aircraft', { type: 'geojson', data: getAircraftGeoJSON() });
+
+				// OpenAQ Air Quality source
+				map.addSource('air-quality', { type: 'geojson', data: getAirQualityGeoJSON() });
+
+				// Safecast Radiation readings source
+				map.addSource('radiation', { type: 'geojson', data: getRadiationGeoJSON() });
+
+				// Disease outbreaks source
+				map.addSource('diseases', { type: 'geojson', data: getDiseaseGeoJSON() });
+
+				// Mapbox Traffic source (real-time traffic data)
+				map.addSource('mapbox-traffic', {
+					type: 'vector',
+					url: 'mapbox://mapbox.mapbox-traffic-v1'
+				});
+
 				// Add layers
+
+				// ========== ROAD LAYERS - Visible at city-level zoom (zoom 10+) ==========
+				// These layers appear when traffic toggle is enabled
+
+				// Motorways/Highways - most prominent roads
+				map.addLayer({
+					id: 'roads-motorway',
+					type: 'line',
+					source: 'mapbox-streets',
+					'source-layer': 'road',
+					minzoom: 10,
+					filter: ['==', ['get', 'class'], 'motorway'],
+					layout: {
+						'line-join': 'round',
+						'line-cap': 'round',
+						'visibility': dataLayers.traffic.visible ? 'visible' : 'none'
+					},
+					paint: {
+						'line-color': 'rgba(120, 130, 150, 0.6)',
+						'line-width': ['interpolate', ['linear'], ['zoom'], 10, 1.5, 14, 4, 18, 8],
+						'line-opacity': 0.8
+					}
+				});
+
+				// Primary roads
+				map.addLayer({
+					id: 'roads-primary',
+					type: 'line',
+					source: 'mapbox-streets',
+					'source-layer': 'road',
+					minzoom: 11,
+					filter: ['==', ['get', 'class'], 'primary'],
+					layout: {
+						'line-join': 'round',
+						'line-cap': 'round',
+						'visibility': dataLayers.traffic.visible ? 'visible' : 'none'
+					},
+					paint: {
+						'line-color': 'rgba(100, 110, 130, 0.5)',
+						'line-width': ['interpolate', ['linear'], ['zoom'], 11, 1, 14, 2.5, 18, 6],
+						'line-opacity': 0.7
+					}
+				});
+
+				// Secondary roads - visible at higher zoom
+				map.addLayer({
+					id: 'roads-secondary',
+					type: 'line',
+					source: 'mapbox-streets',
+					'source-layer': 'road',
+					minzoom: 13,
+					filter: ['==', ['get', 'class'], 'secondary'],
+					layout: {
+						'line-join': 'round',
+						'line-cap': 'round',
+						'visibility': dataLayers.traffic.visible ? 'visible' : 'none'
+					},
+					paint: {
+						'line-color': 'rgba(90, 100, 120, 0.4)',
+						'line-width': ['interpolate', ['linear'], ['zoom'], 13, 0.8, 16, 2, 18, 4],
+						'line-opacity': 0.6
+					}
+				});
+
+				// Tertiary roads - visible at even higher zoom
+				map.addLayer({
+					id: 'roads-tertiary',
+					type: 'line',
+					source: 'mapbox-streets',
+					'source-layer': 'road',
+					minzoom: 14,
+					filter: ['==', ['get', 'class'], 'tertiary'],
+					layout: {
+						'line-join': 'round',
+						'line-cap': 'round',
+						'visibility': dataLayers.traffic.visible ? 'visible' : 'none'
+					},
+					paint: {
+						'line-color': 'rgba(80, 90, 110, 0.35)',
+						'line-width': ['interpolate', ['linear'], ['zoom'], 14, 0.5, 17, 1.5, 18, 3],
+						'line-opacity': 0.5
+					}
+				});
+
+				// ========== TRAFFIC FLOW LAYERS - Real-time traffic conditions ==========
+				// Traffic congestion overlay - shows traffic flow colors on roads
+
+				// Traffic layer - low congestion (green/normal flow)
+				map.addLayer({
+					id: 'traffic-low',
+					type: 'line',
+					source: 'mapbox-traffic',
+					'source-layer': 'traffic',
+					minzoom: 10,
+					filter: ['==', ['get', 'congestion'], 'low'],
+					layout: {
+						'line-join': 'round',
+						'line-cap': 'round',
+						'visibility': dataLayers.traffic.visible ? 'visible' : 'none'
+					},
+					paint: {
+						'line-color': '#22c55e', // green-500
+						'line-width': ['interpolate', ['linear'], ['zoom'], 10, 1, 14, 3, 18, 6],
+						'line-opacity': 0.7
+					}
+				});
+
+				// Traffic layer - moderate congestion (yellow)
+				map.addLayer({
+					id: 'traffic-moderate',
+					type: 'line',
+					source: 'mapbox-traffic',
+					'source-layer': 'traffic',
+					minzoom: 10,
+					filter: ['==', ['get', 'congestion'], 'moderate'],
+					layout: {
+						'line-join': 'round',
+						'line-cap': 'round',
+						'visibility': dataLayers.traffic.visible ? 'visible' : 'none'
+					},
+					paint: {
+						'line-color': '#eab308', // yellow-500
+						'line-width': ['interpolate', ['linear'], ['zoom'], 10, 1, 14, 3, 18, 6],
+						'line-opacity': 0.8
+					}
+				});
+
+				// Traffic layer - heavy congestion (orange)
+				map.addLayer({
+					id: 'traffic-heavy',
+					type: 'line',
+					source: 'mapbox-traffic',
+					'source-layer': 'traffic',
+					minzoom: 10,
+					filter: ['==', ['get', 'congestion'], 'heavy'],
+					layout: {
+						'line-join': 'round',
+						'line-cap': 'round',
+						'visibility': dataLayers.traffic.visible ? 'visible' : 'none'
+					},
+					paint: {
+						'line-color': '#f97316', // orange-500
+						'line-width': ['interpolate', ['linear'], ['zoom'], 10, 1.5, 14, 3.5, 18, 7],
+						'line-opacity': 0.85
+					}
+				});
+
+				// Traffic layer - severe congestion (red)
+				map.addLayer({
+					id: 'traffic-severe',
+					type: 'line',
+					source: 'mapbox-traffic',
+					'source-layer': 'traffic',
+					minzoom: 10,
+					filter: ['==', ['get', 'congestion'], 'severe'],
+					layout: {
+						'line-join': 'round',
+						'line-cap': 'round',
+						'visibility': dataLayers.traffic.visible ? 'visible' : 'none'
+					},
+					paint: {
+						'line-color': '#ef4444', // red-500
+						'line-width': ['interpolate', ['linear'], ['zoom'], 10, 2, 14, 4, 18, 8],
+						'line-opacity': 0.9
+					}
+				});
 
 				// ========== ARC LAYERS - Threat corridor visualization (subtle styling) ==========
 				// Layer 1: Outer glow (widest, most diffuse) - subtle halo
@@ -2166,6 +2989,293 @@
 					}
 				});
 
+				// ========== VOLCANO LAYERS - USGS elevated volcanic activity ==========
+				// Volcano outer glow
+				map.addLayer({
+					id: 'volcanoes-glow-outer',
+					type: 'circle',
+					source: 'volcanoes',
+					paint: {
+						'circle-radius': ['*', ['get', 'size'], 2.5],
+						'circle-color': ['get', 'color'],
+						'circle-opacity': ['get', 'glowOpacity'],
+						'circle-blur': 1.5
+					}
+				});
+
+				// Volcano middle glow
+				map.addLayer({
+					id: 'volcanoes-glow-middle',
+					type: 'circle',
+					source: 'volcanoes',
+					paint: {
+						'circle-radius': ['*', ['get', 'size'], 1.5],
+						'circle-color': ['get', 'color'],
+						'circle-opacity': ['*', ['get', 'glowOpacity'], 1.3],
+						'circle-blur': 0.6
+					}
+				});
+
+				// Volcano main marker
+				map.addLayer({
+					id: 'volcanoes-layer',
+					type: 'circle',
+					source: 'volcanoes',
+					paint: {
+						'circle-radius': ['get', 'size'],
+						'circle-color': ['get', 'color'],
+						'circle-stroke-color': '#ffffff',
+						'circle-stroke-width': 1.5,
+						'circle-stroke-opacity': 0.8
+					}
+				});
+
+				// Volcano icon (mountain/triangle symbol)
+				map.addLayer({
+					id: 'volcanoes-icon',
+					type: 'symbol',
+					source: 'volcanoes',
+					layout: {
+						'text-field': '\u25B2', // Triangle pointing up (mountain)
+						'text-size': ['case',
+							['==', ['get', 'alertLevel'], 'WARNING'], 12,
+							['==', ['get', 'alertLevel'], 'WATCH'], 10,
+							8
+						],
+						'text-allow-overlap': true,
+						'text-ignore-placement': true,
+						'text-anchor': 'center'
+					},
+					paint: {
+						'text-color': '#ffffff',
+						'text-halo-color': 'rgba(0, 0, 0, 0.9)',
+						'text-halo-width': 1.5
+					}
+				});
+
+				// ========== VESSEL/SHIP LAYERS - AIS maritime tracking ==========
+				// Vessel outer glow
+				map.addLayer({
+					id: 'vessels-glow-outer',
+					type: 'circle',
+					source: 'vessels',
+					paint: {
+						'circle-radius': ['*', ['get', 'size'], 2],
+						'circle-color': ['get', 'color'],
+						'circle-opacity': 0.3,
+						'circle-blur': 1
+					}
+				});
+
+				// Vessel main marker (circle base)
+				map.addLayer({
+					id: 'vessels-layer',
+					type: 'circle',
+					source: 'vessels',
+					paint: {
+						'circle-radius': ['get', 'size'],
+						'circle-color': ['get', 'color'],
+						'circle-stroke-color': '#ffffff',
+						'circle-stroke-width': 1.5,
+						'circle-stroke-opacity': 0.8
+					}
+				});
+
+				// Vessel direction indicator (ship icon with rotation)
+				map.addLayer({
+					id: 'vessels-icon',
+					type: 'symbol',
+					source: 'vessels',
+					layout: {
+						'text-field': '\u25B2', // Triangle pointing up (ship bow)
+						'text-size': 10,
+						'text-rotation-alignment': 'map',
+						'text-rotate': ['get', 'rotation'],
+						'text-allow-overlap': true,
+						'text-ignore-placement': true,
+						'text-anchor': 'center'
+					},
+					paint: {
+						'text-color': '#ffffff',
+						'text-halo-color': 'rgba(0, 0, 0, 0.8)',
+						'text-halo-width': 1
+					}
+				});
+
+				// ========== ADS-B AIRCRAFT LAYERS ==========
+				map.addLayer({ id: 'aircraft-glow', type: 'circle', source: 'aircraft', paint: { 'circle-radius': 12, 'circle-color': ['get', 'color'], 'circle-opacity': 0.25, 'circle-blur': 1 } });
+				map.addLayer({ id: 'aircraft-layer', type: 'circle', source: 'aircraft', paint: { 'circle-radius': 6, 'circle-color': ['get', 'color'], 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 1.5, 'circle-stroke-opacity': 0.9 } });
+				map.addLayer({ id: 'aircraft-icon', type: 'symbol', source: 'aircraft', layout: { 'text-field': '\u2708', 'text-size': 14, 'text-rotation-alignment': 'map', 'text-rotate': ['get', 'rotation'], 'text-allow-overlap': true, 'text-ignore-placement': true, 'text-anchor': 'center' }, paint: { 'text-color': '#ffffff', 'text-halo-color': ['get', 'color'], 'text-halo-width': 2 } });
+
+				// ========== AIR QUALITY LAYERS - OpenAQ PM2.5 monitoring ==========
+				// Air quality outer glow
+				map.addLayer({
+					id: 'air-quality-glow-outer',
+					type: 'circle',
+					source: 'air-quality',
+					paint: {
+						'circle-radius': ['*', ['get', 'size'], 2.5],
+						'circle-color': ['get', 'color'],
+						'circle-opacity': ['get', 'glowOpacity'],
+						'circle-blur': 1.5
+					}
+				});
+
+				// Air quality middle glow
+				map.addLayer({
+					id: 'air-quality-glow-middle',
+					type: 'circle',
+					source: 'air-quality',
+					paint: {
+						'circle-radius': ['*', ['get', 'size'], 1.5],
+						'circle-color': ['get', 'color'],
+						'circle-opacity': ['*', ['get', 'glowOpacity'], 1.3],
+						'circle-blur': 0.6
+					}
+				});
+
+				// Air quality main marker
+				map.addLayer({
+					id: 'air-quality-layer',
+					type: 'circle',
+					source: 'air-quality',
+					paint: {
+						'circle-radius': ['get', 'size'],
+						'circle-color': ['get', 'color'],
+						'circle-stroke-color': '#ffffff',
+						'circle-stroke-width': 1.5,
+						'circle-stroke-opacity': 0.8
+					}
+				});
+
+				// Air quality icon (cloud symbol for air quality)
+				map.addLayer({
+					id: 'air-quality-icon',
+					type: 'symbol',
+					source: 'air-quality',
+					layout: {
+						'text-field': '\u2601', // Cloud symbol
+						'text-size': ['case',
+							['==', ['get', 'level'], 'hazardous'], 12,
+							['==', ['get', 'level'], 'very_unhealthy'], 11,
+							['==', ['get', 'level'], 'unhealthy'], 10,
+							9
+						],
+						'text-allow-overlap': true,
+						'text-ignore-placement': true,
+						'text-anchor': 'center'
+					},
+					paint: {
+						'text-color': '#ffffff',
+						'text-halo-color': 'rgba(0, 0, 0, 0.9)',
+						'text-halo-width': 1.5
+					}
+				});
+
+				// ========== RADIATION LAYERS ==========
+				// Radiation glow layer
+				map.addLayer({
+					id: 'radiation-glow',
+					type: 'circle',
+					source: 'radiation',
+					paint: {
+						'circle-radius': ['*', ['get', 'size'], 2],
+						'circle-color': ['get', 'color'],
+						'circle-opacity': ['get', 'glowOpacity'],
+						'circle-blur': 0.8
+					}
+				});
+
+				// Radiation main marker
+				map.addLayer({
+					id: 'radiation-layer',
+					type: 'circle',
+					source: 'radiation',
+					paint: {
+						'circle-radius': ['get', 'size'],
+						'circle-color': ['get', 'color'],
+						'circle-stroke-color': '#ffffff',
+						'circle-stroke-width': 1.5,
+						'circle-stroke-opacity': 0.8
+					}
+				});
+
+				// Radiation icon (radiation symbol)
+				map.addLayer({
+					id: 'radiation-icon',
+					type: 'symbol',
+					source: 'radiation',
+					layout: {
+						'text-field': '\u2622', // Radiation symbol
+						'text-size': ['case',
+							['==', ['get', 'level'], 'dangerous'], 14,
+							['==', ['get', 'level'], 'high'], 12,
+							['==', ['get', 'level'], 'elevated'], 10,
+							8
+						],
+						'text-allow-overlap': true,
+						'text-ignore-placement': true,
+						'text-anchor': 'center'
+					},
+					paint: {
+						'text-color': '#ffffff',
+						'text-halo-color': 'rgba(0, 0, 0, 0.9)',
+						'text-halo-width': 1.5
+					}
+				});
+
+				// ========== DISEASE OUTBREAK LAYERS ==========
+				// Disease glow layer
+				map.addLayer({
+					id: 'diseases-glow',
+					type: 'circle',
+					source: 'diseases',
+					paint: {
+						'circle-radius': ['*', ['get', 'size'], 2],
+						'circle-color': ['get', 'color'],
+						'circle-opacity': ['get', 'glowOpacity'],
+						'circle-blur': 0.8
+					}
+				});
+
+				// Disease main marker
+				map.addLayer({
+					id: 'diseases-layer',
+					type: 'circle',
+					source: 'diseases',
+					paint: {
+						'circle-radius': ['get', 'size'],
+						'circle-color': ['get', 'color'],
+						'circle-stroke-color': '#ffffff',
+						'circle-stroke-width': 1.5,
+						'circle-stroke-opacity': 0.8
+					}
+				});
+
+				// Disease icon (biohazard symbol)
+				map.addLayer({
+					id: 'diseases-icon',
+					type: 'symbol',
+					source: 'diseases',
+					layout: {
+						'text-field': '\u2623', // Biohazard symbol
+						'text-size': ['case',
+							['==', ['get', 'severity'], 'critical'], 14,
+							['==', ['get', 'severity'], 'high'], 12,
+							['==', ['get', 'severity'], 'moderate'], 10,
+							9
+						],
+						'text-allow-overlap': true,
+						'text-ignore-placement': true,
+						'text-anchor': 'center'
+					},
+					paint: {
+						'text-color': '#ffffff',
+						'text-halo-color': 'rgba(0, 0, 0, 0.9)',
+						'text-halo-width': 1.5
+					}
+				});
+
 				// Legacy points layers for backward compatibility (now mainly used by interactivity)
 				map.addLayer({
 					id: 'points-glow',
@@ -2246,7 +3356,13 @@
 			'news-events-layer',
 			'outages-layer',
 			'news-clusters',
-			'ucdp-hotspots-layer' // UCDP conflict markers
+			'ucdp-hotspots-layer', // UCDP conflict markers
+			'volcanoes-layer', // USGS volcano markers
+			'vessels-layer', // AIS vessel/ship markers
+			'aircraft-layer', // ADS-B aircraft tracking
+			'air-quality-layer', // OpenAQ air quality monitoring
+			'radiation-layer', // Safecast radiation readings
+			'diseases-layer' // Disease outbreaks
 		];
 
 		interactiveLayers.forEach((layerId) => {
@@ -2386,11 +3502,180 @@
 		map.on('mouseleave', 'news-events-layer', handleMouseLeave);
 		map.on('mouseleave', 'outages-layer', handleMouseLeave);
 		map.on('mouseleave', 'ucdp-hotspots-layer', handleMouseLeave);
+		map.on('mouseleave', 'volcanoes-layer', handleMouseLeave);
+		map.on('mouseleave', 'vessels-layer', handleMouseLeave);
+		map.on('mouseleave', 'aircraft-layer', handleMouseLeave);
+
+		// Volcano mousemove handler
+		map.on('mousemove', 'volcanoes-layer', (e) => {
+			if (!e.features || e.features.length === 0 || tooltipLocked) return;
+
+			const feature = e.features[0];
+			const props = feature.properties;
+
+			const alertLevel = props?.alertLevel || 'ADVISORY';
+			const colorCode = props?.colorCode || 'YELLOW';
+
+			tooltipData = {
+				label: props?.name || 'Volcano',
+				type: 'volcano',
+				desc: `${alertLevel} (${colorCode}) - ${props?.country || 'Unknown'}`,
+				level: alertLevel.toLowerCase(),
+				isAlert: alertLevel === 'WARNING' || alertLevel === 'WATCH'
+			};
+			tooltipVisible = true;
+			updateTooltipPosition(e.point);
+			pauseRotation();
+		});
+
+		// Vessel/Ship mousemove handler
+		map.on('mousemove', 'vessels-layer', (e) => {
+			if (!e.features || e.features.length === 0 || tooltipLocked) return;
+
+			const feature = e.features[0];
+			const props = feature.properties;
+
+			const shipName = props?.name || 'Unknown Vessel';
+			const shipType = props?.shipTypeName || 'Unknown';
+			const flag = props?.flagEmoji || '';
+			const speed = props?.speedFormatted || '0 kts';
+			const course = props?.courseFormatted || 'N/A';
+
+			tooltipData = {
+				label: `${flag} ${shipName}`,
+				type: 'vessel',
+				desc: `${shipType} | ${speed} | ${course}`,
+				level: 'info'
+			};
+			tooltipVisible = true;
+			updateTooltipPosition(e.point);
+			pauseRotation();
+		});
+
+		// Aircraft mousemove handler
+		map.on('mousemove', 'aircraft-layer', (e) => {
+			if (!e.features || e.features.length === 0 || tooltipLocked) return;
+			const feature = e.features[0];
+			const props = feature.properties;
+			const callsign = props?.callsign || props?.icao24?.toUpperCase() || 'Unknown';
+			const country = props?.originCountry || '';
+			const alt = props?.altitudeFormatted || 'N/A';
+			const spd = props?.velocityFormatted || 'N/A';
+			tooltipData = {
+				label: `${callsign} (${country})`,
+				type: 'aircraft',
+				desc: `${props?.onGround ? 'ON GROUND' : alt} | ${spd}`,
+				level: props?.onGround ? 'low' : 'elevated'
+			};
+			tooltipVisible = true;
+			updateTooltipPosition(e.point);
+			pauseRotation();
+		});
+
+		// Air quality mousemove handler
+		map.on('mouseleave', 'air-quality-layer', handleMouseLeave);
+		map.on('mousemove', 'air-quality-layer', (e) => {
+			if (!e.features || e.features.length === 0 || tooltipLocked) return;
+
+			const feature = e.features[0];
+			const props = feature.properties;
+
+			const location = props?.location || 'Unknown Station';
+			const city = props?.city || '';
+			const country = props?.country || '';
+			const value = props?.value || 0;
+			const unit = props?.unit || 'ug/m3';
+			const aqi = props?.aqi || 0;
+			const levelDesc = props?.levelDescription || '';
+
+			const locationStr = city ? `${location}, ${city}` : `${location}, ${country}`;
+
+			tooltipData = {
+				label: locationStr,
+				type: 'air-quality',
+				desc: `PM2.5: ${value.toFixed(1)} ${unit} | AQI: ${aqi} | ${levelDesc}`,
+				level: props?.level || 'good'
+			};
+			tooltipVisible = true;
+			updateTooltipPosition(e.point);
+			pauseRotation();
+		});
+
+		// Radiation mousemove handler
+		map.on('mouseleave', 'radiation-layer', handleMouseLeave);
+		map.on('mousemove', 'radiation-layer', (e) => {
+			if (!e.features || e.features.length === 0 || tooltipLocked) return;
+
+			const feature = e.features[0];
+			const props = feature.properties;
+
+			const location = props?.location || 'Unknown Location';
+			const value = props?.value || 0;
+			const unit = props?.unit || 'cpm';
+			const level = props?.level || 'normal';
+			const deviceId = props?.deviceId || '';
+
+			const valueStr = unit === 'usv' ? `${value.toFixed(3)} µSv/h` : `${Math.round(value)} CPM`;
+			const levelLabel = level.charAt(0).toUpperCase() + level.slice(1);
+
+			tooltipData = {
+				label: location,
+				type: 'radiation',
+				desc: `${valueStr} | ${levelLabel}${deviceId ? ` | ${deviceId}` : ''}`,
+				level: level,
+				isAlert: level === 'dangerous' || level === 'high'
+			};
+			tooltipVisible = true;
+			updateTooltipPosition(e.point);
+			pauseRotation();
+		});
+
+		// Disease outbreak mousemove handler
+		map.on('mouseleave', 'diseases-layer', handleMouseLeave);
+		map.on('mousemove', 'diseases-layer', (e) => {
+			if (!e.features || e.features.length === 0 || tooltipLocked) return;
+
+			const feature = e.features[0];
+			const props = feature.properties;
+
+			const disease = props?.disease || 'Unknown Disease';
+			const country = props?.country || '';
+			const region = props?.region || '';
+			const cases = props?.cases || 0;
+			const deaths = props?.deaths || 0;
+			const severity = props?.severity || 'moderate';
+			const status = props?.status || 'active';
+
+			const locationStr = region ? `${country} (${region})` : country;
+			const severityLabel = severity.charAt(0).toUpperCase() + severity.slice(1);
+			const statusLabel = status.charAt(0).toUpperCase() + status.slice(1);
+
+			let statsStr = '';
+			if (cases > 0) statsStr += `Cases: ${cases.toLocaleString()}`;
+			if (deaths > 0) statsStr += statsStr ? ` | Deaths: ${deaths.toLocaleString()}` : `Deaths: ${deaths.toLocaleString()}`;
+
+			tooltipData = {
+				label: `${disease} - ${locationStr}`,
+				type: 'disease',
+				desc: `${severityLabel} | ${statusLabel}${statsStr ? ` | ${statsStr}` : ''}`,
+				level: severity,
+				isAlert: severity === 'critical' || severity === 'high'
+			};
+			tooltipVisible = true;
+			updateTooltipPosition(e.point);
+			pauseRotation();
+		});
 
 		map.on('click', 'points-layer', (e) => handlePointClick(e));
 		map.on('click', 'news-events-layer', (e) => handlePointClick(e));
 		map.on('click', 'outages-layer', (e) => handleOutageClick(e));
 		map.on('click', 'ucdp-hotspots-layer', (e) => handleConflictClick(e));
+		map.on('click', 'volcanoes-layer', (e) => handleVolcanoClick(e));
+		map.on('click', 'vessels-layer', (e) => handleVesselClick(e));
+		map.on('click', 'aircraft-layer', (e) => handleAircraftClick(e));
+		map.on('click', 'air-quality-layer', (e) => handleAirQualityClick(e));
+		map.on('click', 'radiation-layer', (e) => handleRadiationClick(e));
+		map.on('click', 'diseases-layer', (e) => handleDiseaseClick(e));
 
 		// Cluster click handler - zoom in to expand cluster
 		map.on('click', 'news-clusters', (e) => {
@@ -2499,7 +3784,7 @@
 			const intensityLevelLabel = intensityLevel.charAt(0).toUpperCase() + intensityLevel.slice(1);
 
 			label = props?.label || 'Grid Region';
-			desc = `Carbon Intensity: ${intensityLevelLabel}${intensityPercent ? ` (${intensityPercent})` : ''}. ${props?.desc || ''} Note: This is emissions data, not grid reliability.`;
+			desc = `Carbon Intensity: ${intensityLevelLabel}${intensityPercent ? ` (${intensityPercent})` : ''}. ${props?.desc || ''}`;
 			level = intensityLevel === 'critical' ? 'critical' : intensityLevel === 'high' ? 'high' : 'elevated';
 			// Only flag as alert for truly extreme emissions
 			isAlert = intensityLevel === 'critical';
@@ -2551,6 +3836,175 @@
 			desc: `${props?.sideA || ''} vs ${props?.sideB || ''}\n${violenceType}. ${[deathInfo, eventInfo].filter(Boolean).join(', ')}${dateRange ? ` (${dateRange})` : ''}`,
 			level: props?.intensity,
 			isAlert: props?.intensity === 'critical' || props?.intensity === 'high'
+		};
+		tooltipVisible = true;
+		tooltipLocked = true;
+		updateTooltipPosition(e.point);
+		pauseRotation();
+	}
+
+	function handleVolcanoClick(e: mapboxgl.MapMouseEvent & { features?: mapboxgl.MapboxGeoJSONFeature[] }) {
+		if (!e.features || e.features.length === 0) return;
+
+		const feature = e.features[0];
+		const props = feature.properties;
+
+		const alertLevel = props?.alertLevel || 'ADVISORY';
+		const colorCode = props?.colorCode || 'YELLOW';
+		const elevation = props?.elevation ? `${props.elevation.toLocaleString()}m elevation` : '';
+		const region = props?.region || '';
+		const country = props?.country || 'Unknown';
+		const alertDesc = props?.alertDescription || '';
+		const notice = props?.notice || '';
+		const lastUpdate = props?.lastUpdate ? `Last update: ${new Date(props.lastUpdate).toLocaleDateString()}` : '';
+
+		// Build description
+		const descParts = [
+			`Alert: ${alertLevel} (${colorCode})`,
+			alertDesc,
+			region ? `Region: ${region}` : '',
+			elevation,
+			notice,
+			lastUpdate
+		].filter(Boolean);
+
+		tooltipData = {
+			label: `${props?.name || 'Volcano'} - ${country}`,
+			type: 'volcano',
+			desc: descParts.join('\n'),
+			level: alertLevel.toLowerCase(),
+			isAlert: alertLevel === 'WARNING' || alertLevel === 'WATCH'
+		};
+		tooltipVisible = true;
+		tooltipLocked = true;
+		updateTooltipPosition(e.point);
+		pauseRotation();
+	}
+
+	function handleVesselClick(e: mapboxgl.MapMouseEvent & { features?: mapboxgl.MapboxGeoJSONFeature[] }) {
+		if (!e.features || e.features.length === 0) return;
+		const feature = e.features[0];
+		const props = feature.properties;
+
+		tooltipData = {
+			label: props?.name || props?.mmsi || 'Unknown Vessel',
+			type: 'vessel',
+			desc: `Type: ${props?.shipType || 'Unknown'}\nFlag: ${props?.flag || 'N/A'}\nSpeed: ${props?.speedFormatted || 'N/A'}\nHeading: ${props?.headingFormatted || 'N/A'}`,
+			level: 'low'
+		};
+		tooltipVisible = true;
+		tooltipLocked = true;
+		updateTooltipPosition(e.point);
+		pauseRotation();
+	}
+
+	function handleAircraftClick(e: mapboxgl.MapMouseEvent & { features?: mapboxgl.MapboxGeoJSONFeature[] }) {
+		if (!e.features || e.features.length === 0) return;
+		const feature = e.features[0];
+		const props = feature.properties;
+
+		const verticalRate = props?.verticalRate;
+		const verticalIndicator = verticalRate ? (verticalRate > 0 ? ' (Climbing)' : verticalRate < 0 ? ' (Descending)' : ' (Level)') : '';
+		const groundStatus = props?.onGround ? 'ON GROUND' : 'AIRBORNE';
+
+		tooltipData = {
+			label: `${props?.callsign || props?.icao24?.toUpperCase() || 'Unknown'} - ${props?.originCountry || 'Unknown'}`,
+			type: 'aircraft',
+			desc: `ICAO24: ${props?.icao24?.toUpperCase() || 'N/A'}\nStatus: ${groundStatus}${verticalIndicator}\nAltitude: ${props?.altitudeFormatted || 'N/A'}\nSpeed: ${props?.velocityFormatted || 'N/A'}\nHeading: ${props?.headingFormatted || 'N/A'}${props?.squawk ? `\nSquawk: ${props.squawk}` : ''}`,
+			level: props?.onGround ? 'low' : 'elevated'
+		};
+		tooltipVisible = true;
+		tooltipLocked = true;
+		updateTooltipPosition(e.point);
+		pauseRotation();
+	}
+
+	function handleAirQualityClick(e: mapboxgl.MapMouseEvent & { features?: mapboxgl.MapboxGeoJSONFeature[] }) {
+		if (!e.features || e.features.length === 0) return;
+		const feature = e.features[0];
+		const props = feature.properties;
+
+		const location = props?.location || 'Unknown Station';
+		const city = props?.city || '';
+		const country = props?.country || 'Unknown';
+		const value = props?.value || 0;
+		const unit = props?.unit || 'ug/m3';
+		const aqi = props?.aqi || 0;
+		const level = props?.level || 'good';
+		const levelDesc = props?.levelDescription || '';
+		const lastUpdated = props?.lastUpdated ? new Date(props.lastUpdated).toLocaleString() : 'N/A';
+
+		const locationStr = city ? `${location}, ${city}, ${country}` : `${location}, ${country}`;
+
+		tooltipData = {
+			label: locationStr,
+			type: 'air-quality',
+			desc: `PM2.5: ${value.toFixed(1)} ${unit}\nAQI: ${aqi}\nLevel: ${levelDesc}\nLast Updated: ${lastUpdated}`,
+			level: level
+		};
+		tooltipVisible = true;
+		tooltipLocked = true;
+		updateTooltipPosition(e.point);
+		pauseRotation();
+	}
+
+	function handleRadiationClick(e: mapboxgl.MapMouseEvent & { features?: mapboxgl.MapboxGeoJSONFeature[] }) {
+		if (!e.features || e.features.length === 0) return;
+		const feature = e.features[0];
+		const props = feature.properties;
+
+		const location = props?.location || 'Unknown Location';
+		const value = props?.value || 0;
+		const unit = props?.unit || 'cpm';
+		const level = props?.level || 'normal';
+		const deviceId = props?.deviceId || '';
+		const capturedAt = props?.capturedAt ? new Date(props.capturedAt).toLocaleString() : 'N/A';
+
+		const valueStr = unit === 'usv' ? `${value.toFixed(3)} µSv/h` : `${Math.round(value)} CPM`;
+		const levelLabel = level.charAt(0).toUpperCase() + level.slice(1);
+
+		tooltipData = {
+			label: `☢ ${location}`,
+			type: 'radiation',
+			desc: `Radiation: ${valueStr}\nLevel: ${levelLabel}${deviceId ? `\nDevice: ${deviceId}` : ''}\nCaptured: ${capturedAt}`,
+			level: level,
+			isAlert: level === 'dangerous' || level === 'high'
+		};
+		tooltipVisible = true;
+		tooltipLocked = true;
+		updateTooltipPosition(e.point);
+		pauseRotation();
+	}
+
+	function handleDiseaseClick(e: mapboxgl.MapMouseEvent & { features?: mapboxgl.MapboxGeoJSONFeature[] }) {
+		if (!e.features || e.features.length === 0) return;
+		const feature = e.features[0];
+		const props = feature.properties;
+
+		const disease = props?.disease || 'Unknown Disease';
+		const country = props?.country || 'Unknown';
+		const region = props?.region || '';
+		const cases = props?.cases || 0;
+		const deaths = props?.deaths || 0;
+		const severity = props?.severity || 'moderate';
+		const status = props?.status || 'active';
+		const source = props?.source || '';
+		const lastUpdate = props?.lastUpdate ? new Date(props.lastUpdate).toLocaleDateString() : 'N/A';
+
+		const locationStr = region ? `${country} (${region})` : country;
+		const severityLabel = severity.charAt(0).toUpperCase() + severity.slice(1);
+		const statusLabel = status.charAt(0).toUpperCase() + status.slice(1);
+
+		let statsStr = '';
+		if (cases > 0) statsStr += `Cases: ${cases.toLocaleString()}`;
+		if (deaths > 0) statsStr += statsStr ? `\nDeaths: ${deaths.toLocaleString()}` : `Deaths: ${deaths.toLocaleString()}`;
+
+		tooltipData = {
+			label: `☣ ${disease}`,
+			type: 'disease',
+			desc: `Location: ${locationStr}\nSeverity: ${severityLabel}\nStatus: ${statusLabel}${statsStr ? `\n${statsStr}` : ''}\nSource: ${source}\nLast Update: ${lastUpdate}`,
+			level: severity,
+			isAlert: severity === 'critical' || severity === 'high'
 		};
 		tooltipVisible = true;
 		tooltipLocked = true;
@@ -2618,6 +4072,7 @@
 				monitors?.length ?? 0,
 				news?.length ?? 0,
 				outageData?.length ?? 0,
+				aircraftData?.length ?? 0,
 				dataLayers.hotspots.visible,
 				dataLayers.chokepoints.visible,
 				dataLayers.cables.visible,
@@ -2628,6 +4083,7 @@
 				dataLayers.news.visible,
 				dataLayers.arcs.visible,
 				dataLayers.smartHotspots.visible,
+				dataLayers.aircraft.visible,
 				newsTTL,
 				newsTimeFilter,
 				showAlertsOnly
@@ -2676,6 +4132,47 @@
 		return () => clearInterval(pulseInterval);
 	});
 
+	// Handle flyToTarget prop changes - navigate globe to specified coordinates
+	$effect(() => {
+		// Use the derived currentFlyTarget to ensure reactivity
+		const target = currentFlyTarget;
+		console.log('[GlobePanel flyTo Effect] Running', { map: !!map, isInitialized, target });
+		if (!map || !isInitialized || !target) return;
+
+		// Track all target properties to ensure reactivity
+		const { lat, lon, zoom, _ts } = target;
+
+		console.log('[GlobePanel flyTo Effect] Flying to:', { lat, lon, zoom, _ts });
+
+		// Pause rotation when flying to a location
+		if (isRotating) {
+			pauseRotation();
+		}
+
+		// Fly to the target coordinates with smooth animation
+		map.flyTo({
+			center: [lon, lat],
+			zoom: zoom ?? 4,
+			duration: 2000,
+			essential: true
+		});
+	});
+
+	// Update map layers when radiation or disease data changes
+	$effect(() => {
+		// Track changes to radiation readings and disease outbreaks
+		const radiationCount = radiationReadings.length;
+		const diseaseCount = diseaseOutbreaks.length;
+
+		// Only update if map is ready
+		if (!map || !isInitialized) return;
+
+		// Avoid running on initial mount with empty data
+		if (radiationCount > 0 || diseaseCount > 0) {
+			updateMapLayers();
+		}
+	});
+
 	// Animate enhanced marker glow effects for visual hierarchy
 	$effect(() => {
 		if (!map || !isInitialized) return;
@@ -2721,6 +4218,13 @@
 				const cablePulse = Math.sin((markerPhase / 80) * Math.PI * 2);
 				const cableOpacity = 0.08 + cablePulse * 0.05;
 				map.setPaintProperty('cables-glow-outer', 'circle-opacity', cableOpacity);
+
+				// Volcanoes - fiery pulse effect (faster pulse for urgency)
+				const volcanoPulse = Math.sin((markerPhase / 20) * Math.PI * 2);
+				const volcanoOuterOpacity = 0.25 + volcanoPulse * 0.15;
+				const volcanoMiddleOpacity = 0.35 + volcanoPulse * 0.2;
+				map.setPaintProperty('volcanoes-glow-outer', 'circle-opacity', volcanoOuterOpacity);
+				map.setPaintProperty('volcanoes-glow-middle', 'circle-opacity', volcanoMiddleOpacity);
 			} catch {
 				// Layers might not exist yet
 			}
@@ -2859,18 +4363,246 @@
 		}
 	}
 
+	// Load ADS-B aircraft data from OpenSky Network
+	async function loadAircraftData() {
+		if (aircraftDataLoading || !dataLayers.aircraft.visible) return;
+		aircraftDataLoading = true;
+		try {
+			// Get current map bounds for viewport-based filtering
+			let bounds: [number, number, number, number];
+			if (map) {
+				const mapBounds = map.getBounds();
+				const zoom = map.getZoom();
+				// Use viewport bounds if zoomed in, otherwise use default high-traffic region
+				if (zoom > 2) {
+					bounds = [
+						mapBounds.getWest(),
+						mapBounds.getSouth(),
+						mapBounds.getEast(),
+						mapBounds.getNorth()
+					];
+				} else {
+					// At global view, use default region to avoid fetching all aircraft worldwide
+					bounds = DEFAULT_AIRCRAFT_BOUNDS;
+				}
+			} else {
+				bounds = DEFAULT_AIRCRAFT_BOUNDS;
+			}
+
+			const data = await fetchAircraftPositions(bounds);
+
+			// Limit displayed aircraft for performance, prioritizing by altitude (higher = more visible)
+			if (data.length > MAX_AIRCRAFT_DISPLAY) {
+				// Sort by altitude descending (higher altitude aircraft are more significant)
+				data.sort((a, b) => {
+					const altA = a.geoAltitude ?? a.baroAltitude ?? 0;
+					const altB = b.geoAltitude ?? b.baroAltitude ?? 0;
+					return altB - altA;
+				});
+				aircraftData = data.slice(0, MAX_AIRCRAFT_DISPLAY);
+			} else {
+				aircraftData = data;
+			}
+
+			if (map && isInitialized) updateMapLayers();
+		} catch (error) {
+			console.warn('Failed to fetch aircraft data:', error);
+		} finally {
+			aircraftDataLoading = false;
+		}
+	}
+
+	function startAircraftPolling() {
+		if (aircraftRefreshInterval) return;
+		loadAircraftData();
+		aircraftRefreshInterval = setInterval(loadAircraftData, AIRCRAFT_REFRESH_INTERVAL);
+	}
+
+	function stopAircraftPolling() {
+		if (aircraftRefreshInterval) {
+			clearInterval(aircraftRefreshInterval);
+			aircraftRefreshInterval = null;
+		}
+		aircraftData = [];
+		if (map && isInitialized) updateMapLayers();
+	}
+
+	// Load AIS vessel data
+	async function loadVesselData() {
+		if (vesselDataLoading || !dataLayers.vessels.visible) return;
+		vesselDataLoading = true;
+		try {
+			const data = await fetchVesselPositions();
+			vesselData = data;
+			if (map && isInitialized) updateMapLayers();
+		} catch (error) {
+			console.warn('Failed to fetch vessel data:', error);
+		} finally {
+			vesselDataLoading = false;
+		}
+	}
+
+	function startVesselPolling() {
+		if (vesselRefreshInterval) return;
+		loadVesselData();
+		vesselRefreshInterval = setInterval(loadVesselData, VESSEL_REFRESH_INTERVAL);
+	}
+
+	function stopVesselPolling() {
+		if (vesselRefreshInterval) {
+			clearInterval(vesselRefreshInterval);
+			vesselRefreshInterval = null;
+		}
+		vesselData = [];
+		if (map && isInitialized) updateMapLayers();
+	}
+
+	// Load OpenAQ air quality data
+	async function loadAirQualityData() {
+		if (airQualityDataLoading || !dataLayers.airQuality.visible) return;
+		airQualityDataLoading = true;
+		try {
+			const data = await fetchAirQualityData();
+			airQualityData = data;
+			if (map && isInitialized) updateMapLayers();
+		} catch (error) {
+			console.warn('Failed to fetch air quality data:', error);
+		} finally {
+			airQualityDataLoading = false;
+		}
+	}
+
+	// Load USGS volcano data
+	async function loadVolcanoData() {
+		if (volcanoDataLoading) return;
+		volcanoDataLoading = true;
+		try {
+			const data = await fetchElevatedVolcanoes();
+			volcanoData = data;
+			if (map && isInitialized) {
+				updateMapLayers();
+			}
+		} catch (error) {
+			console.warn('Failed to fetch volcano data:', error);
+		} finally {
+			volcanoDataLoading = false;
+		}
+	}
+
+	// Load weather radar tile URL from RainViewer
+	async function loadWeatherRadar() {
+		if (weatherRadarLoading) return;
+		weatherRadarLoading = true;
+		try {
+			const tileUrl = await getLatestRadarTileUrl();
+			if (tileUrl) {
+				weatherRadarTileUrl = tileUrl;
+				// Add or update the radar layer on the map
+				if (map && isInitialized) {
+					addOrUpdateRadarLayer(tileUrl);
+				}
+			}
+		} catch (error) {
+			console.warn('Failed to fetch weather radar data:', error);
+		} finally {
+			weatherRadarLoading = false;
+		}
+	}
+
+	// Add or update the weather radar raster layer
+	function addOrUpdateRadarLayer(tileUrl: string) {
+		if (!map) return;
+
+		// Check if source already exists
+		if (map.getSource('weather-radar')) {
+			// Remove existing layer and source to update
+			if (map.getLayer('weather-radar-layer')) {
+				map.removeLayer('weather-radar-layer');
+			}
+			map.removeSource('weather-radar');
+		}
+
+		// Add the raster source for weather radar
+		map.addSource('weather-radar', {
+			type: 'raster',
+			tiles: [tileUrl],
+			tileSize: 256
+		});
+
+		// Add the radar layer - positioned above satellite but below markers
+		// Find the first symbol layer to insert before it
+		const layers = map.getStyle()?.layers || [];
+		let firstSymbolLayer: string | undefined;
+		for (const layer of layers) {
+			if (layer.type === 'symbol' || layer.type === 'circle') {
+				firstSymbolLayer = layer.id;
+				break;
+			}
+		}
+
+		map.addLayer(
+			{
+				id: 'weather-radar-layer',
+				type: 'raster',
+				source: 'weather-radar',
+				paint: {
+					'raster-opacity': 0.6,
+					'raster-fade-duration': 300
+				}
+			},
+			firstSymbolLayer
+		);
+
+		// Set initial visibility based on state
+		map.setLayoutProperty(
+			'weather-radar-layer',
+			'visibility',
+			weatherRadarVisible ? 'visible' : 'none'
+		);
+	}
+
+	// Toggle weather radar visibility
+	function toggleWeatherRadar() {
+		weatherRadarVisible = !weatherRadarVisible;
+
+		// Load radar data if not already loaded
+		if (weatherRadarVisible && !weatherRadarTileUrl && !weatherRadarLoading) {
+			loadWeatherRadar();
+		}
+
+		// Toggle layer visibility if it exists
+		if (map && map.getLayer('weather-radar-layer')) {
+			map.setLayoutProperty(
+				'weather-radar-layer',
+				'visibility',
+				weatherRadarVisible ? 'visible' : 'none'
+			);
+		}
+	}
+
 	onMount(() => {
 		requestAnimationFrame(() => initMap());
 		// Fetch outage data immediately
 		loadOutageData();
 		// Refresh outage data every 5 minutes
 		const outageRefreshInterval = setInterval(loadOutageData, 5 * 60 * 1000);
-		return () => clearInterval(outageRefreshInterval);
+
+		// Fetch volcano data immediately
+		loadVolcanoData();
+		// Refresh volcano data every 30 minutes (volcano status changes slowly)
+		const volcanoRefreshInterval = setInterval(loadVolcanoData, VOLCANO_REFRESH_INTERVAL);
+
+		return () => {
+			clearInterval(outageRefreshInterval);
+			clearInterval(volcanoRefreshInterval);
+		};
 	});
 
 	onDestroy(() => {
 		stopRotation();
 		stopMapUpdatePolling();
+		stopAircraftPolling();
+		stopVesselPolling();
 		if (map) {
 			map.remove();
 			map = null;
@@ -2912,6 +4644,15 @@
 				<span class="control-icon">&#9881;</span>
 			</button>
 			<button
+				class="control-btn weather-radar-btn"
+				class:active={weatherRadarVisible}
+				class:loading={weatherRadarLoading}
+				onclick={toggleWeatherRadar}
+				title={weatherRadarVisible ? 'Hide weather radar' : 'Show weather radar'}
+			>
+				<span class="control-icon">{weatherRadarLoading ? '...' : '☁'}</span>
+			</button>
+			<button
 				class="control-btn"
 				class:active={isRotating}
 				onclick={toggleRotation}
@@ -2940,10 +4681,40 @@
 								if (layer === 'smartHotspots' && state.visible && !conflictData && !conflictDataLoading) {
 									loadConflictData();
 								}
+								// Start/stop aircraft polling based on visibility
+								if (layer === 'aircraft') {
+									if (state.visible) {
+										startAircraftPolling();
+									} else {
+										stopAircraftPolling();
+									}
+								}
+								// Start/stop vessel polling based on visibility
+								if (layer === 'vessels') {
+									if (state.visible) {
+										startVesselPolling();
+									} else {
+										stopVesselPolling();
+									}
+								}
+								// Load air quality data when enabled
+								if (layer === 'airQuality') {
+									if (state.visible && airQualityData.length === 0 && !airQualityDataLoading) {
+										loadAirQualityData();
+									}
+								}
 							}} />
 							<span class="layer-name">
 								{#if layer === 'smartHotspots'}
 									Smart Hotspots (UCDP)
+								{:else if layer === 'volcanoes'}
+									Volcanoes (USGS)
+								{:else if layer === 'aircraft'}
+									Aircraft (ADS-B)
+								{:else if layer === 'airQuality'}
+									Air Quality (OpenAQ)
+								{:else if layer === 'traffic'}
+									Traffic & Roads
 								{:else}
 									{layer.charAt(0).toUpperCase() + layer.slice(1)}
 								{/if}
@@ -2952,6 +4723,21 @@
 								<span class="loading-indicator">...</span>
 							{:else if layer === 'smartHotspots' && conflictData}
 								<span class="data-count">{conflictData.hotspots.length}</span>
+							{/if}
+							{#if layer === 'volcanoes' && volcanoDataLoading}
+								<span class="loading-indicator">...</span>
+							{:else if layer === 'volcanoes' && volcanoData.length > 0}
+								<span class="data-count">{volcanoData.length}</span>
+							{/if}
+							{#if layer === 'aircraft' && aircraftDataLoading}
+								<span class="loading-indicator">...</span>
+							{:else if layer === 'aircraft' && aircraftData.length > 0}
+								<span class="data-count">{aircraftData.length}</span>
+							{/if}
+							{#if layer === 'vessels' && vesselDataLoading}
+								<span class="loading-indicator">...</span>
+							{:else if layer === 'vessels' && vesselData.length > 0}
+								<span class="data-count">{vesselData.length}</span>
 							{/if}
 							{#if layer === 'news' || layer === 'hotspots'}
 								<button
@@ -3143,6 +4929,23 @@
 							<div class="legend-item">
 								<span class="legend-marker conflict-low"></span>
 								<span class="legend-label">Low Intensity</span>
+							</div>
+						</div>
+					</div>
+					<div class="legend-section">
+						<span class="legend-section-title">VOLCANOES (USGS)</span>
+						<div class="legend-items">
+							<div class="legend-item">
+								<span class="legend-marker volcano-warning"></span>
+								<span class="legend-label">Warning (Red)</span>
+							</div>
+							<div class="legend-item">
+								<span class="legend-marker volcano-watch"></span>
+								<span class="legend-label">Watch (Orange)</span>
+							</div>
+							<div class="legend-item">
+								<span class="legend-marker volcano-advisory"></span>
+								<span class="legend-label">Advisory (Yellow)</span>
 							</div>
 						</div>
 					</div>
@@ -3375,6 +5178,32 @@
 
 	.control-icon {
 		font-size: 0.875rem;
+	}
+
+	/* Weather Radar Button */
+	.weather-radar-btn.active {
+		background: rgb(6 78 59 / 0.6);
+		border-color: rgb(16 185 129 / 0.6);
+		color: rgb(52 211 153);
+	}
+
+	.weather-radar-btn:hover {
+		border-color: rgb(16 185 129 / 0.5);
+		color: rgb(52 211 153);
+	}
+
+	.weather-radar-btn.loading {
+		opacity: 0.7;
+		cursor: wait;
+	}
+
+	.weather-radar-btn.loading .control-icon {
+		animation: pulse 1s ease-in-out infinite;
+	}
+
+	@keyframes pulse {
+		0%, 100% { opacity: 0.5; }
+		50% { opacity: 1; }
 	}
 
 	/* Data Controls Panel */
@@ -3723,6 +5552,28 @@
 	.legend-marker.conflict-low {
 		background: #fbbf24;
 		box-shadow: 0 0 3px #fbbf24;
+	}
+
+	/* Volcano alert level markers */
+	.legend-marker.volcano-warning {
+		background: #ef4444;
+		box-shadow: 0 0 6px #ef4444;
+		border-radius: 0;
+		clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
+	}
+
+	.legend-marker.volcano-watch {
+		background: #f97316;
+		box-shadow: 0 0 5px #f97316;
+		border-radius: 0;
+		clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
+	}
+
+	.legend-marker.volcano-advisory {
+		background: #eab308;
+		box-shadow: 0 0 4px #eab308;
+		border-radius: 0;
+		clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
 	}
 
 	@keyframes outage-pulse {

@@ -6,9 +6,16 @@
 		gridData?: GridStressData[];
 		loading?: boolean;
 		error?: string | null;
+		onRegionClick?: (lat: number, lon: number, region: string) => void;
 	}
 
-	let { gridData = [], loading = false, error = null }: Props = $props();
+	let { gridData = [], loading = false, error = null, onRegionClick }: Props = $props();
+
+	function handleRegionClick(region: GridStressData) {
+		if (onRegionClick) {
+			onRegionClick(region.lat, region.lon, region.region);
+		}
+	}
 
 	const count = $derived(gridData.length);
 
@@ -68,13 +75,19 @@
 	}
 </script>
 
-<Panel id="gridstress" title="Grid Carbon Intensity" {count} {loading} {error}>
+<Panel id="gridstress" title="Grid Stress" {count} {loading} {error}>
 	{#if gridData.length === 0 && !loading && !error}
 		<div class="grid-empty">No grid data available</div>
 	{:else}
 		<div class="grid-list">
 			{#each gridData as region (region.id)}
-				<div class="grid-item">
+				<!-- svelte-ignore a11y_click_events_have_key_events -->
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div
+					class="grid-item"
+					class:clickable={!!onRegionClick}
+					onclick={() => handleRegionClick(region)}
+				>
 					<div class="grid-header">
 						<div class="grid-info">
 							<div class="grid-region">{region.region}</div>
@@ -131,6 +144,16 @@
 
 	.grid-item:hover {
 		background: rgb(255 255 255 / 0.05);
+	}
+
+	.grid-item.clickable {
+		cursor: pointer;
+	}
+
+	.grid-item.clickable:hover {
+		background: rgb(6 182 212 / 0.1);
+		border-left: 2px solid rgb(6 182 212 / 0.5);
+		padding-left: calc(0.25rem - 2px);
 	}
 
 	.grid-header {

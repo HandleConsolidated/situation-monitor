@@ -326,3 +326,163 @@ export interface WorldLeader {
 	focus?: string[];
 	news?: LeaderNews[];
 }
+
+/**
+ * Aircraft position data from ADS-B (OpenSky Network)
+ */
+export interface Aircraft {
+	icao24: string; // ICAO24 transponder address (hex)
+	callsign: string | null; // Callsign (8 chars max)
+	originCountry: string; // Country of registration
+	timePosition: number | null; // Unix timestamp of last position update
+	lastContact: number; // Unix timestamp of last contact
+	longitude: number | null; // WGS-84 longitude
+	latitude: number | null; // WGS-84 latitude
+	baroAltitude: number | null; // Barometric altitude in meters
+	onGround: boolean; // Whether aircraft is on ground
+	velocity: number | null; // Ground speed in m/s
+	trueTrack: number | null; // True track (heading) in degrees clockwise from north
+	verticalRate: number | null; // Vertical rate in m/s
+	geoAltitude: number | null; // Geometric altitude in meters
+	squawk: string | null; // Transponder squawk code
+}
+
+/**
+ * Radiation reading from Safecast API
+ */
+export type RadiationLevel = 'normal' | 'elevated' | 'high' | 'dangerous';
+
+export interface RadiationReading {
+	id: string;
+	lat: number;
+	lon: number;
+	value: number; // CPM (counts per minute) or uSv/h
+	unit: 'cpm' | 'usv';
+	capturedAt: string;
+	deviceId?: string;
+	location?: string;
+	level: RadiationLevel;
+}
+
+/**
+ * Vessel/ship tracking data from AIS
+ */
+export interface Vessel {
+	mmsi: string; // Maritime Mobile Service Identity (unique ship identifier)
+	name?: string; // Ship name (may not always be available)
+	imo?: string; // IMO number
+	lat: number;
+	lon: number;
+	course: number; // Course over ground (degrees, 0-360)
+	speed: number; // Speed over ground (knots)
+	heading?: number; // True heading (degrees, 0-360)
+	shipType?: number; // AIS ship type code
+	shipTypeName?: string; // Human-readable ship type
+	flag?: string; // Country flag code (ISO 3166-1)
+	destination?: string; // Reported destination
+	eta?: string; // Estimated time of arrival
+	draught?: number; // Ship draught in meters
+	length?: number; // Ship length in meters
+	width?: number; // Ship width in meters
+	callsign?: string; // Radio callsign
+	lastUpdate: number; // Timestamp of position update
+}
+
+/**
+ * USGS Volcano alert levels
+ * NORMAL: Normal background activity (GREEN)
+ * ADVISORY: Elevated unrest above known background levels (YELLOW)
+ * WATCH: Heightened or escalating unrest with increased potential for eruption (ORANGE)
+ * WARNING: Hazardous eruption imminent or underway (RED)
+ */
+export type VolcanoAlertLevel = 'NORMAL' | 'ADVISORY' | 'WATCH' | 'WARNING';
+
+/**
+ * USGS Volcano color codes
+ */
+export type VolcanoColorCode = 'GREEN' | 'YELLOW' | 'ORANGE' | 'RED';
+
+/**
+ * USGS Volcano data from the Volcano Hazards Program API
+ */
+export interface VolcanoData {
+	id: string;
+	name: string;
+	lat: number;
+	lon: number;
+	elevation: number; // meters
+	country: string;
+	region?: string;
+	alertLevel: VolcanoAlertLevel;
+	colorCode: VolcanoColorCode;
+	lastUpdate?: string;
+	notice?: string;
+	description?: string;
+}
+
+/**
+ * Disease outbreak severity levels
+ */
+export type DiseaseOutbreakSeverity = 'low' | 'moderate' | 'high' | 'critical';
+
+/**
+ * Disease outbreak status
+ */
+export type DiseaseOutbreakStatus = 'active' | 'contained' | 'monitoring';
+
+/**
+ * Disease outbreak data from WHO, ReliefWeb, or other public health sources
+ */
+export interface DiseaseOutbreak {
+	id: string;
+	disease: string;
+	country: string;
+	region?: string;
+	lat: number;
+	lon: number;
+	cases?: number;
+	deaths?: number;
+	status: DiseaseOutbreakStatus;
+	severity: DiseaseOutbreakSeverity;
+	startDate: string;
+	lastUpdate: string;
+	source: string;
+	url?: string;
+}
+
+/**
+ * Air Quality Index level based on PM2.5 concentration
+ * US EPA AQI breakpoints:
+ * Good: 0-12 ug/m3
+ * Moderate: 12.1-35.4 ug/m3
+ * Unhealthy for Sensitive Groups: 35.5-55.4 ug/m3
+ * Unhealthy: 55.5-150.4 ug/m3
+ * Very Unhealthy: 150.5-250.4 ug/m3
+ * Hazardous: 250.5+ ug/m3
+ */
+export type AirQualityLevel =
+	| 'good'
+	| 'moderate'
+	| 'unhealthy_sensitive'
+	| 'unhealthy'
+	| 'very_unhealthy'
+	| 'hazardous';
+
+/**
+ * Air quality reading from OpenAQ API
+ */
+export interface AirQualityReading {
+	id: string;
+	locationId: number;
+	location: string;
+	city?: string;
+	country: string;
+	lat: number;
+	lon: number;
+	parameter: string; // pm25, pm10, no2, o3, so2, co
+	value: number;
+	unit: string;
+	lastUpdated: string;
+	aqi?: number; // Calculated AQI if PM2.5
+	level: AirQualityLevel;
+}

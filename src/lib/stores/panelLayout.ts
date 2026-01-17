@@ -43,6 +43,9 @@ const DEFAULT_POSITIONS: Record<PanelId, PanelPosition> = {
 	layoffs: { zone: 'right', index: 4 },
 	leaders: { zone: 'right', index: 5 },
 	gridstress: { zone: 'right', index: 6 },
+	earthquakes: { zone: 'right', index: 7 },
+	radiation: { zone: 'right', index: 8 },
+	outbreaks: { zone: 'right', index: 9 },
 
 	// Bottom row - Financial panels (Money Printer, Whale Watch, Markets, Sector Heatmap, Crypto, Commodities)
 	printer: { zone: 'bottom', index: 0 },

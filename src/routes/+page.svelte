@@ -22,7 +22,10 @@
 		SituationPanel,
 		WorldLeadersPanel,
 		PrinterPanel,
-		GridStressPanel
+		GridStressPanel,
+		EarthquakePanel,
+		RadiationPanel,
+		DiseaseOutbreakPanel
 	} from '$lib/components/panels';
 	import {
 		news,
@@ -46,9 +49,13 @@
 		fetchGovContracts,
 		fetchLayoffs,
 		fetchWorldLeaders,
-		fetchAllGridStress
+		fetchAllGridStress,
+		fetchEarthquakes,
+		fetchRadiationData,
+		fetchDiseaseOutbreaks
 	} from '$lib/api';
-	import type { Prediction, WhaleTransaction, Contract, Layoff, GridStressData } from '$lib/api';
+	import type { Prediction, WhaleTransaction, Contract, Layoff, GridStressData, RadiationReading } from '$lib/api';
+	import type { EarthquakeData, DiseaseOutbreak } from '$lib/types';
 	import type { CustomMonitor, WorldLeader } from '$lib/types';
 	import type { PanelId } from '$lib/config';
 	import { HOTSPOTS } from '$lib/config/map';
@@ -80,6 +87,38 @@
 	let leadersLoading = $state(false);
 	let gridStress = $state<GridStressData[]>([]);
 	let gridStressLoading = $state(false);
+	let earthquakes = $state<EarthquakeData[]>([]);
+	let earthquakesLoading = $state(false);
+	let radiationReadings = $state<RadiationReading[]>([]);
+	let radiationLoading = $state(false);
+	let diseaseOutbreaks = $state<DiseaseOutbreak[]>([]);
+	let outbreaksLoading = $state(false);
+
+	// Globe navigation target - when set, the globe flies to these coordinates
+	// Includes _ts timestamp to force reactivity on every click
+	let globeFlyToTarget = $state<{ lat: number; lon: number; zoom?: number; _ts?: number } | null>(null);
+
+	// Handler for grid stress region clicks - navigates globe to the region
+	function handleGridRegionClick(lat: number, lon: number, _region: string) {
+		// Set target with a unique reference to ensure reactivity even if same coords
+		globeFlyToTarget = { lat, lon, zoom: 4, _ts: Date.now() };
+	}
+
+	// Handler for earthquake clicks - navigates globe to the earthquake location
+	function handleEarthquakeClick(lat: number, lon: number, _place: string) {
+		globeFlyToTarget = { lat, lon, zoom: 5, _ts: Date.now() };
+	}
+
+	// Handler for radiation reading clicks - navigates globe to the reading location
+	function handleRadiationClick(lat: number, lon: number, _location: string) {
+		console.log('[Radiation Click] Flying to:', { lat, lon, location: _location });
+		globeFlyToTarget = { lat, lon, zoom: 5, _ts: Date.now() };
+	}
+
+	// Handler for disease outbreak clicks - navigates globe to the outbreak location
+	function handleOutbreakClick(lat: number, lon: number, _disease: string) {
+		globeFlyToTarget = { lat, lon, zoom: 4, _ts: Date.now() };
+	}
 
 	// Data fetching
 	async function loadNews() {
@@ -155,6 +194,42 @@
 			console.error('Failed to load grid stress data:', error);
 		} finally {
 			gridStressLoading = false;
+		}
+	}
+
+	async function loadEarthquakes() {
+		if (!isPanelVisible('earthquakes')) return;
+		earthquakesLoading = true;
+		try {
+			earthquakes = await fetchEarthquakes(4.0);
+		} catch (error) {
+			console.error('Failed to load earthquake data:', error);
+		} finally {
+			earthquakesLoading = false;
+		}
+	}
+
+	async function loadRadiation() {
+		if (!isPanelVisible('radiation')) return;
+		radiationLoading = true;
+		try {
+			radiationReadings = await fetchRadiationData();
+		} catch (error) {
+			console.error('Failed to load radiation data:', error);
+		} finally {
+			radiationLoading = false;
+		}
+	}
+
+	async function loadDiseaseOutbreaks() {
+		if (!isPanelVisible('outbreaks')) return;
+		outbreaksLoading = true;
+		try {
+			diseaseOutbreaks = await fetchDiseaseOutbreaks();
+		} catch (error) {
+			console.error('Failed to load disease outbreak data:', error);
+		} finally {
+			outbreaksLoading = false;
 		}
 	}
 
@@ -238,7 +313,7 @@
 		async function initialLoad() {
 			refresh.startRefresh();
 			try {
-				await Promise.all([loadNews(), loadMarkets(), loadMiscData(), loadWorldLeaders(), loadGridStress()]);
+				await Promise.all([loadNews(), loadMarkets(), loadMiscData(), loadWorldLeaders(), loadGridStress(), loadEarthquakes(), loadRadiation(), loadDiseaseOutbreaks()]);
 				refresh.endRefresh();
 			} catch (error) {
 				refresh.endRefresh([String(error)]);
@@ -372,7 +447,13 @@
 							)}
 						/>
 					{:else if panelId === 'gridstress'}
-						<GridStressPanel gridData={gridStress} loading={gridStressLoading} />
+						<GridStressPanel gridData={gridStress} loading={gridStressLoading} onRegionClick={handleGridRegionClick} />
+					{:else if panelId === 'earthquakes'}
+						<EarthquakePanel {earthquakes} loading={earthquakesLoading} onEarthquakeClick={handleEarthquakeClick} />
+					{:else if panelId === 'radiation'}
+						<RadiationPanel readings={radiationReadings} loading={radiationLoading} onReadingClick={handleRadiationClick} />
+					{:else if panelId === 'outbreaks'}
+						<DiseaseOutbreakPanel outbreaks={diseaseOutbreaks} loading={outbreaksLoading} onOutbreakClick={handleOutbreakClick} />
 					{/if}
 				{/each}
 			</DropZone>
@@ -387,7 +468,7 @@
 					<div class="corner-bl"></div>
 					<div class="corner-br"></div>
 
-					<GlobePanel monitors={$monitors.monitors} news={$allNewsItems} categorizedNews={$categorizedNewsItems} />
+					<GlobePanel monitors={$monitors.monitors} news={$allNewsItems} categorizedNews={$categorizedNewsItems} flyToTarget={globeFlyToTarget} radiationReadings={radiationReadings} diseaseOutbreaks={diseaseOutbreaks} />
 
 					<!-- Globe overlay controls and info -->
 					<div class="globe-info-overlay">
@@ -525,7 +606,13 @@
 							)}
 						/>
 					{:else if panelId === 'gridstress'}
-						<GridStressPanel gridData={gridStress} loading={gridStressLoading} />
+						<GridStressPanel gridData={gridStress} loading={gridStressLoading} onRegionClick={handleGridRegionClick} />
+					{:else if panelId === 'earthquakes'}
+						<EarthquakePanel {earthquakes} loading={earthquakesLoading} onEarthquakeClick={handleEarthquakeClick} />
+					{:else if panelId === 'radiation'}
+						<RadiationPanel readings={radiationReadings} loading={radiationLoading} onReadingClick={handleRadiationClick} />
+					{:else if panelId === 'outbreaks'}
+						<DiseaseOutbreakPanel outbreaks={diseaseOutbreaks} loading={outbreaksLoading} onOutbreakClick={handleOutbreakClick} />
 					{/if}
 				{/each}
 			</DropZone>
@@ -635,7 +722,13 @@
 					)}
 				/>
 			{:else if panelId === 'gridstress'}
-				<GridStressPanel gridData={gridStress} loading={gridStressLoading} />
+				<GridStressPanel gridData={gridStress} loading={gridStressLoading} onRegionClick={handleGridRegionClick} />
+			{:else if panelId === 'earthquakes'}
+				<EarthquakePanel {earthquakes} loading={earthquakesLoading} onEarthquakeClick={handleEarthquakeClick} />
+			{:else if panelId === 'radiation'}
+				<RadiationPanel readings={radiationReadings} loading={radiationLoading} onReadingClick={handleRadiationClick} />
+			{:else if panelId === 'outbreaks'}
+				<DiseaseOutbreakPanel outbreaks={diseaseOutbreaks} loading={outbreaksLoading} onOutbreakClick={handleOutbreakClick} />
 			{/if}
 		{/each}
 	</DropZone>

@@ -19,3 +19,6 @@ export { default as MapPanel } from './MapPanel.svelte';
 export { default as GlobePanel } from './MapboxGlobePanel.svelte';
 export { default as WorldLeadersPanel } from './WorldLeadersPanel.svelte';
 export { default as GridStressPanel } from './GridStressPanel.svelte';
+export { default as EarthquakePanel } from './EarthquakePanel.svelte';
+export { default as RadiationPanel } from './RadiationPanel.svelte';
+export { default as DiseaseOutbreakPanel } from './DiseaseOutbreakPanel.svelte';

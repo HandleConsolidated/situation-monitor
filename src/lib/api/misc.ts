@@ -5,6 +5,7 @@
 
 import { browser } from '$app/environment';
 import { fetchWithProxy, logger } from '$lib/config/api';
+import type { EarthquakeData } from '$lib/types';
 
 /**
  * API Keys from environment variables
@@ -910,8 +911,35 @@ async function fetchOONIOutages(): Promise<OutageData[]> {
 				const outages: OutageData[] = [];
 
 				if (data.incidents && Array.isArray(data.incidents)) {
+					// Keywords that indicate app-specific bans (not infrastructure outages)
+					const appBanKeywords = [
+						'telegram', 'whatsapp', 'signal', 'tiktok', 'facebook', 'twitter',
+						'instagram', 'youtube', 'messenger', 'wechat', 'viber', 'snapchat',
+						'linkedin', 'reddit', 'discord', 'twitch', 'spotify', 'netflix',
+						'vpn', 'tor', 'blocked', 'ban', 'banned', 'censorship', 'filtering',
+						'app block', 'social media', 'messaging app'
+					];
+
+					// Calculate 30 days ago for filtering old events
+					const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
+
 					for (const incident of data.incidents) {
 						if (!incident.ASNs || incident.ASNs.length === 0) continue;
+
+						// Skip already-resolved/inactive events
+						if (incident.end_time) continue;
+
+						// Skip historical events older than 30 days
+						const startTime = incident.start_time ? new Date(incident.start_time).getTime() : 0;
+						if (startTime && startTime < thirtyDaysAgo) continue;
+
+						// Check title and description for app-specific ban keywords
+						const title = (incident.title || '').toLowerCase();
+						const description = (incident.short_description || '').toLowerCase();
+						const combinedText = `${title} ${description}`;
+
+						const isAppBan = appBanKeywords.some(keyword => combinedText.includes(keyword));
+						if (isAppBan) continue;
 
 						// Get first country code from ASNs
 						const countryCode = incident.CCs?.[0] || '';
@@ -2109,13 +2137,13 @@ function getGridStressDescription(stressLevel: string, percent: number, _moer: n
 	const percentile = Math.round(percent);
 	switch (stressLevel) {
 		case 'critical':
-			return `Extreme carbon intensity (${percentile}th percentile). Grid heavily reliant on fossil fuels. Not a grid emergency - indicates very high emissions.`;
+			return `${percentile}th percentile - Extreme fossil fuel reliance`;
 		case 'high':
-			return `Very high carbon intensity (${percentile}th percentile). Heavy fossil fuel reliance. Consider delaying flexible electricity use.`;
+			return `${percentile}th percentile - Very high fossil fuel reliance`;
 		case 'elevated':
-			return `Above-average carbon intensity (${percentile}th percentile). More fossil fuel generation than typical.`;
+			return `${percentile}th percentile - Above-average emissions`;
 		default:
-			return `Normal carbon intensity (${percentile}th percentile). Grid emissions within typical range.`;
+			return `${percentile}th percentile - Normal emissions`;
 	}
 }
 
@@ -2483,4 +2511,2000 @@ export async function fetchLayoffs(): Promise<Layoff[]> {
 	return layoffs.slice(0, 6);
 }
 
+/**
+ * RainViewer Weather Radar API
+ * Free API with no key required - provides global precipitation radar data
+ */
 
+export interface RainViewerTimestamp {
+	time: number;
+	path: string;
+}
+
+export interface RainViewerData {
+	version: string;
+	generated: number;
+	host: string;
+	radar: {
+		past: RainViewerTimestamp[];
+		nowcast: RainViewerTimestamp[];
+	};
+	satellite?: {
+		infrared: RainViewerTimestamp[];
+	};
+}
+
+/**
+ * Fetch available radar timestamps from RainViewer API
+ * Returns the latest radar timestamp for use in tile URLs
+ */
+export async function fetchRainViewerData(): Promise<RainViewerData | null> {
+	try {
+		const response = await fetch('https://api.rainviewer.com/public/weather-maps.json');
+
+		if (!response.ok) {
+			console.warn('RainViewer API request failed:', response.status);
+			return null;
+		}
+
+		const data: RainViewerData = await response.json();
+		return data;
+	} catch (error) {
+		console.error('Error fetching RainViewer data:', error);
+		return null;
+	}
+}
+
+/**
+ * Get the latest radar tile URL template for Mapbox raster source
+ * Returns the tile URL with {z}, {x}, {y} placeholders
+ */
+export async function getLatestRadarTileUrl(): Promise<string | null> {
+	const data = await fetchRainViewerData();
+
+	if (!data || !data.radar.past.length) {
+		return null;
+	}
+
+	// Get the most recent radar timestamp (last item in past array)
+	const latestRadar = data.radar.past[data.radar.past.length - 1];
+
+	// RainViewer tile URL format:
+	// https://tilecache.rainviewer.com{path}/{size}/{z}/{x}/{y}/{color}/{options}.png
+	// path: Already includes /v2/radar/{timestamp} from the API response
+	// size: 256 or 512 (tile size) - comes BEFORE z/x/y
+	// color: 0-8 (color scheme, 2 = universal blue)
+	// options: {smooth}_{snow} (0 or 1 each)
+	const tileUrl = `https://tilecache.rainviewer.com${latestRadar.path}/256/{z}/{x}/{y}/2/1_0.png`;
+
+	return tileUrl;
+}
+
+/**
+ * OpenSky Network ADS-B Aircraft Tracking
+ * Free API with ~400 requests/day limit, updates every 10 seconds
+ * API: https://opensky-network.org/api/states/all
+ *
+ * Returns array of aircraft with position, velocity, heading, altitude, etc.
+ */
+
+import type { Aircraft } from '$lib/types';
+
+/**
+ * Parse OpenSky Network state vector array into Aircraft object
+ * State vector indices:
+ * 0: icao24, 1: callsign, 2: origin_country, 3: time_position, 4: last_contact,
+ * 5: longitude, 6: latitude, 7: baro_altitude, 8: on_ground, 9: velocity,
+ * 10: true_track, 11: vertical_rate, 12: sensors, 13: geo_altitude, 14: squawk,
+ * 15: spi, 16: position_source
+ */
+function parseAircraftState(state: unknown[]): Aircraft | null {
+	// Validate required fields
+	if (!state || !Array.isArray(state) || state.length < 15) return null;
+
+	const icao24 = state[0] as string;
+	const lon = state[5] as number | null;
+	const lat = state[6] as number | null;
+
+	// Skip aircraft without valid position
+	if (!icao24 || lon === null || lat === null) return null;
+
+	return {
+		icao24,
+		callsign: state[1] ? (state[1] as string).trim() : null,
+		originCountry: (state[2] as string) || 'Unknown',
+		timePosition: state[3] as number | null,
+		lastContact: (state[4] as number) || 0,
+		longitude: lon,
+		latitude: lat,
+		baroAltitude: state[7] as number | null,
+		onGround: Boolean(state[8]),
+		velocity: state[9] as number | null,
+		trueTrack: state[10] as number | null,
+		verticalRate: state[11] as number | null,
+		geoAltitude: state[13] as number | null,
+		squawk: state[14] as string | null
+	};
+}
+
+/**
+ * Fetch aircraft positions from OpenSky Network API
+ * Returns aircraft with valid lat/lon positions
+ *
+ * @param bounds Optional bounding box [minLon, minLat, maxLon, maxLat] to limit results
+ * @returns Array of Aircraft objects
+ */
+export async function fetchAircraftPositions(bounds?: [number, number, number, number]): Promise<Aircraft[]> {
+	try {
+		// Build URL with optional bounding box
+		let url = 'https://opensky-network.org/api/states/all';
+
+		if (bounds && bounds.length === 4) {
+			const [minLon, minLat, maxLon, maxLat] = bounds;
+			url += `?lamin=${minLat}&lomin=${minLon}&lamax=${maxLat}&lomax=${maxLon}`;
+		}
+
+		logger.log('OpenSky API', 'Fetching aircraft positions...');
+
+		const response = await fetch(url, {
+			headers: {
+				Accept: 'application/json'
+			},
+			signal: AbortSignal.timeout(15000)
+		});
+
+		if (!response.ok) {
+			if (response.status === 429) {
+				logger.warn('OpenSky API', 'Rate limited - too many requests');
+				return [];
+			}
+			throw new Error(`OpenSky API returned ${response.status}`);
+		}
+
+		const data = await response.json();
+
+		if (!data || !data.states || !Array.isArray(data.states)) {
+			logger.warn('OpenSky API', 'No aircraft data received');
+			return [];
+		}
+
+		// Parse state vectors into Aircraft objects
+		const aircraft: Aircraft[] = [];
+
+		for (const state of data.states) {
+			const parsed = parseAircraftState(state);
+			if (parsed) {
+				aircraft.push(parsed);
+			}
+		}
+
+		logger.log('OpenSky API', `Received ${aircraft.length} aircraft with valid positions`);
+
+		return aircraft;
+	} catch (error) {
+		logger.warn('OpenSky API', 'Failed to fetch aircraft positions:', error);
+		return [];
+	}
+}
+
+/**
+ * Convert aircraft altitude to color for visualization
+ * Lower = green/blue, Higher = yellow/red
+ */
+export function getAltitudeColor(altitudeMeters: number | null, onGround: boolean): string {
+	if (onGround || altitudeMeters === null) return '#22c55e'; // Green for ground
+
+	// Convert to feet for standard aviation reference
+	const altitudeFeet = altitudeMeters * 3.28084;
+
+	if (altitudeFeet < 10000) return '#3b82f6'; // Blue - low altitude
+	if (altitudeFeet < 20000) return '#06b6d4'; // Cyan - medium-low
+	if (altitudeFeet < 30000) return '#fbbf24'; // Yellow - medium-high
+	if (altitudeFeet < 40000) return '#f97316'; // Orange - high altitude
+	return '#ef4444'; // Red - very high altitude (FL400+)
+}
+
+/**
+ * Format altitude for display
+ */
+export function formatAltitude(altitudeMeters: number | null): string {
+	if (altitudeMeters === null) return 'N/A';
+	const feet = Math.round(altitudeMeters * 3.28084);
+	return `${feet.toLocaleString()} ft (${Math.round(altitudeMeters).toLocaleString()} m)`;
+}
+
+/**
+ * Format velocity for display
+ */
+export function formatVelocity(velocityMs: number | null): string {
+	if (velocityMs === null) return 'N/A';
+	const knots = Math.round(velocityMs * 1.94384);
+	return `${knots} kts (${Math.round(velocityMs)} m/s)`;
+}
+
+/**
+ * Format heading for display
+ */
+export function formatHeading(heading: number | null): string {
+	if (heading === null) return 'N/A';
+	const directions = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+	const index = Math.round(heading / 22.5) % 16;
+	return `${Math.round(heading)}° ${directions[index]}`;
+}
+
+// =============================================================================
+// USGS VOLCANO DATA
+// =============================================================================
+
+import type { VolcanoData, VolcanoAlertLevel, VolcanoColorCode } from '$lib/types';
+
+/**
+ * USGS Volcano API response type
+ */
+interface USGSVolcanoResponse {
+	volcanoId: number;
+	volcanoName: string;
+	latitude: number;
+	longitude: number;
+	elevation?: number;
+	country: string;
+	region?: string;
+	currentAlertLevel: string;
+	currentColorCode: string;
+	lastUpdateTime?: string;
+	currentNotice?: string;
+}
+
+/**
+ * Volcano alert level colors for map display
+ * Only ADVISORY, WATCH, and WARNING are shown (not NORMAL/GREEN)
+ */
+export const VOLCANO_ALERT_COLORS: Record<VolcanoColorCode, string> = {
+	GREEN: '#22c55e', // Not shown on map
+	YELLOW: '#eab308', // Advisory - elevated unrest
+	ORANGE: '#f97316', // Watch - heightened activity
+	RED: '#ef4444' // Warning - imminent/ongoing eruption
+};
+
+/**
+ * Alert level descriptions for tooltips
+ */
+export const VOLCANO_ALERT_DESCRIPTIONS: Record<VolcanoAlertLevel, string> = {
+	NORMAL: 'Normal background activity - volcano is in typical non-eruptive state',
+	ADVISORY: 'Elevated unrest above known background levels - increased monitoring',
+	WATCH: 'Heightened or escalating unrest with increased potential for eruption',
+	WARNING: 'Hazardous eruption imminent or underway - take protective action'
+};
+
+/**
+ * Fetch elevated volcanoes from USGS Volcano Hazards Program API
+ * Only returns volcanoes with elevated status (ADVISORY, WATCH, WARNING)
+ * NORMAL/GREEN status volcanoes are filtered out
+ *
+ * API Documentation: https://volcanoes.usgs.gov/hans-public/api/
+ */
+export async function fetchElevatedVolcanoes(): Promise<VolcanoData[]> {
+	const USGS_VOLCANO_API = 'https://volcanoes.usgs.gov/hans-public/api/volcano/getElevatedVolcanoes';
+
+	try {
+		logger.log('Volcano API', 'Fetching elevated volcanoes from USGS...');
+
+		const response = await fetch(USGS_VOLCANO_API, {
+			headers: {
+				'Accept': 'application/json'
+			},
+			signal: AbortSignal.timeout(15000)
+		});
+
+		if (!response.ok) {
+			throw new Error(`USGS Volcano API error: ${response.status} ${response.statusText}`);
+		}
+
+		const data: USGSVolcanoResponse[] = await response.json();
+		logger.log('Volcano API', `Received ${data.length} elevated volcanoes`);
+
+		// Transform and filter the data
+		const volcanoes: VolcanoData[] = data
+			.filter((v) => {
+				// Only include ADVISORY, WATCH, and WARNING levels
+				const level = v.currentAlertLevel?.toUpperCase();
+				return level === 'ADVISORY' || level === 'WATCH' || level === 'WARNING';
+			})
+			.map((v) => ({
+				id: `usgs-volcano-${v.volcanoId}`,
+				name: v.volcanoName,
+				lat: v.latitude,
+				lon: v.longitude,
+				elevation: v.elevation || 0,
+				country: v.country || 'Unknown',
+				region: v.region,
+				alertLevel: normalizeAlertLevel(v.currentAlertLevel),
+				colorCode: normalizeColorCode(v.currentColorCode),
+				lastUpdate: v.lastUpdateTime,
+				notice: v.currentNotice,
+				description: buildVolcanoDescription(v)
+			}));
+
+		logger.log('Volcano API', `Returning ${volcanoes.length} elevated volcanoes after filtering`);
+		return volcanoes;
+
+	} catch (error) {
+		logger.warn('Volcano API', 'Failed to fetch volcano data:', error instanceof Error ? error.message : error);
+
+		// Return empty array on failure - don't use fallback data for real-time hazard monitoring
+		return [];
+	}
+}
+
+/**
+ * Fetch all volcanoes from USGS (for reference/debugging)
+ * This includes dormant volcanoes with NORMAL status
+ */
+export async function fetchAllVolcanoes(): Promise<VolcanoData[]> {
+	const USGS_VOLCANO_API = 'https://volcanoes.usgs.gov/hans-public/api/volcano/getVolcanoes';
+
+	try {
+		logger.log('Volcano API', 'Fetching all volcanoes from USGS...');
+
+		const response = await fetch(USGS_VOLCANO_API, {
+			headers: {
+				'Accept': 'application/json'
+			},
+			signal: AbortSignal.timeout(15000)
+		});
+
+		if (!response.ok) {
+			throw new Error(`USGS Volcano API error: ${response.status} ${response.statusText}`);
+		}
+
+		const data: USGSVolcanoResponse[] = await response.json();
+		logger.log('Volcano API', `Received ${data.length} total volcanoes`);
+
+		// Transform all volcanoes
+		const volcanoes: VolcanoData[] = data.map((v) => ({
+			id: `usgs-volcano-${v.volcanoId}`,
+			name: v.volcanoName,
+			lat: v.latitude,
+			lon: v.longitude,
+			elevation: v.elevation || 0,
+			country: v.country || 'Unknown',
+			region: v.region,
+			alertLevel: normalizeAlertLevel(v.currentAlertLevel),
+			colorCode: normalizeColorCode(v.currentColorCode),
+			lastUpdate: v.lastUpdateTime,
+			notice: v.currentNotice,
+			description: buildVolcanoDescription(v)
+		}));
+
+		return volcanoes;
+
+	} catch (error) {
+		logger.warn('Volcano API', 'Failed to fetch all volcanoes:', error instanceof Error ? error.message : error);
+		return [];
+	}
+}
+
+/**
+ * Normalize alert level string to typed enum value
+ */
+function normalizeAlertLevel(level: string | undefined): VolcanoAlertLevel {
+	if (!level) return 'NORMAL';
+	const upper = level.toUpperCase();
+	if (upper === 'ADVISORY' || upper === 'WATCH' || upper === 'WARNING') {
+		return upper as VolcanoAlertLevel;
+	}
+	return 'NORMAL';
+}
+
+/**
+ * Normalize color code string to typed enum value
+ */
+function normalizeColorCode(code: string | undefined): VolcanoColorCode {
+	if (!code) return 'GREEN';
+	const upper = code.toUpperCase();
+	if (upper === 'YELLOW' || upper === 'ORANGE' || upper === 'RED') {
+		return upper as VolcanoColorCode;
+	}
+	return 'GREEN';
+}
+
+/**
+ * Build a human-readable description for the volcano
+ */
+function buildVolcanoDescription(v: USGSVolcanoResponse): string {
+	const parts: string[] = [];
+
+	if (v.elevation) {
+		parts.push(`Elevation: ${v.elevation.toLocaleString()}m`);
+	}
+
+	if (v.region) {
+		parts.push(`Region: ${v.region}`);
+	}
+
+	if (v.currentNotice) {
+		parts.push(v.currentNotice);
+	}
+
+	return parts.join(' | ') || 'Active volcano under monitoring';
+}
+
+// =============================================================================
+// VESSEL/SHIP TRACKING (AIS DATA)
+// =============================================================================
+
+/**
+ * Vessel/ship data from AIS tracking
+ */
+export interface Vessel {
+	mmsi: string;
+	name?: string;
+	imo?: string;
+	lat: number;
+	lon: number;
+	course: number;
+	speed: number;
+	heading?: number;
+	shipType?: number;
+	shipTypeName?: string;
+	flag?: string;
+	destination?: string;
+	eta?: string;
+	draught?: number;
+	length?: number;
+	width?: number;
+	callsign?: string;
+	lastUpdate: number;
+}
+
+/**
+ * AIS Ship Type codes to human-readable names
+ * https://api.vtexplorer.com/docs/ref-aistypes.html
+ */
+const AIS_SHIP_TYPES: Record<number, string> = {
+	// Category 20-29: Wing in Ground (WIG)
+	20: 'WIG',
+	21: 'WIG Hazardous A',
+	22: 'WIG Hazardous B',
+	23: 'WIG Hazardous C',
+	24: 'WIG Hazardous D',
+	// Category 30-39: Fishing/Towing/Diving
+	30: 'Fishing',
+	31: 'Towing',
+	32: 'Towing (large)',
+	33: 'Dredging',
+	34: 'Diving Operations',
+	35: 'Military Operations',
+	36: 'Sailing',
+	37: 'Pleasure Craft',
+	// Category 40-49: High Speed Craft
+	40: 'High Speed Craft',
+	41: 'HSC Hazardous A',
+	42: 'HSC Hazardous B',
+	43: 'HSC Hazardous C',
+	44: 'HSC Hazardous D',
+	49: 'HSC No Info',
+	// Category 50-59: Special Craft
+	50: 'Pilot Vessel',
+	51: 'Search and Rescue',
+	52: 'Tug',
+	53: 'Port Tender',
+	54: 'Anti-Pollution',
+	55: 'Law Enforcement',
+	56: 'Spare Local 1',
+	57: 'Spare Local 2',
+	58: 'Medical Transport',
+	59: 'Noncombatant',
+	// Category 60-69: Passenger
+	60: 'Passenger',
+	61: 'Passenger Hazardous A',
+	62: 'Passenger Hazardous B',
+	63: 'Passenger Hazardous C',
+	64: 'Passenger Hazardous D',
+	69: 'Passenger No Info',
+	// Category 70-79: Cargo
+	70: 'Cargo',
+	71: 'Cargo Hazardous A',
+	72: 'Cargo Hazardous B',
+	73: 'Cargo Hazardous C',
+	74: 'Cargo Hazardous D',
+	79: 'Cargo No Info',
+	// Category 80-89: Tanker
+	80: 'Tanker',
+	81: 'Tanker Hazardous A',
+	82: 'Tanker Hazardous B',
+	83: 'Tanker Hazardous C',
+	84: 'Tanker Hazardous D',
+	89: 'Tanker No Info',
+	// Category 90-99: Other
+	90: 'Other',
+	91: 'Other Hazardous A',
+	92: 'Other Hazardous B',
+	93: 'Other Hazardous C',
+	94: 'Other Hazardous D',
+	99: 'Other No Info'
+};
+
+/**
+ * Get ship type name from AIS type code
+ */
+export function getShipTypeName(typeCode: number | undefined): string {
+	if (!typeCode) return 'Unknown';
+	return AIS_SHIP_TYPES[typeCode] || `Type ${typeCode}`;
+}
+
+/**
+ * Get color for ship type
+ */
+export function getShipTypeColor(typeCode: number | undefined): string {
+	if (!typeCode) return '#94a3b8'; // Gray for unknown
+
+	// Tankers - orange
+	if (typeCode >= 80 && typeCode <= 89) return '#f97316';
+	// Cargo - blue
+	if (typeCode >= 70 && typeCode <= 79) return '#3b82f6';
+	// Passenger - green
+	if (typeCode >= 60 && typeCode <= 69) return '#22c55e';
+	// Special craft (SAR, tug, pilot, etc.) - cyan
+	if (typeCode >= 50 && typeCode <= 59) return '#06b6d4';
+	// High speed craft - purple
+	if (typeCode >= 40 && typeCode <= 49) return '#a855f7';
+	// Fishing/sailing/pleasure - yellow
+	if (typeCode >= 30 && typeCode <= 39) return '#eab308';
+	// WIG - red
+	if (typeCode >= 20 && typeCode <= 29) return '#ef4444';
+
+	return '#94a3b8';
+}
+
+/**
+ * Sample vessel data for major shipping lanes
+ * Used when API is unavailable or for demo purposes
+ * Positions are along major maritime routes
+ */
+function getSampleVesselData(): Vessel[] {
+	const now = Date.now();
+
+	// Sample vessels along major shipping lanes
+	return [
+		// Strait of Malacca (busiest shipping lane)
+		{
+			mmsi: '563000001',
+			name: 'EVER GOLDEN',
+			lat: 1.25,
+			lon: 103.7,
+			course: 315,
+			speed: 12.5,
+			shipType: 70,
+			shipTypeName: 'Cargo',
+			flag: 'SG',
+			destination: 'ROTTERDAM',
+			lastUpdate: now - 120000
+		},
+		{
+			mmsi: '477000002',
+			name: 'COSCO PACIFIC',
+			lat: 2.1,
+			lon: 102.5,
+			course: 295,
+			speed: 14.2,
+			shipType: 70,
+			shipTypeName: 'Cargo',
+			flag: 'HK',
+			destination: 'SINGAPORE',
+			lastUpdate: now - 180000
+		},
+		// Suez Canal approach
+		{
+			mmsi: '373000003',
+			name: 'MAERSK EDINBURGH',
+			lat: 29.85,
+			lon: 32.55,
+			course: 340,
+			speed: 8.5,
+			shipType: 70,
+			shipTypeName: 'Cargo',
+			flag: 'PA',
+			destination: 'PORT SAID',
+			lastUpdate: now - 90000
+		},
+		// Panama Canal Atlantic approach
+		{
+			mmsi: '636000004',
+			name: 'MSC AURORA',
+			lat: 9.35,
+			lon: -79.9,
+			course: 180,
+			speed: 11.0,
+			shipType: 70,
+			shipTypeName: 'Cargo',
+			flag: 'LR',
+			destination: 'COLON',
+			lastUpdate: now - 150000
+		},
+		// English Channel
+		{
+			mmsi: '244000005',
+			name: 'ROTTERDAM EXPRESS',
+			lat: 51.0,
+			lon: 1.5,
+			course: 220,
+			speed: 16.8,
+			shipType: 70,
+			shipTypeName: 'Cargo',
+			flag: 'NL',
+			destination: 'LE HAVRE',
+			lastUpdate: now - 60000
+		},
+		// Gulf of Aden (Tanker route)
+		{
+			mmsi: '538000006',
+			name: 'CRUDE PIONEER',
+			lat: 12.5,
+			lon: 47.5,
+			course: 270,
+			speed: 13.5,
+			shipType: 80,
+			shipTypeName: 'Tanker',
+			flag: 'MH',
+			destination: 'FUJAIRAH',
+			lastUpdate: now - 240000
+		},
+		// South China Sea
+		{
+			mmsi: '412000007',
+			name: 'YANG MING HARMONY',
+			lat: 14.5,
+			lon: 117.0,
+			course: 45,
+			speed: 15.2,
+			shipType: 70,
+			shipTypeName: 'Cargo',
+			flag: 'TW',
+			destination: 'HONG KONG',
+			lastUpdate: now - 200000
+		},
+		// Strait of Gibraltar
+		{
+			mmsi: '224000008',
+			name: 'GIBRALTAR SPIRIT',
+			lat: 35.95,
+			lon: -5.5,
+			course: 90,
+			speed: 14.0,
+			shipType: 80,
+			shipTypeName: 'Tanker',
+			flag: 'ES',
+			destination: 'ALGECIRAS',
+			lastUpdate: now - 100000
+		},
+		// Taiwan Strait
+		{
+			mmsi: '416000009',
+			name: 'EVERGREEN MARINE',
+			lat: 24.5,
+			lon: 119.5,
+			course: 10,
+			speed: 18.0,
+			shipType: 70,
+			shipTypeName: 'Cargo',
+			flag: 'TW',
+			destination: 'KAOHSIUNG',
+			lastUpdate: now - 80000
+		},
+		// Strait of Hormuz (critical oil route)
+		{
+			mmsi: '470000010',
+			name: 'ARABIAN GULF TANKER',
+			lat: 26.5,
+			lon: 56.5,
+			course: 140,
+			speed: 11.5,
+			shipType: 80,
+			shipTypeName: 'Tanker',
+			flag: 'AE',
+			destination: 'MUMBAI',
+			lastUpdate: now - 160000
+		},
+		// Cape of Good Hope
+		{
+			mmsi: '636000011',
+			name: 'CAPE ATLANTIC',
+			lat: -34.5,
+			lon: 18.5,
+			course: 270,
+			speed: 14.8,
+			shipType: 70,
+			shipTypeName: 'Cargo',
+			flag: 'LR',
+			destination: 'SANTOS',
+			lastUpdate: now - 300000
+		},
+		// Bosphorus
+		{
+			mmsi: '271000012',
+			name: 'BLACK SEA CARRIER',
+			lat: 41.1,
+			lon: 29.0,
+			course: 200,
+			speed: 8.0,
+			shipType: 70,
+			shipTypeName: 'Cargo',
+			flag: 'TR',
+			destination: 'ISTANBUL',
+			lastUpdate: now - 50000
+		},
+		// North Sea (Fishing vessel)
+		{
+			mmsi: '246000013',
+			name: 'NORTH SEA FISHER',
+			lat: 54.5,
+			lon: 4.5,
+			course: 180,
+			speed: 5.5,
+			shipType: 30,
+			shipTypeName: 'Fishing',
+			flag: 'NL',
+			destination: 'DEN HELDER',
+			lastUpdate: now - 400000
+		},
+		// Caribbean - Cruise ship
+		{
+			mmsi: '311000014',
+			name: 'CARIBBEAN PRINCESS',
+			lat: 18.5,
+			lon: -66.0,
+			course: 120,
+			speed: 18.5,
+			shipType: 60,
+			shipTypeName: 'Passenger',
+			flag: 'BS',
+			destination: 'SAN JUAN',
+			lastUpdate: now - 70000
+		},
+		// Yellow Sea
+		{
+			mmsi: '440000015',
+			name: 'KOREA EXPRESS',
+			lat: 35.5,
+			lon: 125.0,
+			course: 350,
+			speed: 16.0,
+			shipType: 70,
+			shipTypeName: 'Cargo',
+			flag: 'KR',
+			destination: 'INCHEON',
+			lastUpdate: now - 130000
+		}
+	];
+}
+
+// Cache for vessel data to limit API calls
+let vesselCache: {
+	data: Vessel[];
+	timestamp: number;
+} | null = null;
+
+const VESSEL_CACHE_TTL = 3 * 60 * 1000; // 3 minutes cache
+
+/**
+ * Fetch vessel positions
+ * Uses sample data positioned on major shipping lanes
+ * Can be enhanced with real API (AISHub, VesselFinder) when API key is available
+ */
+export async function fetchVesselPositions(): Promise<Vessel[]> {
+	// Check cache first
+	if (vesselCache && Date.now() - vesselCache.timestamp < VESSEL_CACHE_TTL) {
+		// Add some movement simulation to cached data
+		return simulateVesselMovement(vesselCache.data);
+	}
+
+	// Try to fetch from free API sources
+	// Note: Most free AIS APIs have strict rate limits or require registration
+	// For now, use sample data with simulated movement
+
+	try {
+		// Option 1: Try AISHub if API key is configured
+		const aisHubKey = browser
+			? (import.meta.env?.VITE_AISHUB_API_KEY ?? '')
+			: (process.env.VITE_AISHUB_API_KEY ?? '');
+
+		if (aisHubKey) {
+			const vessels = await fetchAISHubData(aisHubKey);
+			if (vessels.length > 0) {
+				vesselCache = { data: vessels, timestamp: Date.now() };
+				return vessels;
+			}
+		}
+	} catch (error) {
+		console.warn('AISHub API failed:', error);
+	}
+
+	// Fallback to sample data with simulated movement
+	const sampleData = getSampleVesselData();
+	vesselCache = { data: sampleData, timestamp: Date.now() };
+	return sampleData;
+}
+
+/**
+ * Fetch vessel data from AISHub API
+ * Requires free registration at aishub.net
+ */
+async function fetchAISHubData(apiKey: string): Promise<Vessel[]> {
+	try {
+		// AISHub provides AIS data in various formats
+		// We'll request JSON format with no compression
+		const url = `http://data.aishub.net/ws.php?username=${apiKey}&format=1&output=json&compress=0&latmin=-60&latmax=60&lonmin=-180&lonmax=180`;
+
+		const response = await fetch(url);
+		if (!response.ok) {
+			console.warn('AISHub API returned:', response.status);
+			return [];
+		}
+
+		const data = await response.json();
+
+		// AISHub returns data in array format
+		// [ERROR_CODE, [vessels...]] or just array of vessels
+		if (!Array.isArray(data)) {
+			console.warn('Unexpected AISHub response format');
+			return [];
+		}
+
+		// Check for error response
+		if (data.length === 2 && typeof data[0] === 'number' && data[0] !== 0) {
+			console.warn('AISHub error code:', data[0]);
+			return [];
+		}
+
+		const vesselArray = Array.isArray(data[1]) ? data[1] : data;
+
+		return vesselArray
+			.filter((v: Record<string, unknown>) =>
+				v.LATITUDE && v.LONGITUDE &&
+				typeof v.LATITUDE === 'number' &&
+				typeof v.LONGITUDE === 'number'
+			)
+			.slice(0, 100) // Limit to 100 vessels
+			.map((v: Record<string, unknown>) => ({
+				mmsi: String(v.MMSI || ''),
+				name: v.NAME as string | undefined,
+				imo: v.IMO ? String(v.IMO) : undefined,
+				lat: v.LATITUDE as number,
+				lon: v.LONGITUDE as number,
+				course: (v.COG as number) || 0,
+				speed: (v.SOG as number) || 0,
+				heading: v.HEADING as number | undefined,
+				shipType: v.TYPE as number | undefined,
+				shipTypeName: getShipTypeName(v.TYPE as number),
+				destination: v.DEST as string | undefined,
+				eta: v.ETA as string | undefined,
+				draught: v.DRAUGHT as number | undefined,
+				length: v.A && v.B ? (v.A as number) + (v.B as number) : undefined,
+				width: v.C && v.D ? (v.C as number) + (v.D as number) : undefined,
+				callsign: v.CALLSIGN as string | undefined,
+				lastUpdate: Date.now()
+			}));
+	} catch (error) {
+		console.warn('Failed to fetch AISHub data:', error);
+		return [];
+	}
+}
+
+/**
+ * Simulate vessel movement based on course and speed
+ * Adds realistic movement to cached data
+ */
+function simulateVesselMovement(vessels: Vessel[]): Vessel[] {
+	const now = Date.now();
+
+	return vessels.map((vessel) => {
+		// Calculate time elapsed since last update
+		const elapsed = (now - vessel.lastUpdate) / 1000; // seconds
+
+		// Calculate distance traveled (speed is in knots, 1 knot = 1.852 km/h)
+		const distanceKm = (vessel.speed * 1.852 * elapsed) / 3600;
+
+		// Convert course to radians
+		const courseRad = (vessel.course * Math.PI) / 180;
+
+		// Calculate new position (simplified - doesn't account for Earth's curvature perfectly)
+		const kmPerDegreeLat = 111.32;
+		const kmPerDegreeLon = 111.32 * Math.cos((vessel.lat * Math.PI) / 180);
+
+		const newLat = vessel.lat + (distanceKm * Math.cos(courseRad)) / kmPerDegreeLat;
+		const newLon = vessel.lon + (distanceKm * Math.sin(courseRad)) / kmPerDegreeLon;
+
+		// Add slight random variation to simulate realistic movement
+		const variation = 0.002;
+		const latVariation = (Math.random() - 0.5) * variation;
+		const lonVariation = (Math.random() - 0.5) * variation;
+
+		// Slight course variation (+/- 5 degrees)
+		const courseVariation = (Math.random() - 0.5) * 10;
+
+		return {
+			...vessel,
+			lat: newLat + latVariation,
+			lon: newLon + lonVariation,
+			course: (vessel.course + courseVariation + 360) % 360,
+			lastUpdate: now
+		};
+	});
+}
+
+/**
+ * Format vessel speed for display
+ */
+export function formatVesselSpeed(speedKnots: number): string {
+	return `${speedKnots.toFixed(1)} kts`;
+}
+
+/**
+ * Format vessel course for display
+ */
+export function formatVesselCourse(course: number): string {
+	const directions = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+	const index = Math.round(course / 22.5) % 16;
+	return `${Math.round(course)}° ${directions[index]}`;
+}
+
+/**
+ * Get flag emoji from country code
+ */
+export function getFlagEmoji(countryCode: string | undefined): string {
+	if (!countryCode || countryCode.length !== 2) return '';
+
+	// Convert country code to regional indicator symbols
+	const codePoints = countryCode
+		.toUpperCase()
+		.split('')
+		.map((char) => 127397 + char.charCodeAt(0));
+
+	return String.fromCodePoint(...codePoints);
+}
+
+/**
+ * USGS Earthquake API response interfaces
+ */
+interface USGSEarthquakeFeature {
+	id: string;
+	properties: {
+		mag: number | null;
+		place: string | null;
+		time: number;
+		url: string;
+	};
+	geometry: {
+		coordinates: [number, number, number]; // [lon, lat, depth]
+	};
+}
+
+interface USGSEarthquakeResponse {
+	type: string;
+	features: USGSEarthquakeFeature[];
+}
+
+/**
+ * Fetch earthquake data from USGS Earthquake API
+ * Returns earthquakes above the specified minimum magnitude
+ * @param minMagnitude Minimum magnitude to fetch (default 4.0)
+ */
+export async function fetchEarthquakes(minMagnitude: number = 4.0): Promise<EarthquakeData[]> {
+	// Use the USGS FDSN Event Query API for more control over parameters
+	// Returns earthquakes from the past 24 hours sorted by time (most recent first)
+	const usgsUrl = `https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&minmagnitude=${minMagnitude}&limit=50&orderby=time`;
+
+	try {
+		logger.log('USGS Earthquake API', `Fetching earthquakes with minMagnitude=${minMagnitude}...`);
+
+		const response = await fetch(usgsUrl, {
+			headers: {
+				'Accept': 'application/json'
+			},
+			signal: AbortSignal.timeout(10000)
+		});
+
+		if (!response.ok) {
+			throw new Error(`USGS API returned status ${response.status}`);
+		}
+
+		const data: USGSEarthquakeResponse = await response.json();
+
+		if (!data.features || !Array.isArray(data.features)) {
+			logger.warn('USGS Earthquake API', 'Invalid response format - no features array');
+			return [];
+		}
+
+		logger.log('USGS Earthquake API', `Received ${data.features.length} earthquakes`);
+
+		// Transform USGS data to our EarthquakeData format
+		const earthquakes: EarthquakeData[] = data.features
+			.filter((feature) => feature.properties.mag !== null && feature.properties.mag >= minMagnitude)
+			.map((feature) => ({
+				id: feature.id,
+				magnitude: feature.properties.mag ?? 0,
+				place: feature.properties.place ?? 'Unknown location',
+				time: feature.properties.time,
+				lat: feature.geometry.coordinates[1],
+				lon: feature.geometry.coordinates[0],
+				depth: feature.geometry.coordinates[2],
+				url: feature.properties.url
+			}));
+
+		return earthquakes;
+	} catch (error) {
+		logger.error('USGS Earthquake API', 'Failed to fetch earthquakes:', error instanceof Error ? error.message : error);
+		return [];
+	}
+}
+
+/**
+ * Get earthquake severity level based on magnitude
+ * Based on Modified Mercalli Intensity Scale correlations
+ */
+export function getEarthquakeSeverity(magnitude: number): 'critical' | 'high' | 'moderate' | 'low' {
+	if (magnitude >= 7.0) return 'critical';
+	if (magnitude >= 6.0) return 'high';
+	if (magnitude >= 5.0) return 'moderate';
+	return 'low';
+}
+
+/**
+ * Get earthquake severity color (hex) for map markers
+ */
+export function getEarthquakeColor(magnitude: number): string {
+	if (magnitude >= 7.0) return '#ef4444'; // red-500
+	if (magnitude >= 6.0) return '#f97316'; // orange-500
+	if (magnitude >= 5.0) return '#eab308'; // yellow-500
+	return '#22c55e'; // green-500
+}
+
+// ============================================================================
+// AIR QUALITY API (OpenAQ)
+// ============================================================================
+
+import type { AirQualityLevel, AirQualityReading } from '$lib/types';
+
+/**
+ * Air quality level colors for map markers
+ * Based on US EPA AQI color scheme
+ */
+export const AIR_QUALITY_COLORS: Record<AirQualityLevel, string> = {
+	good: '#22c55e', // green-500
+	moderate: '#eab308', // yellow-500
+	unhealthy_sensitive: '#f97316', // orange-500
+	unhealthy: '#ef4444', // red-500
+	very_unhealthy: '#a855f7', // purple-500
+	hazardous: '#7f1d1d' // maroon (red-900)
+};
+
+/**
+ * Air quality level descriptions
+ */
+export const AIR_QUALITY_DESCRIPTIONS: Record<AirQualityLevel, string> = {
+	good: 'Good - Air quality is satisfactory',
+	moderate: 'Moderate - Acceptable air quality',
+	unhealthy_sensitive: 'Unhealthy for Sensitive Groups',
+	unhealthy: 'Unhealthy - Health effects for all',
+	very_unhealthy: 'Very Unhealthy - Health alert',
+	hazardous: 'Hazardous - Emergency conditions'
+};
+
+/**
+ * Calculate AQI level from PM2.5 concentration (ug/m3)
+ * Based on US EPA breakpoints
+ */
+export function getAirQualityLevel(pm25: number): AirQualityLevel {
+	if (pm25 <= 12) return 'good';
+	if (pm25 <= 35.4) return 'moderate';
+	if (pm25 <= 55.4) return 'unhealthy_sensitive';
+	if (pm25 <= 150.4) return 'unhealthy';
+	if (pm25 <= 250.4) return 'very_unhealthy';
+	return 'hazardous';
+}
+
+/**
+ * Calculate US EPA AQI value from PM2.5 concentration
+ * Returns a number 0-500+ based on EPA breakpoints
+ */
+export function calculateAQI(pm25: number): number {
+	// EPA AQI breakpoints for PM2.5
+	const breakpoints = [
+		{ cLow: 0, cHigh: 12, iLow: 0, iHigh: 50 },
+		{ cLow: 12.1, cHigh: 35.4, iLow: 51, iHigh: 100 },
+		{ cLow: 35.5, cHigh: 55.4, iLow: 101, iHigh: 150 },
+		{ cLow: 55.5, cHigh: 150.4, iLow: 151, iHigh: 200 },
+		{ cLow: 150.5, cHigh: 250.4, iLow: 201, iHigh: 300 },
+		{ cLow: 250.5, cHigh: 350.4, iLow: 301, iHigh: 400 },
+		{ cLow: 350.5, cHigh: 500.4, iLow: 401, iHigh: 500 }
+	];
+
+	for (const bp of breakpoints) {
+		if (pm25 >= bp.cLow && pm25 <= bp.cHigh) {
+			// Linear interpolation formula
+			return Math.round(
+				((bp.iHigh - bp.iLow) / (bp.cHigh - bp.cLow)) * (pm25 - bp.cLow) + bp.iLow
+			);
+		}
+	}
+
+	// Beyond hazardous (500+)
+	return Math.round(pm25);
+}
+
+// Cache for air quality data (10 minute TTL)
+let airQualityCache: { data: AirQualityReading[]; timestamp: number } | null = null;
+const AIR_QUALITY_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+
+/**
+ * Fetch air quality data from OpenAQ API
+ * Returns PM2.5 readings from monitoring stations worldwide
+ * Uses the /v2/latest endpoint for most recent measurements
+ *
+ * API: https://api.openaq.org/v2/latest
+ * Docs: https://docs.openaq.org/
+ */
+export async function fetchAirQualityData(): Promise<AirQualityReading[]> {
+	// Check cache first
+	if (airQualityCache && Date.now() - airQualityCache.timestamp < AIR_QUALITY_CACHE_TTL) {
+		logger.log('OpenAQ API', `Returning ${airQualityCache.data.length} cached air quality readings`);
+		return airQualityCache.data;
+	}
+
+	try {
+		// OpenAQ v2 API - fetch latest PM2.5 measurements
+		// limit=1000 gets a good global sample
+		const openaqUrl = 'https://api.openaq.org/v2/latest?limit=1000&parameter=pm25';
+
+		logger.log('OpenAQ API', 'Fetching latest PM2.5 measurements...');
+
+		const response = await fetch(openaqUrl, {
+			headers: {
+				'Accept': 'application/json'
+			},
+			signal: AbortSignal.timeout(15000)
+		});
+
+		if (!response.ok) {
+			throw new Error(`OpenAQ API returned status ${response.status}`);
+		}
+
+		const data = await response.json();
+
+		if (!data.results || !Array.isArray(data.results)) {
+			logger.warn('OpenAQ API', 'Invalid response format - no results array');
+			return airQualityCache?.data || [];
+		}
+
+		logger.log('OpenAQ API', `Received ${data.results.length} locations`);
+
+		// Transform OpenAQ response to our AirQualityReading format
+		const readings: AirQualityReading[] = [];
+
+		for (const location of data.results) {
+			// Skip locations without coordinates
+			if (!location.coordinates?.latitude || !location.coordinates?.longitude) {
+				continue;
+			}
+
+			// Find PM2.5 measurement
+			const pm25Measurement = location.measurements?.find(
+				(m: { parameter: string }) => m.parameter === 'pm25'
+			);
+
+			if (!pm25Measurement || pm25Measurement.value === null || pm25Measurement.value < 0) {
+				continue;
+			}
+
+			const pm25Value = pm25Measurement.value;
+			const level = getAirQualityLevel(pm25Value);
+			const aqi = calculateAQI(pm25Value);
+
+			readings.push({
+				id: `openaq-${location.location}-${location.coordinates.latitude}-${location.coordinates.longitude}`,
+				locationId: location.locationId || 0,
+				location: location.location || 'Unknown Station',
+				city: location.city || undefined,
+				country: location.country || 'Unknown',
+				lat: location.coordinates.latitude,
+				lon: location.coordinates.longitude,
+				parameter: 'pm25',
+				value: pm25Value,
+				unit: pm25Measurement.unit || 'ug/m3',
+				lastUpdated: pm25Measurement.lastUpdated || new Date().toISOString(),
+				aqi,
+				level
+			});
+		}
+
+		logger.log('OpenAQ API', `Processed ${readings.length} valid PM2.5 readings`);
+
+		// Update cache
+		airQualityCache = {
+			data: readings,
+			timestamp: Date.now()
+		};
+
+		return readings;
+	} catch (error) {
+		logger.error('OpenAQ API', 'Failed to fetch air quality data:', error instanceof Error ? error.message : error);
+
+		// Return cached data if available
+		if (airQualityCache?.data) {
+			logger.log('OpenAQ API', `Returning ${airQualityCache.data.length} stale cached readings`);
+			return airQualityCache.data;
+		}
+
+		return [];
+	}
+}
+
+// ============================================================================
+// RADIATION MONITORING API (Safecast)
+// ============================================================================
+
+/**
+ * Radiation reading data from Safecast API
+ */
+export type RadiationLevel = 'normal' | 'elevated' | 'high' | 'dangerous';
+
+export interface RadiationReading {
+	id: string;
+	lat: number;
+	lon: number;
+	value: number; // CPM (counts per minute) or uSv/h
+	unit: 'cpm' | 'usv';
+	capturedAt: string;
+	deviceId?: string;
+	location?: string;
+	level: RadiationLevel;
+}
+
+/**
+ * Radiation level colors for map markers
+ */
+export const RADIATION_LEVEL_COLORS: Record<RadiationLevel, string> = {
+	dangerous: '#ef4444', // red-500
+	high: '#f97316', // orange-500
+	elevated: '#eab308', // yellow-500
+	normal: '#22c55e' // green-500
+};
+
+/**
+ * Radiation level descriptions
+ */
+export const RADIATION_LEVEL_DESCRIPTIONS: Record<RadiationLevel, string> = {
+	normal: 'Normal background radiation',
+	elevated: 'Elevated - Above normal background',
+	high: 'High - Action may be needed',
+	dangerous: 'Dangerous - Immediate concern'
+};
+
+/**
+ * Classify radiation level based on CPM value
+ * Reference: https://safecast.org/about/radiation/
+ * Normal background: ~30-50 CPM (depends on location)
+ * Elevated: 50-100 CPM
+ * High: 100-350 CPM (action may be needed)
+ * Dangerous: > 350 CPM (immediate concern)
+ */
+function classifyRadiationLevel(value: number, unit: 'cpm' | 'usv'): RadiationLevel {
+	// Convert to CPM if needed (1 uSv/h ~= 350 CPM for Cs-137)
+	const cpm = unit === 'usv' ? value * 350 : value;
+
+	if (cpm >= 350) return 'dangerous';
+	if (cpm >= 100) return 'high';
+	if (cpm >= 50) return 'elevated';
+	return 'normal';
+}
+
+/**
+ * Safecast API response item structure
+ */
+interface SafecastMeasurement {
+	id: number;
+	value: number;
+	unit: string;
+	latitude: number | string;
+	longitude: number | string;
+	captured_at: string;
+	device_id?: number;
+	location_name?: string;
+}
+
+// Cache for radiation data (5 minute TTL)
+let radiationCache: { data: RadiationReading[]; timestamp: number } | null = null;
+const RADIATION_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * Fetch radiation readings from Safecast API
+ * Safecast is a global citizen science project mapping radiation
+ * API is free and data is CC0 licensed
+ * API Docs: https://api.safecast.org/en-US
+ *
+ * @returns Array of radiation readings sorted by value (highest first)
+ */
+export async function fetchRadiationData(): Promise<RadiationReading[]> {
+	// Check cache first
+	if (radiationCache && Date.now() - radiationCache.timestamp < RADIATION_CACHE_TTL) {
+		logger.log('Safecast API', `Returning ${radiationCache.data.length} cached readings`);
+		return radiationCache.data;
+	}
+
+	const readings: RadiationReading[] = [];
+
+	// Calculate date for since parameter (14 days ago for better geographic coverage)
+	// Using 'since' which filters by when measurements were added to database
+	const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+	const sinceDate = fourteenDaysAgo.toISOString().split('T')[0];
+
+	// Safecast API with date filtering
+	// Using 'since' parameter to get recently added measurements
+	// Request more to filter non-radiation measurements and get geographic diversity
+	// Add cache-buster to prevent stale browser cache
+	const cacheBuster = Math.floor(Date.now() / 60000); // Changes every minute
+	const apiUrl = `https://api.safecast.org/measurements.json?since=${sinceDate}&limit=2000&_cb=${cacheBuster}`;
+
+	try {
+		logger.log('Safecast API', `Fetching measurements added since ${sinceDate}...`);
+
+		// Try direct fetch first with no-cache headers
+		const response = await fetch(apiUrl, {
+			headers: {
+				Accept: 'application/json',
+				'Cache-Control': 'no-cache'
+			},
+			cache: 'no-store',
+			signal: AbortSignal.timeout(15000)
+		});
+
+		if (!response.ok) {
+			throw new Error(`Safecast API returned status ${response.status}`);
+		}
+
+		const data = (await response.json()) as SafecastMeasurement[];
+		logger.log('Safecast API', `Received ${data.length} measurements`);
+
+		if (!Array.isArray(data)) {
+			throw new Error('Invalid response format from Safecast API');
+		}
+
+		for (const item of data) {
+			// Skip invalid entries
+			if (!item.value || !item.latitude || !item.longitude) continue;
+
+			// Skip non-radiation measurements (celcius, status, etc.)
+			const itemUnit = item.unit?.toLowerCase() || '';
+			if (!itemUnit || !['cpm', 'usv'].includes(itemUnit)) continue;
+
+			// Skip entries with missing or clearly invalid timestamps
+			if (!item.captured_at) continue;
+			const capturedDate = new Date(item.captured_at);
+			if (isNaN(capturedDate.getTime()) || capturedDate.getFullYear() < 2020) continue;
+
+			const lat = typeof item.latitude === 'string' ? parseFloat(item.latitude) : item.latitude;
+			const lon =
+				typeof item.longitude === 'string' ? parseFloat(item.longitude) : item.longitude;
+
+			// Skip if coordinates are invalid
+			if (isNaN(lat) || isNaN(lon)) continue;
+
+			// Determine unit (Safecast uses 'cpm' or 'usv')
+			const unit: 'cpm' | 'usv' = itemUnit === 'usv' ? 'usv' : 'cpm';
+
+			const reading: RadiationReading = {
+				id: `safecast-${item.id}`,
+				lat,
+				lon,
+				value: item.value,
+				unit,
+				capturedAt: item.captured_at,
+				deviceId: item.device_id ? `Device ${item.device_id}` : undefined,
+				location: item.location_name || undefined,
+				level: classifyRadiationLevel(item.value, unit)
+			};
+
+			readings.push(reading);
+		}
+
+		// Deduplicate by location (keep most recent reading per location for geographic diversity)
+		const locationMap = new Map<string, RadiationReading>();
+		for (const reading of readings) {
+			// Round to 2 decimal places (~1km precision) for grouping nearby sensors
+			const locationKey = `${reading.lat.toFixed(2)},${reading.lon.toFixed(2)}`;
+			const existing = locationMap.get(locationKey);
+			// Keep the reading with higher value (more interesting) or more recent if same
+			if (!existing || reading.value > existing.value) {
+				locationMap.set(locationKey, reading);
+			}
+		}
+		const uniqueReadings = Array.from(locationMap.values());
+
+		// Sort by value descending (highest readings first)
+		uniqueReadings.sort((a, b) => {
+			// Normalize to CPM for comparison
+			const aValue = a.unit === 'usv' ? a.value * 350 : a.value;
+			const bValue = b.unit === 'usv' ? b.value * 350 : b.value;
+			return bValue - aValue;
+		});
+
+		logger.log('Safecast API', `Processed ${readings.length} readings, ${uniqueReadings.length} unique locations`);
+
+		// Update cache with deduplicated readings
+		radiationCache = {
+			data: uniqueReadings,
+			timestamp: Date.now()
+		};
+
+		return uniqueReadings;
+	} catch (error) {
+		logger.warn(
+			'Safecast API',
+			'Failed to fetch radiation data:',
+			error instanceof Error ? error.message : error
+		);
+
+		// Try via CORS proxy as fallback
+		try {
+			const proxyUrl = `https://bitter-sea-8577.ahandle.workers.dev/?url=${encodeURIComponent(apiUrl)}`;
+
+			logger.log('Safecast API', 'Retrying via CORS proxy...');
+			const proxyResponse = await fetch(proxyUrl, {
+				headers: {
+					Accept: 'application/json'
+				},
+				signal: AbortSignal.timeout(20000)
+			});
+
+			if (proxyResponse.ok) {
+				const proxyData = (await proxyResponse.json()) as SafecastMeasurement[];
+
+				if (Array.isArray(proxyData)) {
+					for (const item of proxyData) {
+						if (!item.value || !item.latitude || !item.longitude) continue;
+
+						// Skip non-radiation measurements (celcius, status, etc.)
+						const itemUnit = item.unit?.toLowerCase() || '';
+						if (!itemUnit || !['cpm', 'usv'].includes(itemUnit)) continue;
+
+						// Skip entries with missing or clearly invalid timestamps
+						if (!item.captured_at) continue;
+						const capturedDate = new Date(item.captured_at);
+						if (isNaN(capturedDate.getTime()) || capturedDate.getFullYear() < 2020) continue;
+
+						const lat =
+							typeof item.latitude === 'string' ? parseFloat(item.latitude) : item.latitude;
+						const lon =
+							typeof item.longitude === 'string' ? parseFloat(item.longitude) : item.longitude;
+
+						if (isNaN(lat) || isNaN(lon)) continue;
+
+						const unit: 'cpm' | 'usv' = itemUnit === 'usv' ? 'usv' : 'cpm';
+
+						readings.push({
+							id: `safecast-${item.id}`,
+							lat,
+							lon,
+							value: item.value,
+							unit,
+							capturedAt: item.captured_at,
+							deviceId: item.device_id ? `Device ${item.device_id}` : undefined,
+							location: item.location_name || undefined,
+							level: classifyRadiationLevel(item.value, unit)
+						});
+					}
+
+					readings.sort((a, b) => {
+						const aValue = a.unit === 'usv' ? a.value * 350 : a.value;
+						const bValue = b.unit === 'usv' ? b.value * 350 : b.value;
+						return bValue - aValue;
+					});
+
+					logger.log('Safecast API', `Proxy fetch successful: ${readings.length} readings`);
+
+					// Update cache
+					radiationCache = {
+						data: readings,
+						timestamp: Date.now()
+					};
+
+					return readings;
+				}
+			}
+		} catch (proxyError) {
+			logger.warn(
+				'Safecast API',
+				'CORS proxy fetch also failed:',
+				proxyError instanceof Error ? proxyError.message : proxyError
+			);
+		}
+
+		// Return cached data if available
+		if (radiationCache?.data) {
+			logger.log('Safecast API', `Returning ${radiationCache.data.length} stale cached readings`);
+			return radiationCache.data;
+		}
+
+		// Return empty array on failure
+		return [];
+	}
+}
+
+/**
+ * Get color for radiation level (for map markers)
+ */
+export function getRadiationLevelColor(level: RadiationLevel): string {
+	return RADIATION_LEVEL_COLORS[level] || RADIATION_LEVEL_COLORS.normal;
+}
+
+// ============================================================================
+// DISEASE OUTBREAK APIs
+// ============================================================================
+
+import type {
+	DiseaseOutbreak,
+	DiseaseOutbreakSeverity,
+	DiseaseOutbreakStatus
+} from '$lib/types';
+
+/**
+ * Country coordinates for geocoding outbreak locations
+ * Used when API responses don't include lat/lon
+ */
+const COUNTRY_COORDS: Record<string, { lat: number; lon: number }> = {
+	'Afghanistan': { lat: 33.93, lon: 67.71 },
+	'Algeria': { lat: 28.03, lon: 1.66 },
+	'Angola': { lat: -11.20, lon: 17.87 },
+	'Argentina': { lat: -38.42, lon: -63.62 },
+	'Australia': { lat: -25.27, lon: 133.78 },
+	'Bangladesh': { lat: 23.68, lon: 90.36 },
+	'Bolivia': { lat: -16.29, lon: -63.59 },
+	'Brazil': { lat: -14.24, lon: -51.93 },
+	'Burkina Faso': { lat: 12.24, lon: -1.56 },
+	'Burundi': { lat: -3.37, lon: 29.92 },
+	'Cambodia': { lat: 12.57, lon: 104.99 },
+	'Cameroon': { lat: 7.37, lon: 12.35 },
+	'Canada': { lat: 56.13, lon: -106.35 },
+	'Central African Republic': { lat: 6.61, lon: 20.94 },
+	'Chad': { lat: 15.45, lon: 18.73 },
+	'Chile': { lat: -35.68, lon: -71.54 },
+	'China': { lat: 35.86, lon: 104.20 },
+	'Colombia': { lat: 4.57, lon: -74.30 },
+	'Comoros': { lat: -11.88, lon: 43.87 },
+	'Costa Rica': { lat: 9.75, lon: -83.75 },
+	'Cuba': { lat: 21.52, lon: -77.78 },
+	'Democratic Republic of the Congo': { lat: -4.04, lon: 21.76 },
+	'DRC': { lat: -4.04, lon: 21.76 },
+	'Ecuador': { lat: -1.83, lon: -78.18 },
+	'Egypt': { lat: 26.82, lon: 30.80 },
+	'El Salvador': { lat: 13.79, lon: -88.90 },
+	'Eritrea': { lat: 15.18, lon: 39.78 },
+	'Ethiopia': { lat: 9.15, lon: 40.49 },
+	'France': { lat: 46.23, lon: 2.21 },
+	'Gabon': { lat: -0.80, lon: 11.61 },
+	'Germany': { lat: 51.17, lon: 10.45 },
+	'Ghana': { lat: 7.95, lon: -1.02 },
+	'Guatemala': { lat: 15.78, lon: -90.23 },
+	'Guinea': { lat: 9.95, lon: -9.70 },
+	'Guinea-Bissau': { lat: 11.80, lon: -15.18 },
+	'Haiti': { lat: 18.97, lon: -72.29 },
+	'Honduras': { lat: 15.20, lon: -86.24 },
+	'India': { lat: 20.59, lon: 78.96 },
+	'Indonesia': { lat: -0.79, lon: 113.92 },
+	'Iran': { lat: 32.43, lon: 53.69 },
+	'Iraq': { lat: 33.22, lon: 43.68 },
+	'Israel': { lat: 31.05, lon: 34.85 },
+	'Italy': { lat: 41.87, lon: 12.57 },
+	'Ivory Coast': { lat: 7.54, lon: -5.55 },
+	'Japan': { lat: 36.20, lon: 138.25 },
+	'Jordan': { lat: 30.59, lon: 36.24 },
+	'Kenya': { lat: -0.02, lon: 37.91 },
+	'Lebanon': { lat: 33.85, lon: 35.86 },
+	'Liberia': { lat: 6.43, lon: -9.43 },
+	'Libya': { lat: 26.34, lon: 17.23 },
+	'Madagascar': { lat: -18.77, lon: 46.87 },
+	'Malawi': { lat: -13.25, lon: 34.30 },
+	'Malaysia': { lat: 4.21, lon: 101.98 },
+	'Mali': { lat: 17.57, lon: -4.00 },
+	'Mauritania': { lat: 21.01, lon: -10.94 },
+	'Mexico': { lat: 23.63, lon: -102.55 },
+	'Morocco': { lat: 31.79, lon: -7.09 },
+	'Mozambique': { lat: -18.67, lon: 35.53 },
+	'Myanmar': { lat: 21.91, lon: 95.96 },
+	'Nepal': { lat: 28.39, lon: 84.12 },
+	'Nicaragua': { lat: 12.87, lon: -85.21 },
+	'Niger': { lat: 17.61, lon: 8.08 },
+	'Nigeria': { lat: 9.08, lon: 8.68 },
+	'North Korea': { lat: 40.34, lon: 127.51 },
+	'Pakistan': { lat: 30.38, lon: 69.35 },
+	'Panama': { lat: 8.54, lon: -80.78 },
+	'Papua New Guinea': { lat: -6.31, lon: 143.96 },
+	'Paraguay': { lat: -23.44, lon: -58.44 },
+	'Peru': { lat: -9.19, lon: -75.02 },
+	'Philippines': { lat: 12.88, lon: 121.77 },
+	'Poland': { lat: 51.92, lon: 19.15 },
+	'Republic of the Congo': { lat: -0.23, lon: 15.83 },
+	'Russia': { lat: 61.52, lon: 105.32 },
+	'Rwanda': { lat: -1.94, lon: 29.87 },
+	'Saudi Arabia': { lat: 23.89, lon: 45.08 },
+	'Senegal': { lat: 14.50, lon: -14.45 },
+	'Sierra Leone': { lat: 8.46, lon: -11.78 },
+	'Somalia': { lat: 5.15, lon: 46.20 },
+	'South Africa': { lat: -30.56, lon: 22.94 },
+	'South Korea': { lat: 35.91, lon: 127.77 },
+	'South Sudan': { lat: 6.88, lon: 31.31 },
+	'Spain': { lat: 40.46, lon: -3.75 },
+	'Sri Lanka': { lat: 7.87, lon: 80.77 },
+	'Sudan': { lat: 12.86, lon: 30.22 },
+	'Syria': { lat: 34.80, lon: 39.00 },
+	'Taiwan': { lat: 23.70, lon: 120.96 },
+	'Tanzania': { lat: -6.37, lon: 34.89 },
+	'Thailand': { lat: 15.87, lon: 100.99 },
+	'Togo': { lat: 8.62, lon: 0.82 },
+	'Tunisia': { lat: 33.89, lon: 9.54 },
+	'Turkey': { lat: 38.96, lon: 35.24 },
+	'Uganda': { lat: 1.37, lon: 32.29 },
+	'Ukraine': { lat: 48.38, lon: 31.17 },
+	'United Kingdom': { lat: 55.38, lon: -3.44 },
+	'United States': { lat: 37.09, lon: -95.71 },
+	'USA': { lat: 37.09, lon: -95.71 },
+	'Venezuela': { lat: 6.42, lon: -66.59 },
+	'Vietnam': { lat: 14.06, lon: 108.28 },
+	'Yemen': { lat: 15.55, lon: 48.52 },
+	'Zambia': { lat: -13.13, lon: 27.85 },
+	'Zimbabwe': { lat: -19.02, lon: 29.15 }
+};
+
+/**
+ * Get coordinates for a country name
+ */
+function getCountryCoords(country: string): { lat: number; lon: number } | null {
+	// Try exact match first
+	if (COUNTRY_COORDS[country]) {
+		return COUNTRY_COORDS[country];
+	}
+	// Try case-insensitive match
+	const lowerCountry = country.toLowerCase();
+	for (const [name, coords] of Object.entries(COUNTRY_COORDS)) {
+		if (name.toLowerCase() === lowerCountry) {
+			return coords;
+		}
+	}
+	// Try partial match
+	for (const [name, coords] of Object.entries(COUNTRY_COORDS)) {
+		if (lowerCountry.includes(name.toLowerCase()) || name.toLowerCase().includes(lowerCountry)) {
+			return coords;
+		}
+	}
+	return null;
+}
+
+/**
+ * Determine outbreak severity based on cases and deaths
+ */
+function determineOutbreakSeverity(
+	cases?: number,
+	deaths?: number,
+	diseaseName?: string
+): DiseaseOutbreakSeverity {
+	// High-fatality diseases always start at high severity
+	const highFatalityDiseases = ['ebola', 'marburg', 'mpox', 'avian flu', 'h5n1', 'nipah', 'plague'];
+	const diseaseLC = diseaseName?.toLowerCase() || '';
+	const isHighFatality = highFatalityDiseases.some(d => diseaseLC.includes(d));
+
+	if (isHighFatality) {
+		if (deaths && deaths >= 100) return 'critical';
+		if (deaths && deaths >= 10) return 'high';
+		return 'moderate';
+	}
+
+	// For other diseases, base on case counts
+	if (cases && cases >= 10000) return 'critical';
+	if (cases && cases >= 1000) return 'high';
+	if (cases && cases >= 100) return 'moderate';
+	if (deaths && deaths >= 10) return 'high';
+	if (deaths && deaths >= 1) return 'moderate';
+	return 'low';
+}
+
+/**
+ * Determine outbreak status based on data
+ */
+function determineOutbreakStatus(lastUpdate: string, _isOngoing?: boolean): DiseaseOutbreakStatus {
+	const updateDate = new Date(lastUpdate);
+	const daysSinceUpdate = (Date.now() - updateDate.getTime()) / (1000 * 60 * 60 * 24);
+
+	if (daysSinceUpdate > 60) return 'contained';
+	if (daysSinceUpdate > 30) return 'monitoring';
+	return 'active';
+}
+
+/**
+ * Fetch disease outbreak data from ReliefWeb API
+ * ReliefWeb provides humanitarian disaster data including epidemics
+ */
+async function fetchReliefWebOutbreaks(): Promise<DiseaseOutbreak[]> {
+	const outbreaks: DiseaseOutbreak[] = [];
+
+	try {
+		// ReliefWeb API - fetch epidemic disasters
+		const url = 'https://api.reliefweb.int/v1/disasters?' +
+			'appname=situation-monitor&' +
+			'filter[field]=type&' +
+			'filter[value]=Epidemic&' +
+			'limit=50&' +
+			'fields[include][]=name&' +
+			'fields[include][]=description&' +
+			'fields[include][]=date&' +
+			'fields[include][]=country&' +
+			'fields[include][]=url&' +
+			'fields[include][]=status&' +
+			'sort[]=date:desc';
+
+		const response = await fetch(url, {
+			headers: {
+				'Accept': 'application/json'
+			},
+			signal: AbortSignal.timeout(15000)
+		});
+
+		if (!response.ok) {
+			throw new Error(`ReliefWeb API error: ${response.status}`);
+		}
+
+		const data = await response.json();
+
+		if (data.data && Array.isArray(data.data)) {
+			for (const item of data.data) {
+				const fields = item.fields;
+				if (!fields) continue;
+
+				// Parse disease name from disaster name (usually "Disease - Country")
+				const name = fields.name || '';
+				let disease = name.split(' - ')[0] || name.split(':')[0] || name;
+				disease = disease.trim();
+
+				// Get country
+				const countries = fields.country || [];
+				const countryObj = countries[0];
+				const country = countryObj?.name || 'Unknown';
+
+				// Get coordinates
+				const coords = getCountryCoords(country);
+				if (!coords) continue; // Skip if we can't geocode
+
+				// Parse date
+				const dateObj = fields.date;
+				const startDate = dateObj?.created || new Date().toISOString();
+				const lastUpdate = dateObj?.changed || startDate;
+
+				// Determine status
+				const status = determineOutbreakStatus(lastUpdate, fields.status === 'current');
+
+				// Determine severity (ReliefWeb doesn't provide case counts directly)
+				const severity = determineOutbreakSeverity(undefined, undefined, disease);
+
+				outbreaks.push({
+					id: `reliefweb-${item.id}`,
+					disease,
+					country,
+					lat: coords.lat,
+					lon: coords.lon,
+					status,
+					severity,
+					startDate: startDate.split('T')[0],
+					lastUpdate: lastUpdate.split('T')[0],
+					source: 'ReliefWeb',
+					url: fields.url
+				});
+			}
+		}
+	} catch (error) {
+		logger.warn('ReliefWeb API', 'Failed to fetch outbreak data:', error instanceof Error ? error.message : error);
+	}
+
+	return outbreaks;
+}
+
+/**
+ * WHO Outbreaks API response item structure
+ */
+interface WHOOutbreakItem {
+	Title: string;
+	Summary: string;
+	PublicationDate: string;
+	LastModified: string;
+	ItemDefaultUrl: string;
+	UrlName: string;
+}
+
+/**
+ * WHO Outbreaks API response wrapper
+ */
+interface WHOOutbreakResponse {
+	'@odata.context'?: string;
+	value: WHOOutbreakItem[];
+}
+
+/**
+ * Fetch disease outbreak data from WHO Outbreaks API
+ * API Docs: GET https://www.who.int/api/news/outbreaks
+ */
+async function fetchWHOOutbreaks(): Promise<DiseaseOutbreak[]> {
+	const outbreaks: DiseaseOutbreak[] = [];
+
+	try {
+		// WHO Outbreaks JSON API
+		const apiUrl = 'https://www.who.int/api/news/outbreaks';
+
+		logger.log('WHO Outbreaks API', 'Fetching outbreak data...');
+
+		// Try direct fetch first
+		let response: Response;
+		try {
+			response = await fetch(apiUrl, {
+				headers: { 'Accept': 'application/json' },
+				signal: AbortSignal.timeout(15000)
+			});
+		} catch {
+			// Try via CORS proxy if direct fails
+			const proxyUrl = `https://bitter-sea-8577.ahandle.workers.dev/?url=${encodeURIComponent(apiUrl)}`;
+			response = await fetch(proxyUrl, {
+				headers: { 'Accept': 'application/json' },
+				signal: AbortSignal.timeout(20000)
+			});
+		}
+
+		if (!response.ok) {
+			throw new Error(`WHO API error: ${response.status}`);
+		}
+
+		const responseData = (await response.json()) as WHOOutbreakResponse | WHOOutbreakItem[];
+
+		// Handle both direct array and OData wrapped response
+		const data: WHOOutbreakItem[] = Array.isArray(responseData)
+			? responseData
+			: (responseData.value || []);
+
+		logger.log('WHO Outbreaks API', `Received ${data.length} outbreak items`);
+
+		if (data.length === 0) {
+			logger.log('WHO Outbreaks API', 'No outbreaks returned from API');
+			return outbreaks;
+		}
+
+		for (const item of data.slice(0, 30)) {
+			const title = item.Title || '';
+			const pubDate = item.PublicationDate || item.LastModified || '';
+			const parsedDate = pubDate ? new Date(pubDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
+			const url = item.ItemDefaultUrl ? `https://www.who.int${item.ItemDefaultUrl}` : '';
+
+			// Parse disease and country from title
+			// Common formats: "Disease - Country" or "Disease in Country"
+			let disease = '';
+			let country = '';
+
+			// Try "Disease - Country" format
+			if (title.includes(' - ')) {
+				const parts = title.split(' - ');
+				disease = parts[0]?.trim() || '';
+				country = parts[1]?.trim() || '';
+			} else if (title.toLowerCase().includes(' in ')) {
+				// Try "Disease in Country" format
+				const match = title.match(/(.+?)\s+in\s+(.+)/i);
+				if (match) {
+					disease = match[1]?.trim() || '';
+					country = match[2]?.trim() || '';
+				}
+			}
+
+			// Clean up country name (remove extra text)
+			country = country.split(',')[0]?.trim() || country;
+			country = country.split('(')[0]?.trim() || country;
+
+			if (!disease || !country) {
+				// Use title as disease if parsing failed
+				disease = title;
+				country = 'Unknown';
+			}
+
+			// Get coordinates
+			const coords = getCountryCoords(country);
+			if (!coords) continue;
+
+			// Determine severity and status
+			const severity = determineOutbreakSeverity(undefined, undefined, disease);
+			const status = determineOutbreakStatus(parsedDate);
+
+			outbreaks.push({
+				id: `who-${item.UrlName || Math.random().toString(36).substr(2, 9)}`,
+				disease,
+				country,
+				lat: coords.lat,
+				lon: coords.lon,
+				status,
+				severity,
+				startDate: parsedDate,
+				lastUpdate: parsedDate,
+				source: 'WHO',
+				url
+			});
+		}
+
+		logger.log('WHO Outbreaks API', `Processed ${outbreaks.length} valid outbreaks`);
+	} catch (error) {
+		logger.warn('WHO Outbreaks API', 'Failed to fetch outbreak data:', error instanceof Error ? error.message : error);
+	}
+
+	return outbreaks;
+}
+
+/**
+ * Fetch disease outbreak data from multiple sources
+ * Combines data from WHO, ReliefWeb, and fallback data
+ */
+export async function fetchDiseaseOutbreaks(): Promise<DiseaseOutbreak[]> {
+	const allOutbreaks: DiseaseOutbreak[] = [];
+	const seenIds = new Set<string>();
+
+	// Helper to deduplicate outbreaks
+	const addOutbreak = (outbreak: DiseaseOutbreak) => {
+		// Create unique key based on disease + country
+		const key = `${outbreak.disease.toLowerCase()}-${outbreak.country.toLowerCase()}`;
+		if (!seenIds.has(key)) {
+			allOutbreaks.push(outbreak);
+			seenIds.add(key);
+		}
+	};
+
+	// Fetch from multiple sources in parallel
+	const [reliefWebData, whoData] = await Promise.all([
+		fetchReliefWebOutbreaks().catch(() => []),
+		fetchWHOOutbreaks().catch(() => [])
+	]);
+
+	// Add results (prefer WHO data as it's more authoritative)
+	whoData.forEach(addOutbreak);
+	reliefWebData.forEach(addOutbreak);
+
+	// No fallback data - only show live data from APIs
+
+	// Sort by severity (critical first) then by last update
+	const severityOrder: Record<DiseaseOutbreakSeverity, number> = {
+		critical: 0,
+		high: 1,
+		moderate: 2,
+		low: 3
+	};
+
+	allOutbreaks.sort((a, b) => {
+		const severityDiff = severityOrder[a.severity] - severityOrder[b.severity];
+		if (severityDiff !== 0) return severityDiff;
+		return new Date(b.lastUpdate).getTime() - new Date(a.lastUpdate).getTime();
+	});
+
+	return allOutbreaks;
+}
+
+/**
+ * Get severity color for disease outbreak map markers
+ */
+export function getDiseaseOutbreakColor(severity: DiseaseOutbreakSeverity): string {
+	switch (severity) {
+		case 'critical': return '#ef4444'; // red-500
+		case 'high': return '#f97316'; // orange-500
+		case 'moderate': return '#eab308'; // yellow-500
+		case 'low': return '#22c55e'; // green-500
+	}
+}
+
+/**
+ * Color constants for disease outbreak severity levels
+ */
+export const DISEASE_OUTBREAK_COLORS: Record<DiseaseOutbreakSeverity, string> = {
+	critical: '#ef4444',
+	high: '#f97316',
+	moderate: '#eab308',
+	low: '#22c55e'
+};
