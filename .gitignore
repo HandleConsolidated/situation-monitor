@@ -39,3 +39,4 @@ archive/
 .env.example
 *.example
 .env.example
+nul
