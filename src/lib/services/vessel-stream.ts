@@ -1,11 +1,21 @@
 /**
  * AIS Stream WebSocket Service
- * Connects to aisstream.io for real-time vessel tracking data
- * Free API - requires registration at https://aisstream.io
+ *
+ * NOTE: aisstream.io does NOT support direct browser connections (CORS blocked).
+ * Their documentation states: "Cross-origin resource sharing and thus connections
+ * directly to aisstream.io from the browser are not supported."
+ *
+ * To use AIS Stream in a web app, you need a backend proxy server that:
+ * 1. Connects to wss://stream.aisstream.io/v0/stream from the server
+ * 2. Relays vessel data to your frontend via your own WebSocket
+ *
+ * This service is kept for reference and for potential backend/Electron usage.
+ * For browser use, see vessel-fallback.ts for simulated vessel data.
  */
 
 import { browser } from '$app/environment';
 import { writable, get } from 'svelte/store';
+import { getFallbackVessels } from './vessel-fallback';
 
 export interface Vessel {
 	mmsi: string;
@@ -100,10 +110,39 @@ export const vesselError = writable<string | null>(null);
 // WebSocket connection
 let ws: WebSocket | null = null;
 let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+let fallbackInterval: ReturnType<typeof setInterval> | null = null;
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 5;
 const RECONNECT_DELAY = 5000;
+const FALLBACK_REFRESH_INTERVAL = 10000; // Refresh fallback data every 10 seconds
 const MAX_VESSELS = 500; // Limit stored vessels for performance
+
+/**
+ * Load fallback vessel data for browser environments
+ * Updates vessel positions with slight movement simulation
+ */
+function loadFallbackVessels(): void {
+	// Clear any existing interval
+	if (fallbackInterval) {
+		clearInterval(fallbackInterval);
+	}
+
+	// Load initial data
+	const vessels = getFallbackVessels();
+	const vesselMap = new Map<string, Vessel>();
+	vessels.forEach((v) => vesselMap.set(v.mmsi, v));
+	vesselStore.set(vesselMap);
+	vesselConnectionStatus.set('connected');
+	vesselError.set(null);
+
+	// Set up periodic refresh for movement simulation
+	fallbackInterval = setInterval(() => {
+		const updatedVessels = getFallbackVessels();
+		const updatedMap = new Map<string, Vessel>();
+		updatedVessels.forEach((v) => updatedMap.set(v.mmsi, v));
+		vesselStore.set(updatedMap);
+	}, FALLBACK_REFRESH_INTERVAL);
+}
 
 /**
  * Get API key from environment
@@ -115,9 +154,22 @@ function getApiKey(): string {
 
 /**
  * Connect to AIS Stream WebSocket
+ *
+ * WARNING: This will fail in browsers due to CORS restrictions.
+ * AIS Stream explicitly blocks browser connections to protect API keys.
+ * For browser apps, you need a backend proxy server.
  */
 export function connectVesselStream(): void {
 	if (!browser) return;
+
+	// AIS Stream blocks browser connections via CORS
+	// Use fallback data instead for browser environments
+	const isBrowserEnvironment = typeof window !== 'undefined';
+	if (isBrowserEnvironment) {
+		console.log('AIS Stream: Using fallback vessel data (browser CORS restriction)');
+		loadFallbackVessels();
+		return;
+	}
 
 	const apiKey = getApiKey();
 	if (!apiKey) {
@@ -162,19 +214,46 @@ export function connectVesselStream(): void {
 			}
 		};
 
-		ws.onerror = (error) => {
-			console.error('AIS Stream WebSocket error:', error);
-			vesselConnectionStatus.set('error');
-			vesselError.set('WebSocket connection error');
+		ws.onerror = () => {
+			// WebSocket error events don't contain useful info for security reasons
+			// The actual error details come from the close event
+			console.error('AIS Stream WebSocket error - check close event for details');
 		};
 
 		ws.onclose = (event) => {
 			console.log('AIS Stream WebSocket closed:', event.code, event.reason);
 			ws = null;
 
-			if (event.code !== 1000) { // Not a normal close
+			// Provide helpful error messages based on close code
+			let errorMessage = 'Connection closed';
+
+			if (event.code === 1006) {
+				// Abnormal closure - usually auth failure or network issue
+				const currentKey = getApiKey();
+				if (currentKey === 'your_aisstream_api_key' || currentKey.length < 20) {
+					errorMessage = 'Invalid API key. Get a free key at https://aisstream.io and set VITE_AISSTREAM_API_KEY';
+					vesselConnectionStatus.set('no_api_key');
+				} else {
+					errorMessage = 'Connection rejected - API key may be invalid or expired. Verify your key at https://aisstream.io';
+					vesselConnectionStatus.set('error');
+				}
+				vesselError.set(errorMessage);
+				console.error('AIS Stream:', errorMessage);
+			} else if (event.code === 1008) {
+				// Policy violation - usually invalid subscription
+				errorMessage = 'Subscription rejected by server. Check API key permissions.';
+				vesselConnectionStatus.set('error');
+				vesselError.set(errorMessage);
+			} else if (event.code !== 1000) {
+				// Not a normal close
 				vesselConnectionStatus.set('disconnected');
 				attemptReconnect();
+				return; // Don't set error, will retry
+			}
+
+			// Don't reconnect for auth errors
+			if (event.code === 1006 || event.code === 1008) {
+				return;
 			}
 		};
 	} catch (error) {
@@ -191,6 +270,11 @@ export function disconnectVesselStream(): void {
 	if (reconnectTimeout) {
 		clearTimeout(reconnectTimeout);
 		reconnectTimeout = null;
+	}
+
+	if (fallbackInterval) {
+		clearInterval(fallbackInterval);
+		fallbackInterval = null;
 	}
 
 	if (ws) {

@@ -50,14 +50,50 @@ function saveToStorage(preferences: LLMPreferences): void {
 }
 
 /**
+ * Migrate old model IDs to new format
+ * Old format: claude-sonnet-4-5-20250929, claude-opus-4-5-20251101, etc.
+ * New format: claude-sonnet-4-5, claude-opus-4-5, claude-haiku-4-5
+ */
+function migrateModelId(model: string | undefined): string | undefined {
+	if (!model) return model;
+
+	// Map old model IDs with date suffixes to new simple format
+	const modelMigrations: Record<string, string> = {
+		'claude-sonnet-4-5-20250929': 'claude-sonnet-4-5',
+		'claude-sonnet-4-5-20251101': 'claude-sonnet-4-5',
+		'claude-opus-4-5-20251101': 'claude-opus-4-5',
+		'claude-haiku-4-5-20251001': 'claude-haiku-4-5',
+		'claude-haiku-4-5-20251101': 'claude-haiku-4-5'
+	};
+
+	// Check for exact matches first
+	if (modelMigrations[model]) {
+		return modelMigrations[model];
+	}
+
+	// Also handle any claude-*-4-5-* pattern with date suffix
+	const claudeDatePattern = /^(claude-(?:opus|sonnet|haiku)-4-5)-\d{8}$/;
+	const match = model.match(claudeDatePattern);
+	if (match) {
+		return match[1];
+	}
+
+	return model;
+}
+
+/**
  * Merge stored preferences with defaults
  */
 function mergeWithDefaults(stored: LLMPreferences | null): LLMPreferences {
 	if (!stored) return { ...DEFAULT_LLM_PREFERENCES };
 
+	// Migrate model ID if needed
+	const migratedModel = migrateModelId(stored.model);
+
 	return {
 		...DEFAULT_LLM_PREFERENCES,
 		...stored,
+		model: migratedModel,
 		enabledCategories: {
 			...DEFAULT_LLM_PREFERENCES.enabledCategories,
 			...stored.enabledCategories
@@ -75,6 +111,11 @@ function mergeWithDefaults(stored: LLMPreferences | null): LLMPreferences {
 function createLLMPreferencesStore() {
 	const savedPreferences = loadFromStorage();
 	const initialState = mergeWithDefaults(savedPreferences);
+
+	// Save migrated preferences back to storage if model was migrated
+	if (savedPreferences?.model && savedPreferences.model !== initialState.model) {
+		saveToStorage(initialState);
+	}
 
 	const { subscribe, set, update } = writable<LLMPreferences>(initialState);
 

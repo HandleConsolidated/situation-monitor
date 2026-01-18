@@ -20,9 +20,24 @@ const API_KEY_STORAGE_PREFIX = 'llm_api_key_';
 
 // Default models per provider
 const DEFAULT_MODELS: Record<LLMProvider, string> = {
-	anthropic: 'claude-sonnet-4-5-20251101',
-	openai: 'gpt-5.2-turbo',
+	anthropic: 'claude-sonnet-4-5',
+	openai: 'gpt-4.1-2025-04-14',
 	custom: ''
+};
+
+// Available models per provider
+export const AVAILABLE_MODELS: Record<Exclude<LLMProvider, 'custom'>, Array<{ id: string; name: string }>> = {
+	anthropic: [
+		{ id: 'claude-opus-4-5', name: 'Claude Opus 4.5' },
+		{ id: 'claude-sonnet-4-5', name: 'Claude Sonnet 4.5' },
+		{ id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5' }
+	],
+	openai: [
+		{ id: 'gpt-4.1-2025-04-14', name: 'GPT-4.1' },
+		{ id: 'gpt-4.1-mini-2025-04-14', name: 'GPT-4.1 Mini' },
+		{ id: 'gpt-4o', name: 'GPT-4o' },
+		{ id: 'o3-mini', name: 'o3-mini (Reasoning)' }
+	]
 };
 
 // API endpoints
@@ -291,6 +306,43 @@ function getSystemPrompt(depth: AnalysisDepth, customPrompt?: string): string {
 }
 
 /**
+ * Sanitize API error messages to prevent system prompt leakage
+ */
+function sanitizeApiError(error: Record<string, unknown>, status: number, provider: string): string {
+	const rawMessage = (error.error as Record<string, unknown>)?.message as string || '';
+
+	// Provide user-friendly error messages for common HTTP status codes
+	switch (status) {
+		case 400:
+			return `Invalid request. Please check your input and try again.`;
+		case 401:
+			return `Invalid API key. Please check your ${provider} API key in settings.`;
+		case 403:
+			return `Access denied. Your API key may not have permission for this model.`;
+		case 404:
+			return `API endpoint or model not found. Please verify your model selection is valid.`;
+		case 429:
+			return `Rate limited. Please wait a moment and try again.`;
+		case 500:
+		case 502:
+		case 503:
+			return `${provider} API is temporarily unavailable. Please try again later.`;
+		default:
+			// Sanitize the error message - truncate and remove potential sensitive content
+			if (rawMessage) {
+				// Remove any content that looks like it might contain system prompts
+				const sanitized = rawMessage
+					.replace(/system[:\s]*["']?[^"'\n]{50,}/gi, '[content removed]')
+					.replace(/prompt[:\s]*["']?[^"'\n]{50,}/gi, '[content removed]');
+				return sanitized.length > 150
+					? sanitized.substring(0, 150) + '...'
+					: sanitized;
+			}
+			return `${provider} API error: ${status}`;
+	}
+}
+
+/**
  * Call Anthropic Claude API
  */
 async function callAnthropic(
@@ -319,9 +371,7 @@ async function callAnthropic(
 
 	if (!response.ok) {
 		const error = await response.json().catch(() => ({}));
-		throw new Error(
-			error.error?.message || `Anthropic API error: ${response.status}`
-		);
+		throw new Error(sanitizeApiError(error, response.status, 'Anthropic'));
 	}
 
 	const data = await response.json();
@@ -377,7 +427,7 @@ async function callOpenAI(
 
 	if (!response.ok) {
 		const error = await response.json().catch(() => ({}));
-		throw new Error(error.error?.message || `OpenAI API error: ${response.status}`);
+		throw new Error(sanitizeApiError(error, response.status, 'OpenAI'));
 	}
 
 	const data = await response.json();
@@ -433,9 +483,7 @@ async function callCustom(
 
 	if (!response.ok) {
 		const error = await response.json().catch(() => ({}));
-		throw new Error(
-			error.error?.message || `Custom API error: ${response.status}`
-		);
+		throw new Error(sanitizeApiError(error, response.status, 'Custom'));
 	}
 
 	const data = await response.json();
@@ -612,9 +660,7 @@ async function callAnthropicWithTools(
 
 	if (!response.ok) {
 		const error = await response.json().catch(() => ({}));
-		throw new Error(
-			error.error?.message || `Anthropic API error: ${response.status}`
-		);
+		throw new Error(sanitizeApiError(error, response.status, 'Anthropic'));
 	}
 
 	const data = await response.json();
@@ -720,9 +766,7 @@ export async function continueWithToolResults(
 
 	if (!response.ok) {
 		const error = await response.json().catch(() => ({}));
-		throw new Error(
-			error.error?.message || `Anthropic API error: ${response.status}`
-		);
+		throw new Error(sanitizeApiError(error, response.status, 'Anthropic'));
 	}
 
 	const data = await response.json();

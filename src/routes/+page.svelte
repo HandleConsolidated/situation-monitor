@@ -96,6 +96,9 @@
 	let diseaseOutbreaks = $state<DiseaseOutbreak[]>([]);
 	let outbreaksLoading = $state(false);
 
+	// Track when initial data load is complete for AI panel
+	let initialDataLoaded = $state(false);
+
 	// Data freshness tracking for AI actions
 	let dataFreshness = $state<Record<string, number | null>>({
 		news: null,
@@ -396,8 +399,11 @@
 			try {
 				await Promise.all([loadNews(), loadMarkets(), loadMiscData(), loadWorldLeaders(), loadGridStress(), loadEarthquakes(), loadRadiation(), loadDiseaseOutbreaks()]);
 				refresh.endRefresh();
+				initialDataLoaded = true;
 			} catch (error) {
 				refresh.endRefresh([String(error)]);
+				// Still mark as loaded even on error - we have partial data
+				initialDataLoaded = true;
 			}
 		}
 		initialLoad();
@@ -549,6 +555,7 @@
 							}}
 							onOpenSettings={() => settingsOpen = true}
 							{actionHandlers}
+							{initialDataLoaded}
 						/>
 					{/if}
 				{/each}
@@ -723,6 +730,7 @@
 							}}
 							onOpenSettings={() => settingsOpen = true}
 							{actionHandlers}
+							{initialDataLoaded}
 						/>
 					{/if}
 				{/each}
@@ -853,6 +861,7 @@
 						gridStress
 					}}
 					onOpenSettings={() => settingsOpen = true}
+					{initialDataLoaded}
 				/>
 			{/if}
 		{/each}

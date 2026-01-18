@@ -318,7 +318,7 @@ export const DEFAULT_LLM_PREFERENCES: LLMPreferences = {
 	analysisDepth: 'standard',
 	maxContextTokens: 50000,
 	provider: 'anthropic',
-	model: 'claude-sonnet-4-5-20251101'
+	model: 'claude-sonnet-4-5'
 };
 
 // ============================================================================

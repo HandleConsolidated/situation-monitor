@@ -49,6 +49,7 @@
 		externalData?: ExternalData;
 		onOpenSettings?: () => void;
 		actionHandlers?: ActionHandlers;
+		initialDataLoaded?: boolean;
 	}
 
 	let {
@@ -56,7 +57,8 @@
 		error = null,
 		externalData = {},
 		onOpenSettings,
-		actionHandlers
+		actionHandlers,
+		initialDataLoaded = false
 	}: Props = $props();
 
 	// Local state
@@ -421,14 +423,16 @@
 	});
 </script>
 
-<!-- Full Response Modal -->
-<AnalysisResponseModal
-	open={modalOpen}
-	content={modalContent}
-	timestamp={modalTimestamp}
-	onClose={() => modalOpen = false}
-	onExportPDF={handleExportPDF}
-/>
+<!-- Full Response Modal - Uses global portal styles to escape z-index stacking context -->
+<div class="analysis-modal-portal">
+	<AnalysisResponseModal
+		open={modalOpen}
+		content={modalContent}
+		timestamp={modalTimestamp}
+		onClose={() => modalOpen = false}
+		onExportPDF={handleExportPDF}
+	/>
+</div>
 
 <Panel id="analysis" title="AI Analysis" {count} loading={loading || isProcessing} {error} skeletonType="generic" skeletonCount={3}>
 	{#snippet actions()}
@@ -449,8 +453,15 @@
 			<span class="context-value text-[9px] sm:text-[10px]">{contextSummary}</span>
 		</div>
 
-		<!-- API Key Warning -->
-		{#if !hasApiKeyConfigured}
+		<!-- Initial Data Loading Warning -->
+		{#if !initialDataLoaded}
+			<div class="loading-warning">
+				<div class="loading-spinner"></div>
+				<p class="text-[10px] sm:text-xs">Loading intelligence data...</p>
+				<p class="text-[9px] sm:text-[10px] text-muted">AI analysis will be available once data is loaded</p>
+			</div>
+		{:else if !hasApiKeyConfigured}
+			<!-- API Key Warning -->
 			<div class="api-warning">
 				<p class="text-[10px] sm:text-xs">No API key configured</p>
 				{#if onOpenSettings}
@@ -472,10 +483,31 @@
 		<!-- Tool Execution Indicator -->
 		{#if executingTools.length > 0}
 			<div class="tool-indicator">
-				<span class="tool-icon">⚡</span>
-				<span class="tool-text text-[9px] sm:text-[10px]">
-					Executing: {executingTools.join(', ')}
-				</span>
+				<div class="tool-spinner"></div>
+				<div class="tool-info">
+					<span class="tool-label text-[9px] sm:text-[10px]">ARTEMIS ACTION</span>
+					<span class="tool-text text-[10px] sm:text-xs">
+						{#if executingTools.includes('refresh_all')}
+							Gathering all intelligence data...
+						{:else if executingTools.includes('refresh_news')}
+							Refreshing news feeds...
+						{:else if executingTools.includes('refresh_markets')}
+							Updating market data...
+						{:else if executingTools.includes('refresh_crypto')}
+							Fetching crypto & whale data...
+						{:else if executingTools.includes('refresh_geopolitical')}
+							Scanning geopolitical sources...
+						{:else if executingTools.includes('refresh_infrastructure')}
+							Checking infrastructure status...
+						{:else if executingTools.includes('refresh_environmental')}
+							Monitoring environmental events...
+						{:else if executingTools.includes('refresh_alternative')}
+							Pulling alternative intel...
+						{:else}
+							{executingTools.join(', ')}
+						{/if}
+					</span>
+				</div>
 			</div>
 		{/if}
 
@@ -553,7 +585,7 @@
 			<select
 				class="prompt-select text-[10px] sm:text-xs"
 				bind:value={selectedPromptId}
-				disabled={isProcessing}
+				disabled={isProcessing || !initialDataLoaded}
 			>
 				{#each ANALYSIS_PROMPTS as prompt}
 					<option value={prompt.id}>{prompt.name}</option>
@@ -565,18 +597,18 @@
 		<div class="input-area">
 			<textarea
 				class="message-input text-[10px] sm:text-xs"
-				placeholder={selectedPromptId === 'custom' ? 'Ask about the current situation...' : 'Add context (optional)...'}
+				placeholder={!initialDataLoaded ? 'Waiting for data to load...' : selectedPromptId === 'custom' ? 'Ask about the current situation...' : 'Add context (optional)...'}
 				bind:value={inputValue}
 				onkeydown={handleKeyDown}
-				disabled={isProcessing || !hasApiKeyConfigured}
+				disabled={isProcessing || !hasApiKeyConfigured || !initialDataLoaded}
 				rows="2"
 			></textarea>
 			<button
 				class="send-btn text-[10px] sm:text-xs"
 				onclick={handleSendMessage}
-				disabled={isProcessing || !hasApiKeyConfigured || (!inputValue.trim() && selectedPromptId === 'custom')}
+				disabled={isProcessing || !hasApiKeyConfigured || !initialDataLoaded || (!inputValue.trim() && selectedPromptId === 'custom')}
 			>
-				{isProcessing ? '...' : 'SEND'}
+				{isProcessing ? '...' : !initialDataLoaded ? 'WAIT' : 'SEND'}
 			</button>
 		</div>
 	</div>
@@ -614,6 +646,44 @@
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
+	}
+
+	.loading-warning {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.4rem;
+		padding: 0.75rem;
+		background: rgba(6, 182, 212, 0.08);
+		border: 1px solid rgba(6, 182, 212, 0.3);
+		border-radius: 2px;
+		text-align: center;
+	}
+
+	.loading-warning p {
+		color: var(--accent);
+		font-family: 'SF Mono', Monaco, monospace;
+		letter-spacing: 0.05em;
+		margin: 0;
+	}
+
+	.loading-warning .text-muted {
+		color: var(--text-muted);
+	}
+
+	.loading-spinner {
+		width: 20px;
+		height: 20px;
+		border: 2px solid rgba(6, 182, 212, 0.2);
+		border-top-color: var(--accent);
+		border-radius: 50%;
+		animation: spin 1s linear infinite;
+	}
+
+	@keyframes spin {
+		to {
+			transform: rotate(360deg);
+		}
 	}
 
 	.api-warning {
@@ -672,28 +742,53 @@
 	.tool-indicator {
 		display: flex;
 		align-items: center;
-		gap: 0.4rem;
-		padding: 0.3rem 0.5rem;
-		background: rgba(6, 182, 212, 0.1);
-		border: 1px solid rgba(6, 182, 212, 0.3);
+		gap: 0.6rem;
+		padding: 0.5rem 0.75rem;
+		background: linear-gradient(135deg, rgba(6, 182, 212, 0.15) 0%, rgba(6, 182, 212, 0.08) 100%);
+		border: 1px solid rgba(6, 182, 212, 0.4);
 		border-radius: 2px;
-		animation: pulse 1.5s ease-in-out infinite;
+		animation: pulse-glow 2s ease-in-out infinite;
 	}
 
-	@keyframes pulse {
-		0%, 100% { opacity: 1; }
-		50% { opacity: 0.7; }
+	@keyframes pulse-glow {
+		0%, 100% {
+			opacity: 1;
+			box-shadow: 0 0 8px rgba(6, 182, 212, 0.3);
+		}
+		50% {
+			opacity: 0.9;
+			box-shadow: 0 0 16px rgba(6, 182, 212, 0.5);
+		}
 	}
 
-	.tool-icon {
-		font-size: 0.75rem;
+	.tool-spinner {
+		width: 16px;
+		height: 16px;
+		border: 2px solid rgba(6, 182, 212, 0.3);
+		border-top-color: var(--accent);
+		border-radius: 50%;
+		animation: spin 0.8s linear infinite;
+		flex-shrink: 0;
+	}
+
+	.tool-info {
+		display: flex;
+		flex-direction: column;
+		gap: 0.1rem;
+	}
+
+	.tool-label {
+		font-family: 'SF Mono', Monaco, monospace;
+		color: var(--accent);
+		letter-spacing: 0.15em;
+		text-transform: uppercase;
+		font-weight: 700;
 	}
 
 	.tool-text {
 		font-family: 'SF Mono', Monaco, monospace;
-		color: var(--accent);
-		letter-spacing: 0.05em;
-		text-transform: uppercase;
+		color: var(--text);
+		letter-spacing: 0.02em;
 	}
 
 	.messages-container {
@@ -1115,5 +1210,20 @@
 		background: var(--surface-hover);
 		border-color: var(--accent);
 		color: var(--accent);
+	}
+
+	/* Modal portal wrapper - ensures modal escapes parent stacking context */
+	.analysis-modal-portal {
+		position: fixed;
+		top: 0;
+		left: 0;
+		width: 0;
+		height: 0;
+		z-index: 99999;
+		pointer-events: none;
+	}
+
+	.analysis-modal-portal :global(*) {
+		pointer-events: auto;
 	}
 </style>
