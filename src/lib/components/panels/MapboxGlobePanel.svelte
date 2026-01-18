@@ -5500,18 +5500,43 @@
 		position: absolute;
 		top: 0.75rem;
 		right: 3rem;
-		z-index: 20;
+		z-index: 1000;
 		background: rgb(15 23 42 / 0.95);
 		backdrop-filter: blur(12px);
 		border: 1px solid rgb(51 65 85 / 0.5);
 		border-radius: 2px;
 		min-width: 200px;
 		max-width: 260px;
+		max-height: calc(100% - 1.5rem);
+		overflow-y: auto;
+		overflow-x: hidden;
+	}
+
+	/* Custom scrollbar for data controls */
+	.data-controls::-webkit-scrollbar {
+		width: 4px;
+	}
+
+	.data-controls::-webkit-scrollbar-track {
+		background: rgb(15 23 42 / 0.5);
+	}
+
+	.data-controls::-webkit-scrollbar-thumb {
+		background: rgb(51 65 85);
+		border-radius: 2px;
+	}
+
+	.data-controls::-webkit-scrollbar-thumb:hover {
+		background: rgb(71 85 105);
 	}
 
 	.data-controls-header {
+		position: sticky;
+		top: 0;
 		padding: 0.5rem 0.75rem;
 		border-bottom: 1px solid rgb(51 65 85 / 0.3);
+		background: rgb(15 23 42 / 0.98);
+		z-index: 1;
 	}
 
 	.data-controls-title {

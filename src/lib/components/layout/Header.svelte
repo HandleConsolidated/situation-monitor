@@ -405,7 +405,7 @@
 
 	.logo {
 		display: flex;
-		align-items: baseline;
+		align-items: center;
 		gap: 0.35em;
 		margin: 0;
 	}

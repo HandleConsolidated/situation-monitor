@@ -13,7 +13,7 @@ import { chat } from '$lib/stores/chat';
 import { alerts as newsAlerts } from '$lib/stores/news';
 import { getAutoTriggerPrompts } from '$lib/config/prompts';
 import type { IntelligenceContext } from '$lib/types/llm';
-import { ttsPreferences } from './tts';
+import { tts, ttsPreferences } from './tts';
 
 // Storage keys
 const STORAGE_KEY_PREFERENCES = 'aegis_auto_analysis_prefs';
@@ -634,7 +634,12 @@ function createAutoAnalysisStore() {
 	}
 
 	async function playAlertTTS(alert: AnalysisAlert): Promise<void> {
-		if (!ttsService.isAvailable()) return;
+		// Use the proper multi-provider TTS service from tts.ts
+		const prefs = get(ttsPreferences);
+		if (!prefs.enabled || prefs.provider === 'none') {
+			// Fall back to browser TTS if no provider configured
+			if (!ttsService.isAvailable()) return;
+		}
 
 		// Construct TTS message
 		let message = '';
@@ -653,9 +658,12 @@ function createAutoAnalysisStore() {
 		message += alert.summary;
 
 		try {
-			await ttsService.speak(message, alert.severity);
+			// Use the multi-provider TTS service (ElevenLabs, OpenAI, or Browser)
+			await tts.speak(message);
 		} catch (e) {
 			console.warn('TTS failed:', e);
+			// If the configured provider fails, don't fall back to browser TTS
+			// The user has explicitly chosen a provider
 		}
 	}
 
@@ -760,11 +768,13 @@ function createAutoAnalysisStore() {
 		},
 
 		stopTTS(): void {
-			ttsService.stop();
+			// Stop the multi-provider TTS service
+			tts.stop();
 		},
 
 		testTTS(message: string = 'This is a test of the intelligence alert system.'): Promise<void> {
-			return ttsService.speak(message, 'info');
+			// Use the multi-provider TTS service (ElevenLabs, OpenAI, or Browser)
+			return tts.test(message);
 		}
 	};
 }
