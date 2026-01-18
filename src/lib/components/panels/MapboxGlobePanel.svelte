@@ -11,7 +11,8 @@
 		THREAT_COLORS,
 		HOTSPOT_KEYWORDS
 	} from '$lib/config/map';
-	import { fetchOutageData, fetchUCDPConflicts, fetchAircraftPositions, getAltitudeColor, formatAltitude, formatVelocity, formatHeading, fetchElevatedVolcanoes, VOLCANO_ALERT_COLORS, VOLCANO_ALERT_DESCRIPTIONS, getLatestRadarTileUrl, fetchVesselPositions, getShipTypeColor, formatVesselSpeed, formatVesselCourse, getFlagEmoji, fetchAirQualityData, AIR_QUALITY_COLORS, AIR_QUALITY_DESCRIPTIONS, RADIATION_LEVEL_COLORS } from '$lib/api';
+	import { fetchOutageData, fetchUCDPConflicts, fetchAircraftPositions, getAltitudeColor, formatAltitude, formatVelocity, formatHeading, fetchElevatedVolcanoes, VOLCANO_ALERT_COLORS, VOLCANO_ALERT_DESCRIPTIONS, getLatestRadarTileUrl, getShipTypeColor, formatVesselSpeed, formatVesselCourse, getFlagEmoji, fetchAirQualityData, AIR_QUALITY_COLORS, AIR_QUALITY_DESCRIPTIONS, RADIATION_LEVEL_COLORS } from '$lib/api';
+	import { vesselStore, vesselConnectionStatus, connectVesselStream, disconnectVesselStream } from '$lib/services/vessel-stream';
 	import type { OutageData, VIEWSConflictData, Vessel, RadiationReading } from '$lib/api';
 	import type { CustomMonitor, NewsItem, NewsCategory, Aircraft, VolcanoData, AirQualityReading, DiseaseOutbreak, EarthquakeData } from '$lib/types';
 
@@ -173,11 +174,12 @@
 	let volcanoDataLoading = $state(false);
 	const VOLCANO_REFRESH_INTERVAL = 30 * 60 * 1000; // 30 minutes (volcano status changes slowly)
 
-	// AIS Vessel/Ship tracking data
+	// AIS Vessel/Ship tracking data - uses WebSocket stream from aisstream.io
 	let vesselData = $state<Vessel[]>([]);
-	let vesselDataLoading = $state(false);
-	let vesselRefreshInterval: ReturnType<typeof setInterval> | null = null;
-	const VESSEL_REFRESH_INTERVAL = 3 * 60 * 1000; // 3 minutes (respecting free API rate limits)
+	let vesselUnsubscribe: (() => void) | null = null;
+	// Derive loading state from connection status
+	let vesselConnectionState = $state<'disconnected' | 'connecting' | 'connected' | 'error' | 'no_api_key'>('disconnected');
+	const vesselDataLoading = $derived(vesselConnectionState === 'connecting');
 
 	// OpenAQ Air Quality data
 	let airQualityData = $state<AirQualityReading[]>([]);
@@ -4705,33 +4707,40 @@
 		if (map && isInitialized) updateMapLayers();
 	}
 
-	// Load AIS vessel data
-	async function loadVesselData() {
-		if (vesselDataLoading || !dataLayers.vessels.visible) return;
-		vesselDataLoading = true;
-		try {
-			const data = await fetchVesselPositions();
-			vesselData = data;
+	// Start AIS vessel WebSocket stream
+	function startVesselStream() {
+		if (vesselUnsubscribe) return; // Already subscribed
+
+		// Subscribe to vessel data store for real-time updates
+		vesselUnsubscribe = vesselStore.subscribe((vessels) => {
+			vesselData = Array.from(vessels.values());
 			if (map && isInitialized) updateMapLayers();
-		} catch (error) {
-			console.warn('Failed to fetch vessel data:', error);
-		} finally {
-			vesselDataLoading = false;
-		}
+		});
+
+		// Subscribe to connection status
+		const statusUnsubscribe = vesselConnectionStatus.subscribe((status) => {
+			vesselConnectionState = status;
+		});
+
+		// Store both unsubscribers
+		const originalUnsubscribe = vesselUnsubscribe;
+		vesselUnsubscribe = () => {
+			originalUnsubscribe();
+			statusUnsubscribe();
+		};
+
+		// Connect to WebSocket stream
+		connectVesselStream();
 	}
 
-	function startVesselPolling() {
-		if (vesselRefreshInterval) return;
-		loadVesselData();
-		vesselRefreshInterval = setInterval(loadVesselData, VESSEL_REFRESH_INTERVAL);
-	}
-
-	function stopVesselPolling() {
-		if (vesselRefreshInterval) {
-			clearInterval(vesselRefreshInterval);
-			vesselRefreshInterval = null;
+	function stopVesselStream() {
+		if (vesselUnsubscribe) {
+			vesselUnsubscribe();
+			vesselUnsubscribe = null;
 		}
+		disconnectVesselStream();
 		vesselData = [];
+		vesselConnectionState = 'disconnected';
 		if (map && isInitialized) updateMapLayers();
 	}
 
@@ -4880,7 +4889,7 @@
 		stopRotation();
 		stopMapUpdatePolling();
 		stopAircraftPolling();
-		stopVesselPolling();
+		stopVesselStream();
 		if (map) {
 			map.remove();
 			map = null;
@@ -4967,12 +4976,12 @@
 										stopAircraftPolling();
 									}
 								}
-								// Start/stop vessel polling based on visibility
+								// Start/stop vessel WebSocket stream based on visibility
 								if (layer === 'vessels') {
 									if (state.visible) {
-										startVesselPolling();
+										startVesselStream();
 									} else {
-										stopVesselPolling();
+										stopVesselStream();
 									}
 								}
 								// Load air quality data when enabled
