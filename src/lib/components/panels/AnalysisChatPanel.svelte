@@ -65,7 +65,8 @@
 	let inputValue = $state('');
 	let selectedPromptId = $state('custom');
 	let messagesContainer: HTMLDivElement | undefined = $state();
-	// eslint-disable-next-line @typescript-eslint/no-unused-vars
+	// Context is built per-request but kept for potential future debugging
+	// @ts-expect-error - intentionally unused, kept for future debugging
 	let _currentContext: IntelligenceContext | null = $state(null);
 	let executingTools = $state<string[]>([]);
 	let toolsEnabled = $derived(!!actionHandlers);

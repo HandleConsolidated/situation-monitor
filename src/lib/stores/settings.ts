@@ -18,7 +18,8 @@ const STORAGE_KEYS = {
 	panels: 'situationMonitorPanels',
 	order: 'panelOrder',
 	sizes: 'panelSizes',
-	layout: 'layoutSettings'
+	layout: 'layoutSettings',
+	collapsed: 'panelCollapsed'
 } as const;
 
 // Types
@@ -33,6 +34,7 @@ export interface PanelSettings {
 	enabled: Record<PanelId, boolean>;
 	order: PanelId[];
 	sizes: Record<PanelId, { width?: number; height?: number }>;
+	collapsed: Record<PanelId, boolean>;
 	layout: LayoutSettings;
 }
 
@@ -56,6 +58,7 @@ function getDefaultSettings(): PanelSettings {
 		enabled: Object.fromEntries(allPanelIds.map((id) => [id, true])) as Record<PanelId, boolean>,
 		order: allPanelIds,
 		sizes: {} as Record<PanelId, { width?: number; height?: number }>,
+		collapsed: {} as Record<PanelId, boolean>,
 		layout: { ...DEFAULT_LAYOUT }
 	};
 }
@@ -68,12 +71,14 @@ function loadFromStorage(): Partial<PanelSettings> {
 		const panels = localStorage.getItem(STORAGE_KEYS.panels);
 		const order = localStorage.getItem(STORAGE_KEYS.order);
 		const sizes = localStorage.getItem(STORAGE_KEYS.sizes);
+		const collapsed = localStorage.getItem(STORAGE_KEYS.collapsed);
 		const layout = localStorage.getItem(STORAGE_KEYS.layout);
 
 		return {
 			enabled: panels ? JSON.parse(panels) : undefined,
 			order: order ? JSON.parse(order) : undefined,
 			sizes: sizes ? JSON.parse(sizes) : undefined,
+			collapsed: collapsed ? JSON.parse(collapsed) : undefined,
 			layout: layout ? JSON.parse(layout) : undefined
 		};
 	} catch (e) {
@@ -102,6 +107,7 @@ function createSettingsStore() {
 		enabled: { ...defaults.enabled, ...saved.enabled },
 		order: saved.order ?? defaults.order,
 		sizes: { ...defaults.sizes, ...saved.sizes },
+		collapsed: { ...defaults.collapsed, ...saved.collapsed },
 		layout: { ...defaults.layout, ...saved.layout },
 		initialized: false
 	};
@@ -207,6 +213,28 @@ function createSettingsStore() {
 		},
 
 		/**
+		 * Toggle panel collapsed state
+		 */
+		toggleCollapsed(panelId: PanelId) {
+			update((state) => {
+				const newCollapsed = {
+					...state.collapsed,
+					[panelId]: !state.collapsed[panelId]
+				};
+				saveToStorage('collapsed', newCollapsed);
+				return { ...state, collapsed: newCollapsed };
+			});
+		},
+
+		/**
+		 * Check if a panel is collapsed
+		 */
+		isCollapsed(panelId: PanelId): boolean {
+			const state = get({ subscribe });
+			return state.collapsed[panelId] ?? false;
+		},
+
+		/**
 		 * Update layout settings
 		 */
 		updateLayout(layoutUpdate: Partial<LayoutSettings>) {
@@ -236,6 +264,7 @@ function createSettingsStore() {
 				localStorage.removeItem(STORAGE_KEYS.panels);
 				localStorage.removeItem(STORAGE_KEYS.order);
 				localStorage.removeItem(STORAGE_KEYS.sizes);
+				localStorage.removeItem(STORAGE_KEYS.collapsed);
 				localStorage.removeItem(STORAGE_KEYS.layout);
 			}
 			set({ ...defaults, initialized: true });

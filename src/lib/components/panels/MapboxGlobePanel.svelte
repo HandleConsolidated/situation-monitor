@@ -4047,13 +4047,15 @@
 		const descParts = [
 			`Country: ${country}${isoCode ? ` (${isoCode})` : ''}`,
 			`Forecast Period: ${forecastMonth}`,
+			fatalities > 0 ? `Forecasted Fatalities: ${fatalities}` : '',
+			probability > 0 ? `Probability: ${(probability * 100).toFixed(1)}%` : '',
 			``,
 			riskDescription,
 			``,
 			`Analysis: ${reasoning}`,
 			``,
 			`Source: ${dataSource}`
-		];
+		].filter(Boolean);
 
 		tooltipData = {
 			label: props?.label || `${country} - Conflict Forecast`,

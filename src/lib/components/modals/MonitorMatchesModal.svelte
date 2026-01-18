@@ -10,9 +10,10 @@
 		onClose: () => void;
 		monitor: CustomMonitor | null;
 		matches: MonitorMatch[];
+		onEdit?: (monitor: CustomMonitor) => void;
 	}
 
-	let { open = false, onClose, monitor, matches = [] }: Props = $props();
+	let { open = false, onClose, monitor, matches = [], onEdit }: Props = $props();
 
 	// Filter matches to only show those for this monitor
 	const monitorMatches = $derived(
@@ -23,25 +24,65 @@
 	const sortedMatches = $derived(
 		[...monitorMatches].sort((a, b) => b.item.timestamp - a.item.timestamp)
 	);
+
+	// Format creation date
+	function formatDate(timestamp: number): string {
+		return new Date(timestamp).toLocaleDateString('en-US', {
+			year: 'numeric',
+			month: 'short',
+			day: 'numeric'
+		});
+	}
 </script>
 
-<Modal {open} title={monitor?.name || 'Monitor Matches'} {onClose} size="large">
+<Modal {open} title={monitor?.name || 'Monitor Details'} {onClose} size="large">
 	{#if monitor}
 		<div class="monitor-info">
-			<div class="monitor-header-info">
-				{#if monitor.color}
-					<span
-						class="monitor-color"
-						style="background: {monitor.color}; box-shadow: 0 0 8px {monitor.color}"
-					></span>
+			<div class="monitor-header-row">
+				<div class="monitor-header-info">
+					{#if monitor.color}
+						<span
+							class="monitor-color"
+							style="background: {monitor.color}; box-shadow: 0 0 12px {monitor.color}"
+						></span>
+					{/if}
+					<span class="monitor-name">{monitor.name}</span>
+					{#if monitorMatches.length > 0}
+						<Badge text="{monitorMatches.length} MATCHES" variant="info" />
+					{/if}
+					<Badge text={monitor.enabled ? 'ACTIVE' : 'DISABLED'} variant={monitor.enabled ? 'success' : 'default'} />
+				</div>
+				{#if onEdit}
+					<button class="edit-btn" onclick={() => { onClose(); onEdit(monitor); }}>
+						EDIT
+					</button>
 				{/if}
-				<span class="monitor-name">{monitor.name}</span>
-				<Badge text={String(monitorMatches.length)} variant="info" />
 			</div>
-			<div class="monitor-keywords">
-				{#each monitor.keywords as keyword}
-					<span class="keyword">{keyword}</span>
-				{/each}
+
+			<div class="monitor-details">
+				<div class="detail-row">
+					<span class="detail-label">KEYWORDS</span>
+					<div class="monitor-keywords">
+						{#each monitor.keywords as keyword}
+							<span class="keyword">{keyword}</span>
+						{/each}
+					</div>
+				</div>
+
+				{#if monitor.location}
+					<div class="detail-row">
+						<span class="detail-label">LOCATION</span>
+						<div class="location-info">
+							<span class="location-name">📍 {monitor.location.name}</span>
+							<span class="location-coords">{monitor.location.lat.toFixed(4)}, {monitor.location.lon.toFixed(4)}</span>
+						</div>
+					</div>
+				{/if}
+
+				<div class="detail-row">
+					<span class="detail-label">CREATED</span>
+					<span class="detail-value">{formatDate(monitor.createdAt)}</span>
+				</div>
 			</div>
 		</div>
 
@@ -96,16 +137,22 @@
 		border-bottom: 1px solid var(--border-divider, rgb(30 41 59));
 	}
 
+	.monitor-header-row {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 0.75rem;
+	}
+
 	.monitor-header-info {
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
-		margin-bottom: 0.5rem;
 	}
 
 	.monitor-color {
-		width: 12px;
-		height: 12px;
+		width: 14px;
+		height: 14px;
 		border-radius: 50%;
 		flex-shrink: 0;
 	}
@@ -114,6 +161,70 @@
 		font-size: var(--fs-lg, 14px);
 		font-weight: 700;
 		color: var(--text-primary, white);
+	}
+
+	.edit-btn {
+		font-size: var(--fs-2xs, 9px);
+		font-family: 'SF Mono', Monaco, monospace;
+		font-weight: 600;
+		letter-spacing: 0.05em;
+		padding: 0.375rem 0.75rem;
+		background: transparent;
+		border: 1px solid var(--border, rgb(51 65 85));
+		border-radius: 2px;
+		color: var(--text-secondary, rgb(148 163 184));
+		cursor: pointer;
+		transition: all 0.15s ease;
+	}
+
+	.edit-btn:hover {
+		background: var(--surface-hover, rgb(30 41 59 / 0.5));
+		border-color: var(--accent, rgb(34 211 238));
+		color: var(--accent, rgb(34 211 238));
+	}
+
+	.monitor-details {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.detail-row {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.75rem;
+	}
+
+	.detail-label {
+		font-size: var(--fs-2xs, 9px);
+		font-family: 'SF Mono', Monaco, monospace;
+		font-weight: 600;
+		letter-spacing: 0.05em;
+		color: var(--text-muted, rgb(71 85 105));
+		min-width: 70px;
+		flex-shrink: 0;
+	}
+
+	.detail-value {
+		font-size: var(--fs-xs, 10px);
+		color: var(--text-secondary, rgb(148 163 184));
+	}
+
+	.location-info {
+		display: flex;
+		flex-direction: column;
+		gap: 0.125rem;
+	}
+
+	.location-name {
+		font-size: var(--fs-xs, 10px);
+		color: var(--text-secondary, rgb(148 163 184));
+	}
+
+	.location-coords {
+		font-size: var(--fs-2xs, 9px);
+		font-family: 'SF Mono', Monaco, monospace;
+		color: var(--text-muted, rgb(71 85 105));
 	}
 
 	.monitor-keywords {

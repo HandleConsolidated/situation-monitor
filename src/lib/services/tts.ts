@@ -4,6 +4,7 @@
  */
 
 import { browser } from '$app/environment';
+import { base } from '$app/paths';
 import { writable, get } from 'svelte/store';
 
 // ============================================================================
@@ -23,6 +24,7 @@ export interface TTSOptions {
 	voice?: string;
 	speed?: number; // 0.25 - 4.0 for OpenAI, 0.5 - 2.0 for ElevenLabs
 	pitch?: number; // Only for browser TTS
+	skipAlertSound?: boolean; // Skip playing alert.mp3 before this utterance
 }
 
 export interface TTSState {
@@ -38,6 +40,8 @@ export interface TTSPreferences {
 	enabled: boolean;
 	autoPlay: boolean;
 	speed: number;
+	volume: number; // 0.0 to 1.0
+	playAlertSound: boolean; // Play alert.mp3 before TTS speech
 }
 
 // ============================================================================
@@ -69,7 +73,9 @@ export const DEFAULT_TTS_PREFERENCES: TTSPreferences = {
 	voice: '',
 	enabled: false,
 	autoPlay: false,
-	speed: 1.0
+	speed: 1.0,
+	volume: 0.7, // Default to 70% volume
+	playAlertSound: true // Play alert sound before TTS by default
 };
 
 // ============================================================================
@@ -153,6 +159,7 @@ class TTSService {
 	private abortController: AbortController | null = null;
 	private browserSynth: SpeechSynthesis | null = null;
 	private browserVoices: SpeechSynthesisVoice[] = [];
+	private alertSoundCache: HTMLAudioElement | null = null;
 
 	// Stores
 	public state = writable<TTSState>({
@@ -186,6 +193,88 @@ class TTSService {
 	private loadBrowserVoices(): void {
 		if (!this.browserSynth) return;
 		this.browserVoices = this.browserSynth.getVoices();
+	}
+
+	/**
+	 * Preload the alert sound for faster playback
+	 */
+	private preloadAlertSound(): void {
+		if (!browser || this.alertSoundCache) return;
+
+		try {
+			const alertPath = `${base}/alert.mp3`;
+			this.alertSoundCache = new Audio(alertPath);
+			this.alertSoundCache.preload = 'auto';
+			// Trigger load without playing
+			this.alertSoundCache.load();
+			console.log('[TTS] Alert sound preloaded from:', alertPath);
+		} catch (e) {
+			console.warn('[TTS] Failed to preload alert sound:', e);
+		}
+	}
+
+	/**
+	 * Play the alert sound before TTS speech (internal method)
+	 * Returns a promise that resolves when the sound finishes or errors
+	 */
+	private playAlertSoundInternal(volume: number): Promise<void> {
+		return new Promise((resolve) => {
+			// Preload if not already done
+			if (!this.alertSoundCache) {
+				this.preloadAlertSound();
+			}
+
+			if (!this.alertSoundCache) {
+				console.warn('[TTS] Alert sound not available, skipping');
+				resolve();
+				return;
+			}
+
+			const alertAudio = this.alertSoundCache.cloneNode() as HTMLAudioElement;
+			const safeVolume = Math.max(0, Math.min(1, volume));
+			alertAudio.volume = safeVolume;
+
+			console.log(`[TTS] Playing alert sound with volume: ${safeVolume}`);
+
+			alertAudio.onended = () => {
+				console.log('[TTS] Alert sound finished');
+				resolve();
+			};
+
+			alertAudio.onerror = (e) => {
+				console.warn('[TTS] Alert sound playback error:', e);
+				// Resolve anyway to continue with TTS
+				resolve();
+			};
+
+			alertAudio.play().catch((err) => {
+				console.warn('[TTS] Alert sound play failed:', err);
+				// Resolve anyway to continue with TTS
+				resolve();
+			});
+		});
+	}
+
+	/**
+	 * Play the alert sound once (public method for external use)
+	 * Respects the playAlertSound preference and volume settings
+	 * Returns a promise that resolves when the sound finishes or is skipped
+	 */
+	async playAlertSoundOnce(): Promise<void> {
+		const prefs = get(this.preferences);
+
+		// Skip if alert sound is disabled in preferences
+		if (!prefs.playAlertSound) {
+			console.log('[TTS] Alert sound disabled in preferences, skipping');
+			return;
+		}
+
+		// Ensure volume is a valid number between 0 and 1
+		const rawVolume = prefs.volume ?? 0.7;
+		const volume = Math.max(0, Math.min(1, typeof rawVolume === 'number' && !isNaN(rawVolume) ? rawVolume : 0.7));
+
+		console.log('[TTS] Playing alert sound once at start of alert sequence');
+		await this.playAlertSoundInternal(volume);
 	}
 
 	/**
@@ -240,7 +329,16 @@ class TTSService {
 		this.stop();
 
 		const voice = options.voice || prefs.voice || this.getDefaultVoice(prefs.provider);
-		const speed = options.speed || prefs.speed || 1.0;
+		// Ensure speed is a valid number between 0.25 and 4.0
+		const rawSpeed = options.speed ?? prefs.speed ?? 1.0;
+		const speed = Math.max(0.25, Math.min(4.0, typeof rawSpeed === 'number' && !isNaN(rawSpeed) ? rawSpeed : 1.0));
+		// Ensure volume is a valid number between 0 and 1
+		const rawVolume = prefs.volume ?? 0.7;
+		const volume = Math.max(0, Math.min(1, typeof rawVolume === 'number' && !isNaN(rawVolume) ? rawVolume : 0.7));
+		// Check if we should skip the alert sound (e.g., for subsequent items in a sequence)
+		const skipAlertSound = options.skipAlertSound ?? false;
+
+		console.log(`[TTS] Speaking with speed: ${speed}, volume: ${volume}, provider: ${prefs.provider}, skipAlertSound: ${skipAlertSound}`);
 
 		this.state.update((s) => ({
 			...s,
@@ -253,13 +351,13 @@ class TTSService {
 		try {
 			switch (prefs.provider) {
 				case 'elevenlabs':
-					await this.speakWithElevenLabs(text, voice, speed);
+					await this.speakWithElevenLabs(text, voice, speed, volume, skipAlertSound);
 					break;
 				case 'openai':
-					await this.speakWithOpenAI(text, voice, speed);
+					await this.speakWithOpenAI(text, voice, speed, volume, skipAlertSound);
 					break;
 				case 'browser':
-					await this.speakWithBrowser(text, voice, speed, options.pitch);
+					await this.speakWithBrowser(text, voice, speed, volume, options.pitch, skipAlertSound);
 					break;
 				default:
 					throw new Error('No TTS provider configured');
@@ -281,7 +379,7 @@ class TTSService {
 	/**
 	 * Speak using ElevenLabs API
 	 */
-	private async speakWithElevenLabs(text: string, voiceId: string, speed: number): Promise<void> {
+	private async speakWithElevenLabs(text: string, voiceId: string, speed: number, volume: number, skipAlertSound: boolean): Promise<void> {
 		const apiKey = getTTSApiKey('elevenlabs');
 		if (!apiKey) {
 			throw new Error('ElevenLabs API key not configured');
@@ -298,12 +396,10 @@ class TTSService {
 			},
 			body: JSON.stringify({
 				text,
-				model_id: 'eleven_monolingual_v1',
+				model_id: 'eleven_turbo_v2_5',
 				voice_settings: {
 					stability: 0.5,
-					similarity_boost: 0.75,
-					style: 0.0,
-					use_speaker_boost: true
+					similarity_boost: 0.75
 				}
 			}),
 			signal: this.abortController.signal
@@ -315,13 +411,13 @@ class TTSService {
 		}
 
 		const audioBlob = await response.blob();
-		await this.playAudioBlob(audioBlob, speed);
+		await this.playAudioBlob(audioBlob, speed, volume, skipAlertSound);
 	}
 
 	/**
 	 * Speak using OpenAI TTS API
 	 */
-	private async speakWithOpenAI(text: string, voice: string, speed: number): Promise<void> {
+	private async speakWithOpenAI(text: string, voice: string, speed: number, volume: number, skipAlertSound: boolean): Promise<void> {
 		const apiKey = getTTSApiKey('openai');
 		if (!apiKey) {
 			throw new Error('OpenAI TTS API key not configured');
@@ -351,27 +447,41 @@ class TTSService {
 		}
 
 		const audioBlob = await response.blob();
-		await this.playAudioBlob(audioBlob, 1.0); // Speed already applied via API
+		await this.playAudioBlob(audioBlob, 1.0, volume, skipAlertSound); // Speed already applied via API
 	}
 
 	/**
 	 * Speak using browser's built-in speech synthesis
 	 */
-	private speakWithBrowser(
+	private async speakWithBrowser(
 		text: string,
 		voiceName: string,
 		speed: number,
-		pitch?: number
+		volume: number,
+		pitch?: number,
+		skipAlertSound: boolean = false
 	): Promise<void> {
+		if (!this.browserSynth) {
+			throw new Error('Browser speech synthesis not available');
+		}
+
+		// Cancel any ongoing speech
+		this.browserSynth.cancel();
+
+		const safeVolume = Math.max(0, Math.min(1, volume));
+		const prefs = get(this.preferences);
+
+		// Play alert sound first (if enabled and not skipped)
+		if (!skipAlertSound && prefs.playAlertSound) {
+			console.log('[TTS] Playing alert sound before browser TTS');
+			await this.playAlertSoundInternal(safeVolume);
+		} else if (skipAlertSound) {
+			console.log('[TTS] Skipping alert sound for this utterance (skipAlertSound=true)');
+		}
+
+		console.log(`[TTS] Playing browser TTS with speed: ${speed}, volume: ${safeVolume}`);
+
 		return new Promise((resolve, reject) => {
-			if (!this.browserSynth) {
-				reject(new Error('Browser speech synthesis not available'));
-				return;
-			}
-
-			// Cancel any ongoing speech
-			this.browserSynth.cancel();
-
 			const utterance = new SpeechSynthesisUtterance(text);
 
 			const voice = this.browserVoices.find((v) => v.name === voiceName);
@@ -380,26 +490,56 @@ class TTSService {
 			}
 
 			utterance.rate = Math.max(0.1, Math.min(10, speed));
+			utterance.volume = safeVolume;
 			utterance.pitch = pitch !== undefined ? Math.max(0, Math.min(2, pitch)) : 1;
 
 			utterance.onend = () => resolve();
 			utterance.onerror = (event) => reject(new Error(`Speech synthesis error: ${event.error}`));
 
-			this.browserSynth.speak(utterance);
+			this.browserSynth!.speak(utterance);
 		});
 	}
 
 	/**
-	 * Play an audio blob
+	 * Play an audio blob (with optional alert sound first)
 	 */
-	private playAudioBlob(blob: Blob, playbackRate: number = 1.0): Promise<void> {
-		return new Promise((resolve, reject) => {
-			// Clean up previous audio
-			this.cleanupAudio();
+	private async playAudioBlob(blob: Blob, playbackRate: number = 1.0, volume: number = 0.7, skipAlertSound: boolean = false): Promise<void> {
+		// Clean up previous audio
+		this.cleanupAudio();
 
+		// Clamp values to valid ranges
+		const safeRate = Math.max(0.25, Math.min(4.0, playbackRate));
+		const safeVolume = Math.max(0, Math.min(1, volume));
+		const prefs = get(this.preferences);
+
+		// Play alert sound first (if enabled and not skipped)
+		if (!skipAlertSound && prefs.playAlertSound) {
+			console.log('[TTS] Playing alert sound before TTS audio');
+			await this.playAlertSoundInternal(safeVolume);
+		} else if (skipAlertSound) {
+			console.log('[TTS] Skipping alert sound for this utterance (skipAlertSound=true)');
+		}
+
+		console.log(`[TTS] Playing TTS audio with playbackRate: ${safeRate}, volume: ${safeVolume}`);
+
+		return new Promise((resolve, reject) => {
 			this.audioUrl = URL.createObjectURL(blob);
 			this.audioElement = new Audio(this.audioUrl);
-			this.audioElement.playbackRate = playbackRate;
+
+			// Set volume immediately
+			this.audioElement.volume = safeVolume;
+
+			// Wait for audio to be ready before setting playbackRate and playing
+			this.audioElement.oncanplaythrough = () => {
+				if (this.audioElement) {
+					this.audioElement.playbackRate = safeRate;
+					console.log(`[TTS] Audio ready, playbackRate set to: ${this.audioElement.playbackRate}`);
+					this.audioElement.play().catch((err) => {
+						this.cleanupAudio();
+						reject(err);
+					});
+				}
+			};
 
 			this.audioElement.onended = () => {
 				this.cleanupAudio();
@@ -411,10 +551,8 @@ class TTSService {
 				reject(new Error('Audio playback failed'));
 			};
 
-			this.audioElement.play().catch((err) => {
-				this.cleanupAudio();
-				reject(err);
-			});
+			// Start loading the audio
+			this.audioElement.load();
 		});
 	}
 
@@ -515,6 +653,17 @@ class TTSService {
 		}));
 	}
 
+	setVolume(volume: number): void {
+		this.preferences.update((p) => ({
+			...p,
+			volume: Math.max(0, Math.min(1.0, volume))
+		}));
+	}
+
+	setPlayAlertSound(enabled: boolean): void {
+		this.preferences.update((p) => ({ ...p, playAlertSound: enabled }));
+	}
+
 	/**
 	 * Test TTS with a sample message
 	 */
@@ -570,4 +719,12 @@ export function getDefaultVoiceForProvider(provider: TTSProvider): string {
 
 export function testTTS(message?: string): Promise<void> {
 	return tts.test(message);
+}
+
+export function setPlayAlertSound(enabled: boolean): void {
+	tts.setPlayAlertSound(enabled);
+}
+
+export function playAlertSoundOnce(): Promise<void> {
+	return tts.playAlertSoundOnce();
 }
