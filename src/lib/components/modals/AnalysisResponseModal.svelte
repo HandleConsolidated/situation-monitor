@@ -286,37 +286,71 @@
 	}
 
 	.markdown-content :global(blockquote) {
-		border-left: 3px solid var(--accent);
-		margin: 1rem 0;
-		padding: 0.5rem 1rem;
-		background: var(--card-bg);
-		color: var(--text-dim);
+		border-left: 4px solid var(--accent);
+		margin: 1.25rem 0;
+		padding: 1rem 1.25rem;
+		background: linear-gradient(90deg, rgba(6, 182, 212, 0.08) 0%, var(--card-bg) 100%);
+		color: var(--text);
+		border-radius: 0 4px 4px 0;
+		font-weight: 500;
+	}
+
+	.markdown-content :global(blockquote p) {
+		margin-bottom: 0;
+	}
+
+	.markdown-content :global(blockquote strong) {
+		color: var(--accent);
 	}
 
 	.markdown-content :global(hr) {
 		border: none;
-		height: 1px;
-		background: linear-gradient(to right, transparent, var(--border), transparent);
-		margin: 1.5rem 0;
+		height: 2px;
+		background: linear-gradient(to right, transparent, var(--accent), transparent);
+		margin: 2rem 0;
 	}
 
 	.markdown-content :global(table) {
 		width: 100%;
 		border-collapse: collapse;
-		margin: 1rem 0;
+		margin: 1.25rem 0;
+		font-size: 0.8125rem;
+		border-radius: 4px;
+		overflow: hidden;
 	}
 
-	.markdown-content :global(th),
-	.markdown-content :global(td) {
-		padding: 0.5rem;
-		border: 1px solid var(--border);
-		text-align: left;
+	.markdown-content :global(thead) {
+		background: linear-gradient(180deg, var(--surface) 0%, var(--card-bg) 100%);
 	}
 
 	.markdown-content :global(th) {
+		padding: 0.625rem 0.75rem;
+		border: 1px solid var(--border);
+		text-align: left;
+		font-weight: 700;
+		color: var(--accent);
+		text-transform: uppercase;
+		font-size: 0.6875rem;
+		letter-spacing: 0.05em;
+	}
+
+	.markdown-content :global(td) {
+		padding: 0.5rem 0.75rem;
+		border: 1px solid var(--border);
+		text-align: left;
+		vertical-align: top;
+	}
+
+	.markdown-content :global(tbody tr:nth-child(odd)) {
+		background: rgba(255, 255, 255, 0.02);
+	}
+
+	.markdown-content :global(tbody tr:nth-child(even)) {
 		background: var(--card-bg);
-		font-weight: 600;
-		color: var(--text-primary);
+	}
+
+	.markdown-content :global(tbody tr:hover) {
+		background: rgba(6, 182, 212, 0.05);
 	}
 
 	/* Footer */

@@ -91,16 +91,19 @@
 	];
 
 	// Model options per provider
-	const MODELS: Record<LLMProvider, { id: string; name: string }[]> = {
+	const MODELS: Record<LLMProvider, { id: string; name: string; description?: string }[]> = {
 		anthropic: [
-			{ id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4' },
-			{ id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet' },
-			{ id: 'claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku' }
+			{ id: 'claude-opus-4-5-20251101', name: 'Claude 4.5 Opus', description: 'Most capable, best for complex analysis' },
+			{ id: 'claude-sonnet-4-5-20251101', name: 'Claude 4.5 Sonnet', description: 'Balanced performance and speed' },
+			{ id: 'claude-sonnet-4-20250514', name: 'Claude 4 Sonnet', description: 'Fast and efficient' },
+			{ id: 'claude-haiku-4-5-20251001', name: 'Claude 4.5 Haiku', description: 'Fastest response times' }
 		],
 		openai: [
-			{ id: 'gpt-4o', name: 'GPT-4o' },
-			{ id: 'gpt-4o-mini', name: 'GPT-4o Mini' },
-			{ id: 'gpt-4-turbo', name: 'GPT-4 Turbo' }
+			{ id: 'gpt-5.2-turbo', name: 'GPT-5.2 Turbo', description: 'Latest and most capable' },
+			{ id: 'gpt-4.1-turbo', name: 'GPT-4.1 Turbo', description: 'Stable and reliable' },
+			{ id: 'gpt-4o', name: 'GPT-4o', description: 'Optimized for speed' },
+			{ id: 'o1', name: 'o1', description: 'Advanced reasoning model' },
+			{ id: 'o1-mini', name: 'o1-mini', description: 'Fast reasoning model' }
 		],
 		custom: []
 	};
@@ -347,7 +350,7 @@
 							onchange={(e) => handleModelChange(e.currentTarget.value)}
 						>
 							{#each MODELS[$llmPreferences.provider] as model}
-								<option value={model.id}>{model.name}</option>
+								<option value={model.id}>{model.name}{model.description ? ` - ${model.description}` : ''}</option>
 							{/each}
 						</select>
 					</div>

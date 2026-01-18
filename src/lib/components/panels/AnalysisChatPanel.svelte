@@ -967,11 +967,58 @@
 	}
 
 	.message-content :global(blockquote) {
-		border-left: 2px solid var(--accent);
+		border-left: 3px solid var(--accent);
 		margin: 0.5rem 0;
-		padding: 0.25rem 0.5rem;
-		color: var(--text-dim);
-		background: var(--card-bg);
+		padding: 0.4rem 0.6rem;
+		color: var(--text);
+		background: linear-gradient(90deg, rgba(6, 182, 212, 0.06) 0%, var(--card-bg) 100%);
+		border-radius: 0 2px 2px 0;
+		font-weight: 500;
+	}
+
+	.message-content :global(blockquote p) {
+		margin-bottom: 0;
+	}
+
+	.message-content :global(blockquote strong) {
+		color: var(--accent);
+	}
+
+	.message-content :global(hr) {
+		border: none;
+		height: 1px;
+		background: linear-gradient(to right, transparent, var(--accent), transparent);
+		margin: 0.75rem 0;
+	}
+
+	.message-content :global(table) {
+		width: 100%;
+		border-collapse: collapse;
+		margin: 0.5rem 0;
+		font-size: 0.7rem;
+	}
+
+	.message-content :global(th) {
+		padding: 0.3rem 0.4rem;
+		border: 1px solid var(--border);
+		background: var(--surface);
+		font-weight: 600;
+		color: var(--accent);
+		text-transform: uppercase;
+		font-size: 0.6rem;
+		letter-spacing: 0.03em;
+		text-align: left;
+	}
+
+	.message-content :global(td) {
+		padding: 0.25rem 0.4rem;
+		border: 1px solid var(--border);
+		text-align: left;
+		vertical-align: top;
+	}
+
+	.message-content :global(tbody tr:nth-child(even)) {
+		background: rgba(255, 255, 255, 0.02);
 	}
 
 	.prompt-selector {

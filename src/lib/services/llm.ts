@@ -20,8 +20,8 @@ const API_KEY_STORAGE_PREFIX = 'llm_api_key_';
 
 // Default models per provider
 const DEFAULT_MODELS: Record<LLMProvider, string> = {
-	anthropic: 'claude-sonnet-4-20250514',
-	openai: 'gpt-4o',
+	anthropic: 'claude-sonnet-4-5-20251101',
+	openai: 'gpt-5.2-turbo',
 	custom: ''
 };
 

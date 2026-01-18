@@ -3150,225 +3150,200 @@ export function getShipTypeColor(typeCode: number | undefined): string {
 }
 
 /**
- * Sample vessel data for major shipping lanes
+ * Generate comprehensive sample vessel data for major shipping lanes
+ * Creates 100+ vessels covering all major maritime routes, chokepoints, and strategic waterways
  * Used when API is unavailable or for demo purposes
- * Positions are along major maritime routes
  */
 function getSampleVesselData(): Vessel[] {
 	const now = Date.now();
 
-	// Sample vessels along major shipping lanes
-	return [
-		// Strait of Malacca (busiest shipping lane)
-		{
-			mmsi: '563000001',
-			name: 'EVER GOLDEN',
-			lat: 1.25,
-			lon: 103.7,
-			course: 315,
-			speed: 12.5,
-			shipType: 70,
-			shipTypeName: 'Cargo',
-			flag: 'SG',
-			destination: 'ROTTERDAM',
-			lastUpdate: now - 120000
-		},
-		{
-			mmsi: '477000002',
-			name: 'COSCO PACIFIC',
-			lat: 2.1,
-			lon: 102.5,
-			course: 295,
-			speed: 14.2,
-			shipType: 70,
-			shipTypeName: 'Cargo',
-			flag: 'HK',
-			destination: 'SINGAPORE',
-			lastUpdate: now - 180000
-		},
-		// Suez Canal approach
-		{
-			mmsi: '373000003',
-			name: 'MAERSK EDINBURGH',
-			lat: 29.85,
-			lon: 32.55,
-			course: 340,
-			speed: 8.5,
-			shipType: 70,
-			shipTypeName: 'Cargo',
-			flag: 'PA',
-			destination: 'PORT SAID',
-			lastUpdate: now - 90000
-		},
-		// Panama Canal Atlantic approach
-		{
-			mmsi: '636000004',
-			name: 'MSC AURORA',
-			lat: 9.35,
-			lon: -79.9,
-			course: 180,
-			speed: 11.0,
-			shipType: 70,
-			shipTypeName: 'Cargo',
-			flag: 'LR',
-			destination: 'COLON',
-			lastUpdate: now - 150000
-		},
-		// English Channel
-		{
-			mmsi: '244000005',
-			name: 'ROTTERDAM EXPRESS',
-			lat: 51.0,
-			lon: 1.5,
-			course: 220,
-			speed: 16.8,
-			shipType: 70,
-			shipTypeName: 'Cargo',
-			flag: 'NL',
-			destination: 'LE HAVRE',
-			lastUpdate: now - 60000
-		},
-		// Gulf of Aden (Tanker route)
-		{
-			mmsi: '538000006',
-			name: 'CRUDE PIONEER',
-			lat: 12.5,
-			lon: 47.5,
-			course: 270,
-			speed: 13.5,
-			shipType: 80,
-			shipTypeName: 'Tanker',
-			flag: 'MH',
-			destination: 'FUJAIRAH',
-			lastUpdate: now - 240000
-		},
-		// South China Sea
-		{
-			mmsi: '412000007',
-			name: 'YANG MING HARMONY',
-			lat: 14.5,
-			lon: 117.0,
-			course: 45,
-			speed: 15.2,
-			shipType: 70,
-			shipTypeName: 'Cargo',
-			flag: 'TW',
-			destination: 'HONG KONG',
-			lastUpdate: now - 200000
-		},
-		// Strait of Gibraltar
-		{
-			mmsi: '224000008',
-			name: 'GIBRALTAR SPIRIT',
-			lat: 35.95,
-			lon: -5.5,
-			course: 90,
-			speed: 14.0,
-			shipType: 80,
-			shipTypeName: 'Tanker',
-			flag: 'ES',
-			destination: 'ALGECIRAS',
-			lastUpdate: now - 100000
-		},
-		// Taiwan Strait
-		{
-			mmsi: '416000009',
-			name: 'EVERGREEN MARINE',
-			lat: 24.5,
-			lon: 119.5,
-			course: 10,
-			speed: 18.0,
-			shipType: 70,
-			shipTypeName: 'Cargo',
-			flag: 'TW',
-			destination: 'KAOHSIUNG',
-			lastUpdate: now - 80000
-		},
-		// Strait of Hormuz (critical oil route)
-		{
-			mmsi: '470000010',
-			name: 'ARABIAN GULF TANKER',
-			lat: 26.5,
-			lon: 56.5,
-			course: 140,
-			speed: 11.5,
-			shipType: 80,
-			shipTypeName: 'Tanker',
-			flag: 'AE',
-			destination: 'MUMBAI',
-			lastUpdate: now - 160000
-		},
-		// Cape of Good Hope
-		{
-			mmsi: '636000011',
-			name: 'CAPE ATLANTIC',
-			lat: -34.5,
-			lon: 18.5,
-			course: 270,
-			speed: 14.8,
-			shipType: 70,
-			shipTypeName: 'Cargo',
-			flag: 'LR',
-			destination: 'SANTOS',
-			lastUpdate: now - 300000
-		},
-		// Bosphorus
-		{
-			mmsi: '271000012',
-			name: 'BLACK SEA CARRIER',
-			lat: 41.1,
-			lon: 29.0,
-			course: 200,
-			speed: 8.0,
-			shipType: 70,
-			shipTypeName: 'Cargo',
-			flag: 'TR',
-			destination: 'ISTANBUL',
-			lastUpdate: now - 50000
-		},
-		// North Sea (Fishing vessel)
-		{
-			mmsi: '246000013',
-			name: 'NORTH SEA FISHER',
-			lat: 54.5,
-			lon: 4.5,
-			course: 180,
-			speed: 5.5,
-			shipType: 30,
-			shipTypeName: 'Fishing',
-			flag: 'NL',
-			destination: 'DEN HELDER',
-			lastUpdate: now - 400000
-		},
-		// Caribbean - Cruise ship
-		{
-			mmsi: '311000014',
-			name: 'CARIBBEAN PRINCESS',
-			lat: 18.5,
-			lon: -66.0,
-			course: 120,
-			speed: 18.5,
-			shipType: 60,
-			shipTypeName: 'Passenger',
-			flag: 'BS',
-			destination: 'SAN JUAN',
-			lastUpdate: now - 70000
-		},
-		// Yellow Sea
-		{
-			mmsi: '440000015',
-			name: 'KOREA EXPRESS',
-			lat: 35.5,
-			lon: 125.0,
-			course: 350,
-			speed: 16.0,
-			shipType: 70,
-			shipTypeName: 'Cargo',
-			flag: 'KR',
-			destination: 'INCHEON',
-			lastUpdate: now - 130000
-		}
+	// Base vessel templates for each major shipping region
+	const vessels: Vessel[] = [
+		// ========== STRAIT OF MALACCA (World's busiest shipping lane - ~90,000 vessels/year) ==========
+		{ mmsi: '563000001', name: 'EVER GOLDEN', lat: 1.25, lon: 103.7, course: 315, speed: 12.5, shipType: 70, shipTypeName: 'Cargo', flag: 'SG', destination: 'ROTTERDAM', lastUpdate: now - 120000 },
+		{ mmsi: '477000002', name: 'COSCO PACIFIC', lat: 2.1, lon: 102.5, course: 295, speed: 14.2, shipType: 70, shipTypeName: 'Cargo', flag: 'HK', destination: 'SINGAPORE', lastUpdate: now - 180000 },
+		{ mmsi: '538000016', name: 'PACIFIC VOYAGER', lat: 1.8, lon: 103.2, course: 310, speed: 13.8, shipType: 80, shipTypeName: 'Tanker', flag: 'MH', destination: 'YOKOHAMA', lastUpdate: now - 95000 },
+		{ mmsi: '351000017', name: 'SINGAPORE SPIRIT', lat: 1.5, lon: 104.1, course: 270, speed: 11.2, shipType: 80, shipTypeName: 'Tanker', flag: 'PA', destination: 'SINGAPORE', lastUpdate: now - 140000 },
+		{ mmsi: '477000018', name: 'OOCL HONG KONG', lat: 2.5, lon: 101.8, course: 300, speed: 16.5, shipType: 70, shipTypeName: 'Cargo', flag: 'HK', destination: 'TANJUNG PELEPAS', lastUpdate: now - 75000 },
+		{ mmsi: '563000019', name: 'KEPPEL SINGAPORE', lat: 1.15, lon: 103.5, course: 45, speed: 8.0, shipType: 52, shipTypeName: 'Tug', flag: 'SG', destination: 'SINGAPORE ANCHORAGE', lastUpdate: now - 200000 },
+		{ mmsi: '533000020', name: 'STRAITS GUARDIAN', lat: 2.8, lon: 101.2, course: 285, speed: 18.0, shipType: 55, shipTypeName: 'Law Enforcement', flag: 'MY', destination: 'PATROL', lastUpdate: now - 50000 },
+		{ mmsi: '412000021', name: 'ZHONGGU JIANGSU', lat: 1.4, lon: 103.9, course: 320, speed: 14.0, shipType: 70, shipTypeName: 'Cargo', flag: 'CN', destination: 'SHANGHAI', lastUpdate: now - 165000 },
+
+		// ========== SUEZ CANAL & RED SEA (12% of global trade) ==========
+		{ mmsi: '373000003', name: 'MAERSK EDINBURGH', lat: 29.85, lon: 32.55, course: 340, speed: 8.5, shipType: 70, shipTypeName: 'Cargo', flag: 'PA', destination: 'PORT SAID', lastUpdate: now - 90000 },
+		{ mmsi: '636000022', name: 'MSC OSCAR', lat: 30.2, lon: 32.35, course: 355, speed: 7.8, shipType: 70, shipTypeName: 'Cargo', flag: 'PA', destination: 'SUEZ', lastUpdate: now - 110000 },
+		{ mmsi: '538000023', name: 'SUEZMAX STAR', lat: 29.5, lon: 32.7, course: 15, speed: 9.2, shipType: 80, shipTypeName: 'Tanker', flag: 'MH', destination: 'ROTTERDAM', lastUpdate: now - 82000 },
+		{ mmsi: '229000024', name: 'SUEZ PILOT', lat: 29.95, lon: 32.5, course: 180, speed: 12.0, shipType: 50, shipTypeName: 'Pilot Vessel', flag: 'EG', destination: 'PORT SAID', lastUpdate: now - 45000 },
+		{ mmsi: '370000025', name: 'CANAL TRANSPORTER', lat: 30.4, lon: 32.3, course: 0, speed: 6.5, shipType: 70, shipTypeName: 'Cargo', flag: 'PA', destination: 'ISMAILIA', lastUpdate: now - 185000 },
+		{ mmsi: '622000026', name: 'RED SEA NAVIGATOR', lat: 27.8, lon: 34.1, course: 340, speed: 14.5, shipType: 80, shipTypeName: 'Tanker', flag: 'EG', destination: 'SUEZ', lastUpdate: now - 220000 },
+		{ mmsi: '538000027', name: 'GULF EXPRESS', lat: 26.5, lon: 34.8, course: 325, speed: 15.8, shipType: 70, shipTypeName: 'Cargo', flag: 'MH', destination: 'JEDDAH', lastUpdate: now - 155000 },
+		{ mmsi: '403000028', name: 'JEDDAH PEARL', lat: 21.5, lon: 39.0, course: 350, speed: 12.2, shipType: 60, shipTypeName: 'Passenger', flag: 'SA', destination: 'JEDDAH', lastUpdate: now - 195000 },
+
+		// ========== PANAMA CANAL (5% of global trade) ==========
+		{ mmsi: '636000004', name: 'MSC AURORA', lat: 9.35, lon: -79.9, course: 180, speed: 11.0, shipType: 70, shipTypeName: 'Cargo', flag: 'LR', destination: 'COLON', lastUpdate: now - 150000 },
+		{ mmsi: '352000029', name: 'PANAMAX PRIDE', lat: 9.0, lon: -79.55, course: 45, speed: 7.5, shipType: 70, shipTypeName: 'Cargo', flag: 'PA', destination: 'BALBOA', lastUpdate: now - 72000 },
+		{ mmsi: '367000030', name: 'LIBERTY BRIDGE', lat: 9.2, lon: -79.75, course: 90, speed: 6.0, shipType: 70, shipTypeName: 'Cargo', flag: 'US', destination: 'CRISTOBAL', lastUpdate: now - 115000 },
+		{ mmsi: '538000031', name: 'NEOPANAMAX TITAN', lat: 8.85, lon: -79.5, course: 270, speed: 8.2, shipType: 70, shipTypeName: 'Cargo', flag: 'MH', destination: 'MANZANILLO', lastUpdate: now - 88000 },
+		{ mmsi: '352000032', name: 'CANAL PILOT 3', lat: 9.1, lon: -79.65, course: 135, speed: 15.0, shipType: 50, shipTypeName: 'Pilot Vessel', flag: 'PA', destination: 'GATUN LOCKS', lastUpdate: now - 35000 },
+		{ mmsi: '371000033', name: 'PACIFIC GATEWAY', lat: 8.7, lon: -79.35, course: 225, speed: 10.5, shipType: 80, shipTypeName: 'Tanker', flag: 'PA', destination: 'LA', lastUpdate: now - 175000 },
+
+		// ========== STRAIT OF GIBRALTAR (Mediterranean gateway) ==========
+		{ mmsi: '224000008', name: 'GIBRALTAR SPIRIT', lat: 35.95, lon: -5.5, course: 90, speed: 14.0, shipType: 80, shipTypeName: 'Tanker', flag: 'ES', destination: 'ALGECIRAS', lastUpdate: now - 100000 },
+		{ mmsi: '256000034', name: 'MEDITERRANEAN STAR', lat: 36.05, lon: -5.35, course: 75, speed: 16.2, shipType: 70, shipTypeName: 'Cargo', flag: 'MT', destination: 'GENOA', lastUpdate: now - 68000 },
+		{ mmsi: '235000035', name: 'BRITANNIA FERRY', lat: 35.85, lon: -5.65, course: 45, speed: 22.5, shipType: 60, shipTypeName: 'Passenger', flag: 'GB', destination: 'TANGIER', lastUpdate: now - 42000 },
+		{ mmsi: '224000036', name: 'ALGECIRAS TUG', lat: 36.1, lon: -5.4, course: 180, speed: 6.0, shipType: 52, shipTypeName: 'Tug', flag: 'ES', destination: 'ALGECIRAS', lastUpdate: now - 125000 },
+		{ mmsi: '242000037', name: 'MOROCCAN TRADER', lat: 35.75, lon: -5.8, course: 270, speed: 12.8, shipType: 70, shipTypeName: 'Cargo', flag: 'MA', destination: 'CASABLANCA', lastUpdate: now - 210000 },
+		{ mmsi: '247000038', name: 'ADRIATIC EXPRESS', lat: 36.2, lon: -5.2, course: 85, speed: 17.5, shipType: 70, shipTypeName: 'Cargo', flag: 'IT', destination: 'GIOIA TAURO', lastUpdate: now - 145000 },
+
+		// ========== STRAIT OF HORMUZ (20% of global oil, 35% of seaborne oil) ==========
+		{ mmsi: '470000010', name: 'ARABIAN GULF TANKER', lat: 26.5, lon: 56.5, course: 140, speed: 11.5, shipType: 80, shipTypeName: 'Tanker', flag: 'AE', destination: 'MUMBAI', lastUpdate: now - 160000 },
+		{ mmsi: '403000039', name: 'CRUDE KINGDOM', lat: 26.8, lon: 56.2, course: 115, speed: 13.2, shipType: 80, shipTypeName: 'Tanker', flag: 'SA', destination: 'SINGAPORE', lastUpdate: now - 92000 },
+		{ mmsi: '422000040', name: 'PERSIAN GULF', lat: 26.2, lon: 56.8, course: 280, speed: 10.8, shipType: 80, shipTypeName: 'Tanker', flag: 'IR', destination: 'BANDAR ABBAS', lastUpdate: now - 135000 },
+		{ mmsi: '470000041', name: 'EMIRATES STAR', lat: 26.6, lon: 56.4, course: 95, speed: 14.5, shipType: 80, shipTypeName: 'Tanker', flag: 'AE', destination: 'FUJAIRAH', lastUpdate: now - 78000 },
+		{ mmsi: '466000042', name: 'OMANI TRADER', lat: 26.35, lon: 56.65, course: 150, speed: 12.0, shipType: 80, shipTypeName: 'Tanker', flag: 'OM', destination: 'SOHAR', lastUpdate: now - 188000 },
+		{ mmsi: '538000043', name: 'VLCC HERCULES', lat: 26.9, lon: 56.1, course: 125, speed: 11.8, shipType: 80, shipTypeName: 'Tanker', flag: 'MH', destination: 'KOREA', lastUpdate: now - 105000 },
+		{ mmsi: '470000044', name: 'GULF DEFENDER', lat: 26.4, lon: 56.55, course: 270, speed: 22.0, shipType: 35, shipTypeName: 'Military Operations', flag: 'AE', destination: 'PATROL', lastUpdate: now - 25000 },
+
+		// ========== ENGLISH CHANNEL (One of busiest shipping lanes) ==========
+		{ mmsi: '244000005', name: 'ROTTERDAM EXPRESS', lat: 51.0, lon: 1.5, course: 220, speed: 16.8, shipType: 70, shipTypeName: 'Cargo', flag: 'NL', destination: 'LE HAVRE', lastUpdate: now - 60000 },
+		{ mmsi: '235000045', name: 'DOVER SEAWAYS', lat: 51.05, lon: 1.35, course: 135, speed: 20.5, shipType: 60, shipTypeName: 'Passenger', flag: 'GB', destination: 'CALAIS', lastUpdate: now - 38000 },
+		{ mmsi: '226000046', name: 'CALAIS SPIRIT', lat: 50.95, lon: 1.6, course: 315, speed: 21.0, shipType: 60, shipTypeName: 'Passenger', flag: 'FR', destination: 'DOVER', lastUpdate: now - 55000 },
+		{ mmsi: '245000047', name: 'EUROPOORT TRADER', lat: 51.2, lon: 1.8, course: 50, speed: 14.2, shipType: 70, shipTypeName: 'Cargo', flag: 'NL', destination: 'ROTTERDAM', lastUpdate: now - 122000 },
+		{ mmsi: '211000048', name: 'HAMBURG EXPRESS', lat: 51.15, lon: 1.65, course: 65, speed: 15.8, shipType: 70, shipTypeName: 'Cargo', flag: 'DE', destination: 'HAMBURG', lastUpdate: now - 98000 },
+		{ mmsi: '235000049', name: 'CHANNEL PILOT', lat: 50.9, lon: 1.25, course: 90, speed: 18.0, shipType: 50, shipTypeName: 'Pilot Vessel', flag: 'GB', destination: 'DOVER', lastUpdate: now - 32000 },
+
+		// ========== BOSPHORUS & BLACK SEA (Major grain/oil route) ==========
+		{ mmsi: '271000012', name: 'BLACK SEA CARRIER', lat: 41.1, lon: 29.0, course: 200, speed: 8.0, shipType: 70, shipTypeName: 'Cargo', flag: 'TR', destination: 'ISTANBUL', lastUpdate: now - 50000 },
+		{ mmsi: '273000050', name: 'ROSTOV GRAIN', lat: 41.2, lon: 29.05, course: 180, speed: 7.5, shipType: 70, shipTypeName: 'Cargo', flag: 'RU', destination: 'CONSTANTA', lastUpdate: now - 85000 },
+		{ mmsi: '272000051', name: 'ODESA BULK', lat: 41.05, lon: 28.95, course: 25, speed: 6.8, shipType: 70, shipTypeName: 'Cargo', flag: 'UA', destination: 'ISTANBUL', lastUpdate: now - 115000 },
+		{ mmsi: '271000052', name: 'BOSPHORUS TUG', lat: 41.15, lon: 29.02, course: 350, speed: 5.5, shipType: 52, shipTypeName: 'Tug', flag: 'TR', destination: 'KARAKOY', lastUpdate: now - 28000 },
+		{ mmsi: '240000053', name: 'AEGEAN TANKER', lat: 40.95, lon: 28.9, course: 215, speed: 9.2, shipType: 80, shipTypeName: 'Tanker', flag: 'GR', destination: 'PIRAEUS', lastUpdate: now - 148000 },
+		{ mmsi: '214000054', name: 'ROMANIA STAR', lat: 44.15, lon: 28.65, course: 270, speed: 12.5, shipType: 70, shipTypeName: 'Cargo', flag: 'RO', destination: 'CONSTANTA', lastUpdate: now - 175000 },
+
+		// ========== TAIWAN STRAIT (Critical semiconductor supply chain) ==========
+		{ mmsi: '416000009', name: 'EVERGREEN MARINE', lat: 24.5, lon: 119.5, course: 10, speed: 18.0, shipType: 70, shipTypeName: 'Cargo', flag: 'TW', destination: 'KAOHSIUNG', lastUpdate: now - 80000 },
+		{ mmsi: '412000055', name: 'COSCO SHIPPING', lat: 25.0, lon: 120.0, course: 355, speed: 16.5, shipType: 70, shipTypeName: 'Cargo', flag: 'CN', destination: 'XIAMEN', lastUpdate: now - 62000 },
+		{ mmsi: '416000056', name: 'YANG MING LINE', lat: 24.8, lon: 119.8, course: 185, speed: 17.2, shipType: 70, shipTypeName: 'Cargo', flag: 'TW', destination: 'HONG KONG', lastUpdate: now - 105000 },
+		{ mmsi: '412000057', name: 'CHINA CONTAINER', lat: 25.2, lon: 120.2, course: 5, speed: 15.8, shipType: 70, shipTypeName: 'Cargo', flag: 'CN', destination: 'NINGBO', lastUpdate: now - 145000 },
+		{ mmsi: '416000058', name: 'TAIPEI FERRY', lat: 24.3, lon: 119.3, course: 45, speed: 24.0, shipType: 60, shipTypeName: 'Passenger', flag: 'TW', destination: 'KINMEN', lastUpdate: now - 38000 },
+		{ mmsi: '412000059', name: 'FUJIAN TRAWLER', lat: 24.6, lon: 119.6, course: 90, speed: 6.5, shipType: 30, shipTypeName: 'Fishing', flag: 'CN', destination: 'XIAMEN', lastUpdate: now - 250000 },
+
+		// ========== SOUTH CHINA SEA (Major trade route + territorial disputes) ==========
+		{ mmsi: '412000007', name: 'YANG MING HARMONY', lat: 14.5, lon: 117.0, course: 45, speed: 15.2, shipType: 70, shipTypeName: 'Cargo', flag: 'TW', destination: 'HONG KONG', lastUpdate: now - 200000 },
+		{ mmsi: '548000060', name: 'MANILA EXPRESS', lat: 14.8, lon: 120.0, course: 270, speed: 14.8, shipType: 70, shipTypeName: 'Cargo', flag: 'PH', destination: 'MANILA', lastUpdate: now - 135000 },
+		{ mmsi: '574000061', name: 'VIETNAM STAR', lat: 10.5, lon: 107.5, course: 45, speed: 13.5, shipType: 70, shipTypeName: 'Cargo', flag: 'VN', destination: 'HO CHI MINH', lastUpdate: now - 168000 },
+		{ mmsi: '412000062', name: 'HAINAN FISHER', lat: 18.5, lon: 110.0, course: 180, speed: 5.8, shipType: 30, shipTypeName: 'Fishing', flag: 'CN', destination: 'HAINAN', lastUpdate: now - 285000 },
+		{ mmsi: '548000063', name: 'SCARBOROUGH PATROL', lat: 15.2, lon: 117.8, course: 315, speed: 18.5, shipType: 55, shipTypeName: 'Law Enforcement', flag: 'PH', destination: 'PATROL', lastUpdate: now - 42000 },
+		{ mmsi: '538000064', name: 'SPRATLY TANKER', lat: 12.0, lon: 114.5, course: 285, speed: 12.2, shipType: 80, shipTypeName: 'Tanker', flag: 'MH', destination: 'SINGAPORE', lastUpdate: now - 195000 },
+
+		// ========== GULF OF ADEN (Piracy hotspot, major route to Suez) ==========
+		{ mmsi: '538000006', name: 'CRUDE PIONEER', lat: 12.5, lon: 47.5, course: 270, speed: 13.5, shipType: 80, shipTypeName: 'Tanker', flag: 'MH', destination: 'FUJAIRAH', lastUpdate: now - 240000 },
+		{ mmsi: '636000065', name: 'ADEN GUARDIAN', lat: 12.8, lon: 45.0, course: 285, speed: 16.0, shipType: 35, shipTypeName: 'Military Operations', flag: 'US', destination: 'DJIBOUTI', lastUpdate: now - 55000 },
+		{ mmsi: '211000066', name: 'BREMEN CONTAINER', lat: 12.2, lon: 48.5, course: 255, speed: 17.5, shipType: 70, shipTypeName: 'Cargo', flag: 'DE', destination: 'HAMBURG', lastUpdate: now - 125000 },
+		{ mmsi: '538000067', name: 'SOMALI COAST', lat: 11.5, lon: 50.0, course: 280, speed: 14.8, shipType: 80, shipTypeName: 'Tanker', flag: 'MH', destination: 'SUEZ', lastUpdate: now - 185000 },
+		{ mmsi: '226000068', name: 'DJIBOUTI SUPPLY', lat: 11.6, lon: 43.1, course: 90, speed: 10.5, shipType: 70, shipTypeName: 'Cargo', flag: 'FR', destination: 'DJIBOUTI', lastUpdate: now - 215000 },
+
+		// ========== CAPE OF GOOD HOPE (Alternative to Suez) ==========
+		{ mmsi: '636000011', name: 'CAPE ATLANTIC', lat: -34.5, lon: 18.5, course: 270, speed: 14.8, shipType: 70, shipTypeName: 'Cargo', flag: 'LR', destination: 'SANTOS', lastUpdate: now - 300000 },
+		{ mmsi: '601000069', name: 'SOUTH AFRICAN STAR', lat: -34.2, lon: 18.8, course: 45, speed: 12.5, shipType: 80, shipTypeName: 'Tanker', flag: 'ZA', destination: 'DURBAN', lastUpdate: now - 175000 },
+		{ mmsi: '538000070', name: 'CAPE HORN EXPRESS', lat: -34.8, lon: 18.2, course: 315, speed: 15.2, shipType: 70, shipTypeName: 'Cargo', flag: 'MH', destination: 'WEST AFRICA', lastUpdate: now - 248000 },
+		{ mmsi: '601000071', name: 'CAPE TOWN TUG', lat: -33.9, lon: 18.45, course: 180, speed: 6.0, shipType: 52, shipTypeName: 'Tug', flag: 'ZA', destination: 'CAPE TOWN', lastUpdate: now - 45000 },
+
+		// ========== NORTH SEA & BALTIC (Major European trade) ==========
+		{ mmsi: '246000013', name: 'NORTH SEA FISHER', lat: 54.5, lon: 4.5, course: 180, speed: 5.5, shipType: 30, shipTypeName: 'Fishing', flag: 'NL', destination: 'DEN HELDER', lastUpdate: now - 400000 },
+		{ mmsi: '257000072', name: 'NORWEGIAN FJORD', lat: 58.5, lon: 5.0, course: 180, speed: 18.5, shipType: 60, shipTypeName: 'Passenger', flag: 'NO', destination: 'BERGEN', lastUpdate: now - 88000 },
+		{ mmsi: '220000073', name: 'DANISH CONTAINER', lat: 55.5, lon: 8.5, course: 90, speed: 15.2, shipType: 70, shipTypeName: 'Cargo', flag: 'DK', destination: 'COPENHAGEN', lastUpdate: now - 142000 },
+		{ mmsi: '265000074', name: 'SWEDISH FERRY', lat: 57.7, lon: 11.9, course: 315, speed: 20.0, shipType: 60, shipTypeName: 'Passenger', flag: 'SE', destination: 'GOTHENBURG', lastUpdate: now - 65000 },
+		{ mmsi: '230000075', name: 'BALTIC TRADER', lat: 55.2, lon: 14.5, course: 45, speed: 12.8, shipType: 70, shipTypeName: 'Cargo', flag: 'FI', destination: 'GDYNIA', lastUpdate: now - 195000 },
+		{ mmsi: '261000076', name: 'POLISH BULK', lat: 54.5, lon: 18.7, course: 270, speed: 11.5, shipType: 70, shipTypeName: 'Cargo', flag: 'PL', destination: 'GDANSK', lastUpdate: now - 168000 },
+
+		// ========== CARIBBEAN & GULF OF MEXICO ==========
+		{ mmsi: '311000014', name: 'CARIBBEAN PRINCESS', lat: 18.5, lon: -66.0, course: 120, speed: 18.5, shipType: 60, shipTypeName: 'Passenger', flag: 'BS', destination: 'SAN JUAN', lastUpdate: now - 70000 },
+		{ mmsi: '367000077', name: 'GULF DRILLER', lat: 28.5, lon: -88.5, course: 90, speed: 2.0, shipType: 33, shipTypeName: 'Dredging', flag: 'US', destination: 'ON SITE', lastUpdate: now - 350000 },
+		{ mmsi: '538000078', name: 'HOUSTON TANKER', lat: 28.0, lon: -94.0, course: 315, speed: 12.5, shipType: 80, shipTypeName: 'Tanker', flag: 'MH', destination: 'HOUSTON', lastUpdate: now - 138000 },
+		{ mmsi: '367000079', name: 'NEW ORLEANS CARGO', lat: 29.5, lon: -89.5, course: 45, speed: 10.8, shipType: 70, shipTypeName: 'Cargo', flag: 'US', destination: 'NEW ORLEANS', lastUpdate: now - 185000 },
+		{ mmsi: '311000080', name: 'BAHAMAS CRUISE', lat: 25.0, lon: -77.5, course: 270, speed: 20.5, shipType: 60, shipTypeName: 'Passenger', flag: 'BS', destination: 'NASSAU', lastUpdate: now - 52000 },
+		{ mmsi: '345000081', name: 'JAMAICA CONTAINER', lat: 17.5, lon: -76.8, course: 90, speed: 14.2, shipType: 70, shipTypeName: 'Cargo', flag: 'JM', destination: 'KINGSTON', lastUpdate: now - 225000 },
+
+		// ========== TRANS-PACIFIC ROUTE (Asia to Americas) ==========
+		{ mmsi: '431000082', name: 'NIPPON MARU', lat: 35.0, lon: 140.0, course: 90, speed: 16.5, shipType: 70, shipTypeName: 'Cargo', flag: 'JP', destination: 'YOKOHAMA', lastUpdate: now - 95000 },
+		{ mmsi: '440000015', name: 'KOREA EXPRESS', lat: 35.5, lon: 125.0, course: 350, speed: 16.0, shipType: 70, shipTypeName: 'Cargo', flag: 'KR', destination: 'INCHEON', lastUpdate: now - 130000 },
+		{ mmsi: '538000083', name: 'PACIFIC CROSSING', lat: 30.0, lon: -140.0, course: 85, speed: 18.2, shipType: 70, shipTypeName: 'Cargo', flag: 'MH', destination: 'LONG BEACH', lastUpdate: now - 275000 },
+		{ mmsi: '366000084', name: 'LA GATEWAY', lat: 33.7, lon: -118.3, course: 45, speed: 8.5, shipType: 70, shipTypeName: 'Cargo', flag: 'US', destination: 'LOS ANGELES', lastUpdate: now - 68000 },
+		{ mmsi: '431000085', name: 'TOKYO EXPRESS', lat: 35.5, lon: 139.8, course: 135, speed: 14.8, shipType: 70, shipTypeName: 'Cargo', flag: 'JP', destination: 'TOKYO', lastUpdate: now - 152000 },
+		{ mmsi: '538000086', name: 'MID-PACIFIC TANKER', lat: 25.0, lon: -160.0, course: 75, speed: 12.5, shipType: 80, shipTypeName: 'Tanker', flag: 'MH', destination: 'HAWAII', lastUpdate: now - 315000 },
+
+		// ========== TRANS-ATLANTIC (Europe to Americas) ==========
+		{ mmsi: '235000087', name: 'QUEEN MARY 2', lat: 45.0, lon: -35.0, course: 270, speed: 25.0, shipType: 60, shipTypeName: 'Passenger', flag: 'GB', destination: 'NEW YORK', lastUpdate: now - 185000 },
+		{ mmsi: '636000088', name: 'ATLANTIC BRIDGE', lat: 42.0, lon: -55.0, course: 255, speed: 18.5, shipType: 70, shipTypeName: 'Cargo', flag: 'LR', destination: 'BOSTON', lastUpdate: now - 228000 },
+		{ mmsi: '211000089', name: 'GERMAN EFFICIENCY', lat: 50.0, lon: -20.0, course: 280, speed: 17.2, shipType: 70, shipTypeName: 'Cargo', flag: 'DE', destination: 'NORFOLK', lastUpdate: now - 175000 },
+		{ mmsi: '226000090', name: 'NORMANDIE EXPRESS', lat: 48.0, lon: -8.0, course: 275, speed: 20.5, shipType: 40, shipTypeName: 'High Speed Craft', flag: 'FR', destination: 'BREST', lastUpdate: now - 95000 },
+
+		// ========== MEDITERRANEAN SEA ==========
+		{ mmsi: '247000091', name: 'ROMA EXPRESS', lat: 41.9, lon: 12.5, course: 180, speed: 12.0, shipType: 70, shipTypeName: 'Cargo', flag: 'IT', destination: 'CIVITAVECCHIA', lastUpdate: now - 128000 },
+		{ mmsi: '240000092', name: 'PIRAEUS CONTAINER', lat: 37.95, lon: 23.65, course: 270, speed: 8.5, shipType: 70, shipTypeName: 'Cargo', flag: 'GR', destination: 'PIRAEUS', lastUpdate: now - 85000 },
+		{ mmsi: '256000093', name: 'MALTA FERRY', lat: 35.9, lon: 14.5, course: 350, speed: 22.0, shipType: 60, shipTypeName: 'Passenger', flag: 'MT', destination: 'VALLETTA', lastUpdate: now - 45000 },
+		{ mmsi: '225000094', name: 'BARCELONA LINER', lat: 41.35, lon: 2.15, course: 90, speed: 14.5, shipType: 70, shipTypeName: 'Cargo', flag: 'ES', destination: 'BARCELONA', lastUpdate: now - 155000 },
+		{ mmsi: '227000095', name: 'MARSEILLE TANKER', lat: 43.3, lon: 5.35, course: 180, speed: 10.8, shipType: 80, shipTypeName: 'Tanker', flag: 'FR', destination: 'MARSEILLE', lastUpdate: now - 198000 },
+		{ mmsi: '376000096', name: 'LIBYA COAST', lat: 32.5, lon: 14.5, course: 45, speed: 11.2, shipType: 80, shipTypeName: 'Tanker', flag: 'CY', destination: 'TRIPOLI', lastUpdate: now - 265000 },
+
+		// ========== PERSIAN GULF (Major oil production) ==========
+		{ mmsi: '447000097', name: 'KUWAIT CRUDE', lat: 29.0, lon: 48.5, course: 135, speed: 10.5, shipType: 80, shipTypeName: 'Tanker', flag: 'KW', destination: 'RAS TANURA', lastUpdate: now - 145000 },
+		{ mmsi: '403000098', name: 'SAUDI ARAMCO', lat: 27.5, lon: 49.5, course: 180, speed: 11.8, shipType: 80, shipTypeName: 'Tanker', flag: 'SA', destination: 'JUBAIL', lastUpdate: now - 175000 },
+		{ mmsi: '466000099', name: 'OMAN LNG', lat: 24.5, lon: 57.0, course: 90, speed: 14.2, shipType: 80, shipTypeName: 'Tanker', flag: 'OM', destination: 'SUR', lastUpdate: now - 205000 },
+		{ mmsi: '403000100', name: 'QATAR GAS', lat: 25.5, lon: 51.5, course: 115, speed: 13.8, shipType: 80, shipTypeName: 'Tanker', flag: 'QA', destination: 'RAS LAFFAN', lastUpdate: now - 118000 },
+
+		// ========== INDIAN OCEAN ==========
+		{ mmsi: '419000101', name: 'MUMBAI MERCHANT', lat: 18.9, lon: 72.8, course: 225, speed: 11.5, shipType: 70, shipTypeName: 'Cargo', flag: 'IN', destination: 'MUMBAI', lastUpdate: now - 165000 },
+		{ mmsi: '525000102', name: 'JAKARTA TRADER', lat: -6.1, lon: 106.8, course: 315, speed: 10.2, shipType: 70, shipTypeName: 'Cargo', flag: 'ID', destination: 'JAKARTA', lastUpdate: now - 195000 },
+		{ mmsi: '419000103', name: 'CHENNAI BULK', lat: 13.1, lon: 80.3, course: 180, speed: 9.8, shipType: 70, shipTypeName: 'Cargo', flag: 'IN', destination: 'CHENNAI', lastUpdate: now - 228000 },
+		{ mmsi: '518000104', name: 'COLOMBO EXPRESS', lat: 6.9, lon: 79.85, course: 270, speed: 15.5, shipType: 70, shipTypeName: 'Cargo', flag: 'LK', destination: 'COLOMBO', lastUpdate: now - 135000 },
+		{ mmsi: '565000105', name: 'SINGAPORE REFINERY', lat: 1.2, lon: 103.8, course: 90, speed: 8.0, shipType: 80, shipTypeName: 'Tanker', flag: 'SG', destination: 'JURONG', lastUpdate: now - 75000 },
+
+		// ========== EAST CHINA SEA & YELLOW SEA ==========
+		{ mmsi: '412000106', name: 'SHANGHAI MAERSK', lat: 31.2, lon: 121.5, course: 90, speed: 7.5, shipType: 70, shipTypeName: 'Cargo', flag: 'CN', destination: 'SHANGHAI', lastUpdate: now - 58000 },
+		{ mmsi: '440000107', name: 'BUSAN EXPRESS', lat: 35.1, lon: 129.05, course: 180, speed: 12.8, shipType: 70, shipTypeName: 'Cargo', flag: 'KR', destination: 'BUSAN', lastUpdate: now - 105000 },
+		{ mmsi: '412000108', name: 'QINGDAO BULK', lat: 36.0, lon: 120.3, course: 270, speed: 10.5, shipType: 70, shipTypeName: 'Cargo', flag: 'CN', destination: 'QINGDAO', lastUpdate: now - 145000 },
+		{ mmsi: '431000109', name: 'KOBE FERRY', lat: 34.65, lon: 135.2, course: 90, speed: 22.5, shipType: 60, shipTypeName: 'Passenger', flag: 'JP', destination: 'KOBE', lastUpdate: now - 42000 },
+		{ mmsi: '440000110', name: 'ULSAN TANKER', lat: 35.5, lon: 129.4, course: 45, speed: 11.2, shipType: 80, shipTypeName: 'Tanker', flag: 'KR', destination: 'ULSAN', lastUpdate: now - 178000 },
+
+		// ========== AUSTRALIA & OCEANIA ==========
+		{ mmsi: '503000111', name: 'SYDNEY STAR', lat: -33.85, lon: 151.25, course: 45, speed: 8.5, shipType: 70, shipTypeName: 'Cargo', flag: 'AU', destination: 'SYDNEY', lastUpdate: now - 95000 },
+		{ mmsi: '503000112', name: 'MELBOURNE BULK', lat: -37.85, lon: 144.9, course: 180, speed: 10.2, shipType: 70, shipTypeName: 'Cargo', flag: 'AU', destination: 'MELBOURNE', lastUpdate: now - 148000 },
+		{ mmsi: '512000113', name: 'AUCKLAND FERRY', lat: -36.85, lon: 174.75, course: 90, speed: 18.5, shipType: 60, shipTypeName: 'Passenger', flag: 'NZ', destination: 'AUCKLAND', lastUpdate: now - 68000 },
+		{ mmsi: '503000114', name: 'FREMANTLE ORE', lat: -32.05, lon: 115.75, course: 270, speed: 12.8, shipType: 70, shipTypeName: 'Cargo', flag: 'AU', destination: 'FREMANTLE', lastUpdate: now - 215000 },
+		{ mmsi: '538000115', name: 'CORAL SEA TANKER', lat: -18.0, lon: 148.0, course: 315, speed: 13.5, shipType: 80, shipTypeName: 'Tanker', flag: 'MH', destination: 'GLADSTONE', lastUpdate: now - 285000 },
+
+		// ========== SOUTH AMERICA ==========
+		{ mmsi: '710000116', name: 'SANTOS CONTAINER', lat: -23.95, lon: -46.3, course: 180, speed: 11.5, shipType: 70, shipTypeName: 'Cargo', flag: 'BR', destination: 'SANTOS', lastUpdate: now - 125000 },
+		{ mmsi: '720000117', name: 'BUENOS AIRES GRAIN', lat: -34.6, lon: -58.4, course: 90, speed: 9.8, shipType: 70, shipTypeName: 'Cargo', flag: 'AR', destination: 'BUENOS AIRES', lastUpdate: now - 175000 },
+		{ mmsi: '725000118', name: 'VALPARAISO STAR', lat: -33.0, lon: -71.6, course: 0, speed: 10.2, shipType: 70, shipTypeName: 'Cargo', flag: 'CL', destination: 'VALPARAISO', lastUpdate: now - 195000 },
+		{ mmsi: '730000119', name: 'CALLAO EXPRESS', lat: -12.05, lon: -77.15, course: 315, speed: 12.5, shipType: 70, shipTypeName: 'Cargo', flag: 'PE', destination: 'CALLAO', lastUpdate: now - 225000 },
+		{ mmsi: '735000120', name: 'GUAYAQUIL BANANA', lat: -2.2, lon: -79.9, course: 270, speed: 14.0, shipType: 70, shipTypeName: 'Cargo', flag: 'EC', destination: 'GUAYAQUIL', lastUpdate: now - 165000 },
+
+		// ========== WEST AFRICA (Emerging oil region) ==========
+		{ mmsi: '618000121', name: 'LAGOS TANKER', lat: 6.45, lon: 3.4, course: 180, speed: 8.5, shipType: 80, shipTypeName: 'Tanker', flag: 'NG', destination: 'LAGOS', lastUpdate: now - 145000 },
+		{ mmsi: '613000122', name: 'ANGOLA CRUDE', lat: -8.8, lon: 13.2, course: 270, speed: 11.2, shipType: 80, shipTypeName: 'Tanker', flag: 'AO', destination: 'LUANDA', lastUpdate: now - 185000 },
+		{ mmsi: '663000123', name: 'DAKAR FERRY', lat: 14.7, lon: -17.45, course: 45, speed: 15.5, shipType: 60, shipTypeName: 'Passenger', flag: 'SN', destination: 'DAKAR', lastUpdate: now - 98000 },
+		{ mmsi: '620000124', name: 'ABIDJAN CARGO', lat: 5.3, lon: -4.0, course: 90, speed: 12.0, shipType: 70, shipTypeName: 'Cargo', flag: 'CI', destination: 'ABIDJAN', lastUpdate: now - 215000 },
+
+		// ========== ARCTIC ROUTES (Northern Sea Route) ==========
+		{ mmsi: '273000125', name: 'CHRISTOPHE DE MARGERIE', lat: 72.5, lon: 110.0, course: 90, speed: 10.5, shipType: 80, shipTypeName: 'Tanker', flag: 'RU', destination: 'SABETTA', lastUpdate: now - 295000 },
+		{ mmsi: '273000126', name: 'ARCTIC AURORA', lat: 70.0, lon: 135.0, course: 75, speed: 8.2, shipType: 70, shipTypeName: 'Cargo', flag: 'RU', destination: 'PEVEK', lastUpdate: now - 345000 },
+
+		// ========== STRATEGIC MILITARY/PATROL VESSELS ==========
+		{ mmsi: '367000127', name: 'USS ARLEIGH BURKE', lat: 35.0, lon: 140.5, course: 180, speed: 15.0, shipType: 35, shipTypeName: 'Military Operations', flag: 'US', destination: 'YOKOSUKA', lastUpdate: now - 35000 },
+		{ mmsi: '235000128', name: 'HMS QUEEN ELIZABETH', lat: 50.8, lon: -1.1, course: 180, speed: 18.5, shipType: 35, shipTypeName: 'Military Operations', flag: 'GB', destination: 'PORTSMOUTH', lastUpdate: now - 48000 },
+		{ mmsi: '226000129', name: 'FS CHARLES DE GAULLE', lat: 43.1, lon: 5.9, course: 90, speed: 12.0, shipType: 35, shipTypeName: 'Military Operations', flag: 'FR', destination: 'TOULON', lastUpdate: now - 72000 },
+		{ mmsi: '412000130', name: 'LIAONING', lat: 38.9, lon: 121.6, course: 180, speed: 14.5, shipType: 35, shipTypeName: 'Military Operations', flag: 'CN', destination: 'DALIAN', lastUpdate: now - 85000 },
+
+		// ========== SEARCH AND RESCUE ==========
+		{ mmsi: '257000131', name: 'NORWEGIAN SAR 1', lat: 62.5, lon: 6.0, course: 0, speed: 25.0, shipType: 51, shipTypeName: 'Search and Rescue', flag: 'NO', destination: 'ALESUND', lastUpdate: now - 28000 },
+		{ mmsi: '366000132', name: 'USCG BERTHOLF', lat: 57.0, lon: -170.0, course: 90, speed: 20.0, shipType: 51, shipTypeName: 'Search and Rescue', flag: 'US', destination: 'DUTCH HARBOR', lastUpdate: now - 65000 },
+		{ mmsi: '431000133', name: 'JCG SHIKISHIMA', lat: 35.4, lon: 139.7, course: 270, speed: 18.0, shipType: 51, shipTypeName: 'Search and Rescue', flag: 'JP', destination: 'TOKYO', lastUpdate: now - 55000 }
 	];
+
+	return vessels;
 }
 
 // Cache for vessel data to limit API calls
@@ -3457,7 +3432,7 @@ async function fetchAISHubData(apiKey: string): Promise<Vessel[]> {
 				typeof v.LATITUDE === 'number' &&
 				typeof v.LONGITUDE === 'number'
 			)
-			.slice(0, 100) // Limit to 100 vessels
+			.slice(0, 500) // Limit to 500 vessels for performance
 			.map((v: Record<string, unknown>) => ({
 				mmsi: String(v.MMSI || ''),
 				name: v.NAME as string | undefined,
