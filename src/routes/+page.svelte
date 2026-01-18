@@ -25,7 +25,8 @@
 		GridStressPanel,
 		EarthquakePanel,
 		RadiationPanel,
-		DiseaseOutbreakPanel
+		DiseaseOutbreakPanel,
+		AnalysisChatPanel
 	} from '$lib/components/panels';
 	import {
 		news,
@@ -59,6 +60,7 @@
 	import type { CustomMonitor, WorldLeader } from '$lib/types';
 	import type { PanelId } from '$lib/config';
 	import { HOTSPOTS } from '$lib/config/map';
+	import type { ActionHandlers } from '$lib/services/ai-actions';
 
 	// Derived layout styles
 	const layoutStyle = $derived(() => {
@@ -93,6 +95,21 @@
 	let radiationLoading = $state(false);
 	let diseaseOutbreaks = $state<DiseaseOutbreak[]>([]);
 	let outbreaksLoading = $state(false);
+
+	// Data freshness tracking for AI actions
+	let dataFreshness = $state<Record<string, number | null>>({
+		news: null,
+		markets: null,
+		crypto: null,
+		geopolitical: null,
+		infrastructure: null,
+		environmental: null,
+		alternative: null
+	});
+
+	// Panel highlight state for AI actions (reserved for future panel highlighting feature)
+	// eslint-disable-next-line @typescript-eslint/no-unused-vars
+	let highlightedPanelId = $state<string | null>(null);
 
 	// Globe navigation target - when set, the globe flies to these coordinates
 	// Includes _ts timestamp to force reactivity on every click
@@ -139,6 +156,9 @@
 					news.setError(category as keyof typeof result.data, errorMsg);
 				}
 			});
+
+			// Track freshness
+			dataFreshness = { ...dataFreshness, news: Date.now(), geopolitical: Date.now() };
 		} catch (error) {
 			categories.forEach((cat) => news.setError(cat, String(error)));
 		}
@@ -151,6 +171,8 @@
 			markets.setSectors(data.sectors);
 			markets.setCommodities(data.commodities);
 			markets.setCrypto(data.crypto);
+			// Track freshness
+			dataFreshness = { ...dataFreshness, markets: Date.now(), crypto: Date.now() };
 		} catch (error) {
 			console.error('Failed to load markets:', error);
 		}
@@ -168,6 +190,8 @@
 			whales = whalesData;
 			contracts = contractsData;
 			layoffs = layoffsData;
+			// Track freshness
+			dataFreshness = { ...dataFreshness, alternative: Date.now() };
 		} catch (error) {
 			console.error('Failed to load misc data:', error);
 		}
@@ -190,6 +214,8 @@
 		gridStressLoading = true;
 		try {
 			gridStress = await fetchAllGridStress();
+			// Track freshness
+			dataFreshness = { ...dataFreshness, infrastructure: Date.now() };
 		} catch (error) {
 			console.error('Failed to load grid stress data:', error);
 		} finally {
@@ -232,6 +258,61 @@
 			outbreaksLoading = false;
 		}
 	}
+
+	// Combined environmental data loading for AI actions
+	async function loadEnvironmentalData() {
+		await Promise.all([
+			loadEarthquakes(),
+			loadRadiation(),
+			loadDiseaseOutbreaks()
+		]);
+		dataFreshness = { ...dataFreshness, environmental: Date.now() };
+	}
+
+	// Combined crypto loading for AI actions
+	async function loadCryptoData() {
+		try {
+			const data = await fetchAllMarkets();
+			markets.setCrypto(data.crypto);
+			// Also refresh whales which is crypto-related
+			const whalesData = await fetchWhaleTransactions();
+			whales = whalesData;
+			dataFreshness = { ...dataFreshness, crypto: Date.now() };
+		} catch (error) {
+			console.error('Failed to load crypto data:', error);
+		}
+	}
+
+	// Panel highlight function for AI actions
+	function highlightPanel(panelId: string) {
+		highlightedPanelId = panelId;
+		// Auto-clear highlight after 3 seconds
+		setTimeout(() => {
+			highlightedPanelId = null;
+		}, 3000);
+	}
+
+	// Action handlers for AI tool execution
+	const actionHandlers: ActionHandlers = {
+		refreshNews: loadNews,
+		refreshMarkets: loadMarkets,
+		refreshCrypto: loadCryptoData,
+		refreshGeopolitical: loadNews, // Geopolitical data comes from news feeds
+		refreshInfrastructure: loadGridStress,
+		refreshEnvironmental: loadEnvironmentalData,
+		refreshAlternative: loadMiscData,
+		refreshAll: async () => {
+			await Promise.all([
+				loadNews(),
+				loadMarkets(),
+				loadMiscData(),
+				loadGridStress(),
+				loadEnvironmentalData()
+			]);
+		},
+		highlightPanel,
+		getDataFreshness: () => dataFreshness
+	};
 
 	async function handleRefresh() {
 		refresh.startRefresh();
@@ -454,6 +535,21 @@
 						<RadiationPanel readings={radiationReadings} loading={radiationLoading} onReadingClick={handleRadiationClick} />
 					{:else if panelId === 'outbreaks'}
 						<DiseaseOutbreakPanel outbreaks={diseaseOutbreaks} loading={outbreaksLoading} onOutbreakClick={handleOutbreakClick} />
+					{:else if panelId === 'analysis'}
+						<AnalysisChatPanel
+							externalData={{
+								earthquakes,
+								radiation: radiationReadings,
+								diseaseOutbreaks,
+								whaleTransactions: whales,
+								govContracts: contracts,
+								layoffs,
+								predictions,
+								gridStress
+							}}
+							onOpenSettings={() => settingsOpen = true}
+							{actionHandlers}
+						/>
 					{/if}
 				{/each}
 			</DropZone>
@@ -468,7 +564,7 @@
 					<div class="corner-bl"></div>
 					<div class="corner-br"></div>
 
-					<GlobePanel monitors={$monitors.monitors} news={$allNewsItems} categorizedNews={$categorizedNewsItems} flyToTarget={globeFlyToTarget} radiationReadings={radiationReadings} diseaseOutbreaks={diseaseOutbreaks} />
+					<GlobePanel monitors={$monitors.monitors} news={$allNewsItems} categorizedNews={$categorizedNewsItems} flyToTarget={globeFlyToTarget} radiationReadings={radiationReadings} diseaseOutbreaks={diseaseOutbreaks} earthquakes={earthquakes} />
 
 					<!-- Globe overlay controls and info -->
 					<div class="globe-info-overlay">
@@ -613,6 +709,21 @@
 						<RadiationPanel readings={radiationReadings} loading={radiationLoading} onReadingClick={handleRadiationClick} />
 					{:else if panelId === 'outbreaks'}
 						<DiseaseOutbreakPanel outbreaks={diseaseOutbreaks} loading={outbreaksLoading} onOutbreakClick={handleOutbreakClick} />
+					{:else if panelId === 'analysis'}
+						<AnalysisChatPanel
+							externalData={{
+								earthquakes,
+								radiation: radiationReadings,
+								diseaseOutbreaks,
+								whaleTransactions: whales,
+								govContracts: contracts,
+								layoffs,
+								predictions,
+								gridStress
+							}}
+							onOpenSettings={() => settingsOpen = true}
+							{actionHandlers}
+						/>
 					{/if}
 				{/each}
 			</DropZone>
@@ -729,6 +840,20 @@
 				<RadiationPanel readings={radiationReadings} loading={radiationLoading} onReadingClick={handleRadiationClick} />
 			{:else if panelId === 'outbreaks'}
 				<DiseaseOutbreakPanel outbreaks={diseaseOutbreaks} loading={outbreaksLoading} onOutbreakClick={handleOutbreakClick} />
+			{:else if panelId === 'analysis'}
+				<AnalysisChatPanel
+					externalData={{
+						earthquakes,
+						radiation: radiationReadings,
+						diseaseOutbreaks,
+						whaleTransactions: whales,
+						govContracts: contracts,
+						layoffs,
+						predictions,
+						gridStress
+					}}
+					onOpenSettings={() => settingsOpen = true}
+				/>
 			{/if}
 		{/each}
 	</DropZone>

@@ -48,3 +48,86 @@ export {
 	type ServiceClientOptions,
 	type HealthStatus
 } from './client';
+
+// Context Builder (LLM)
+export {
+	buildIntelligenceContext,
+	getContextSummary,
+	exportContextAsJSON,
+	hashContext,
+	type ExternalData
+} from './context-builder';
+
+// LLM Service
+export {
+	sendLLMRequest,
+	sendLLMRequestWithTools,
+	continueWithToolResults,
+	analyzeContext,
+	formatContextForLLM,
+	getLLMServiceStatus,
+	storeApiKey,
+	getStoredApiKey,
+	removeApiKey,
+	hasApiKey,
+	generateMessageId,
+	generateSessionId,
+	type LLMResponseWithTools
+} from './llm';
+
+// AI Actions Service
+export {
+	AI_TOOLS,
+	getAnthropicTools,
+	executeToolCall,
+	generateToolCallId,
+	getToolsSystemPrompt,
+	type ToolDefinition,
+	type ToolCall,
+	type ToolResult,
+	type ActionHandlers,
+	type ActionExecution,
+	type ActionStatus,
+	type AnthropicTool
+} from './ai-actions';
+
+// Auto Analysis Service
+export {
+	autoAnalysis,
+	ttsService as browserTtsService,
+	isAutoAnalysisEnabled,
+	unacknowledgedAlerts,
+	criticalAlerts,
+	DEFAULT_AUTO_ANALYSIS_PREFERENCES,
+	type AlertSeverity,
+	type AlertTrigger,
+	type AnalysisAlert,
+	type AutoAnalysisPreferences,
+	type AutoAnalysisState,
+	type AnalysisHistoryEntry
+} from './auto-analysis';
+
+// TTS Service (Multi-provider: ElevenLabs, OpenAI, Browser)
+export {
+	tts,
+	ttsState,
+	ttsPreferences,
+	speak,
+	stopSpeaking,
+	isSpeaking,
+	getVoicesForProvider,
+	getDefaultVoiceForProvider,
+	testTTS,
+	storeTTSApiKey,
+	getTTSApiKey,
+	hasTTSApiKey,
+	removeTTSApiKey,
+	ELEVENLABS_VOICES,
+	OPENAI_VOICES,
+	DEFAULT_TTS_PREFERENCES,
+	type TTSProvider,
+	type TTSVoice,
+	type TTSOptions,
+	type TTSState,
+	type TTSPreferences
+} from './tts';

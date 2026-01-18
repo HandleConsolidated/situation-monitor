@@ -84,3 +84,28 @@ export {
 	type PanelPosition,
 	type PanelLayoutState
 } from './panelLayout';
+
+// Chat store (LLM analysis)
+export {
+	chat,
+	activeSession,
+	activeMessages,
+	sessionCount,
+	isLoading as isChatLoading,
+	chatError,
+	recentSessions,
+	type ChatState,
+	type ChatSession,
+	type ChatMessage
+} from './chat';
+
+// LLM Preferences store
+export {
+	llmPreferences,
+	enabledCategories,
+	enabledCategoryList,
+	analysisDepth,
+	currentProvider,
+	newsFilterCategories,
+	type LLMPreferences
+} from './llmPreferences';

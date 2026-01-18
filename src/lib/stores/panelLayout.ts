@@ -61,7 +61,10 @@ const DEFAULT_POSITIONS: Record<PanelId, PanelPosition> = {
 
 	// Special panels (not in the drag-drop system)
 	map: { zone: 'left', index: -1 },
-	mainchar: { zone: 'left', index: -1 }
+	mainchar: { zone: 'left', index: -1 },
+
+	// AI Analysis panel - right column
+	analysis: { zone: 'right', index: 10 }
 };
 
 // Load from localStorage

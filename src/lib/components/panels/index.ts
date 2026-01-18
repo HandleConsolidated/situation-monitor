@@ -22,3 +22,4 @@ export { default as GridStressPanel } from './GridStressPanel.svelte';
 export { default as EarthquakePanel } from './EarthquakePanel.svelte';
 export { default as RadiationPanel } from './RadiationPanel.svelte';
 export { default as DiseaseOutbreakPanel } from './DiseaseOutbreakPanel.svelte';
+export { default as AnalysisChatPanel } from './AnalysisChatPanel.svelte';

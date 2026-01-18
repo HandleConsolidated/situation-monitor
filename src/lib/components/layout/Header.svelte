@@ -38,8 +38,8 @@
 
 	<div class="header-left">
 		<div class="logo-container">
-			<span class="logo-icon">◆</span>
-			<h1 class="logo">AEGIS</h1>
+			<span class="logo-icon">◇</span>
+			<h1 class="logo"><span class="logo-project">PROJECT</span> <span class="logo-name">ARTEMIS</span></h1>
 			<span class="logo-subtitle">SITUATION MONITOR</span>
 		</div>
 	</div>
@@ -171,12 +171,29 @@
 	}
 
 	.logo {
-		font-size: clamp(0.875rem, 2.5vw, 1.125rem);
+		display: flex;
+		align-items: baseline;
+		gap: 0.35em;
+		margin: 0;
+	}
+
+	.logo-project {
+		font-size: clamp(0.6rem, 1.5vw, 0.7rem);
+		font-weight: 500;
+		letter-spacing: 0.2em;
+		text-transform: uppercase;
+		color: var(--text-muted);
+		font-family: 'SF Mono', Monaco, monospace;
+	}
+
+	.logo-name {
+		font-size: clamp(1rem, 3vw, 1.35rem);
 		font-weight: 700;
-		letter-spacing: 0.15em;
+		letter-spacing: 0.25em;
 		text-transform: uppercase;
 		color: var(--text-primary);
-		margin: 0;
+		font-family: 'Orbitron', 'Rajdhani', 'Share Tech Mono', 'SF Pro Display', system-ui, sans-serif;
+		text-shadow: 0 0 20px rgba(6, 182, 212, 0.3);
 	}
 
 	.logo-subtitle {

@@ -1,8 +1,10 @@
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Aegis UI Design System - CSS Custom Properties */
+/* Artemis UI Design System - CSS Custom Properties */
 :root {
 	/* Background Colors */
 	--bg: #050505;

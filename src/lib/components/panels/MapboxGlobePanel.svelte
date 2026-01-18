@@ -13,7 +13,7 @@
 	} from '$lib/config/map';
 	import { fetchOutageData, fetchUCDPConflicts, fetchAircraftPositions, getAltitudeColor, formatAltitude, formatVelocity, formatHeading, fetchElevatedVolcanoes, VOLCANO_ALERT_COLORS, VOLCANO_ALERT_DESCRIPTIONS, getLatestRadarTileUrl, fetchVesselPositions, getShipTypeColor, formatVesselSpeed, formatVesselCourse, getFlagEmoji, fetchAirQualityData, AIR_QUALITY_COLORS, AIR_QUALITY_DESCRIPTIONS, RADIATION_LEVEL_COLORS } from '$lib/api';
 	import type { OutageData, VIEWSConflictData, Vessel, RadiationReading } from '$lib/api';
-	import type { CustomMonitor, NewsItem, NewsCategory, Aircraft, VolcanoData, AirQualityReading, DiseaseOutbreak } from '$lib/types';
+	import type { CustomMonitor, NewsItem, NewsCategory, Aircraft, VolcanoData, AirQualityReading, DiseaseOutbreak, EarthquakeData } from '$lib/types';
 
 	// Feed category colors for map visualization
 	const FEED_COLORS: Record<NewsCategory, string> = {
@@ -57,9 +57,10 @@
 		flyToTarget?: FlyToTarget | null;
 		radiationReadings?: RadiationReading[];
 		diseaseOutbreaks?: DiseaseOutbreak[];
+		earthquakes?: EarthquakeData[];
 	}
 
-	let { monitors = [], news = [], categorizedNews, flyToTarget = null, radiationReadings = [], diseaseOutbreaks = [] }: Props = $props();
+	let { monitors = [], news = [], categorizedNews, flyToTarget = null, radiationReadings = [], diseaseOutbreaks = [], earthquakes = [] }: Props = $props();
 
 	// Create derived value to explicitly track flyToTarget changes for reactivity
 	const currentFlyTarget = $derived(flyToTarget ? { ...flyToTarget } : null);
@@ -73,7 +74,7 @@
 	let map: mapboxgl.Map | null = null;
 	let isInitialized = $state(false);
 	let initError = $state<string | null>(null);
-	let legendExpanded = $state(true);
+	let legendExpanded = $state(false);
 	let dataControlsExpanded = $state(false);
 
 	// Data layer visibility controls
@@ -87,6 +88,7 @@
 		monitors: { visible: true, paused: false },
 		news: { visible: true, paused: false },
 		arcs: { visible: true, paused: false },
+		earthquakes: { visible: true, paused: false },
 		smartHotspots: { visible: false, paused: false }, // VIEWS conflict forecasts - off by default
 		aircraft: { visible: false, paused: false }, // ADS-B aircraft tracking - off by default (API rate limited)
 		volcanoes: { visible: true, paused: false }, // USGS elevated volcanoes
@@ -1066,7 +1068,8 @@
 			nuclear: 'NUCLEAR SITE',
 			military: 'MILITARY BASE',
 			monitor: 'CUSTOM MONITOR',
-			outage: 'CONNECTIVITY OUTAGE',
+			outage: 'GRID STRESS INDICATOR',
+			earthquake: 'SEISMIC EVENT',
 			'news-cluster': 'NEWS ACTIVITY',
 			'feed-news': category ? FEED_LABELS[category as keyof typeof FEED_LABELS] || 'NEWS FEED' : 'NEWS FEED',
 			'views-conflict': 'CONFLICT FORECAST (VIEWS)',
@@ -1096,7 +1099,8 @@
 			geometry: { type: 'Point', coordinates: [hotspot.lon, hotspot.lat] },
 			properties: {
 				id: hotspot.id,
-				label: hotspot.name,
+				label: hotspot.label, // Use the enhanced descriptive label
+				name: hotspot.name,   // Keep original country name for reference
 				type: 'views-conflict',
 				country: hotspot.country,
 				isoCode: hotspot.isoCode,
@@ -1105,10 +1109,15 @@
 				fatalityProbability: hotspot.fatalityProbability,
 				forecastMonth: hotspot.forecastMonth,
 				forecastYear: hotspot.forecastYear,
+				// Enhanced descriptive fields for tooltips
+				riskDescription: hotspot.riskDescription,
+				reasoning: hotspot.reasoning,
+				dataSource: hotspot.dataSource,
+				// Visual properties
 				color: CONFLICT_INTENSITY_COLORS[hotspot.intensity as keyof typeof CONFLICT_INTENSITY_COLORS],
 				size: hotspot.intensity === 'critical' ? 12 : hotspot.intensity === 'high' ? 10 : 8,
 				glowSize: hotspot.intensity === 'critical' ? 20 : hotspot.intensity === 'high' ? 16 : 12,
-				desc: `Forecast: ${hotspot.forecastedFatalities} fatalities/month (${hotspot.fatalityProbability}% probability) - ${hotspot.forecastMonth}`
+				desc: hotspot.riskDescription // Short description for quick hover
 			}
 		}));
 
@@ -1439,6 +1448,60 @@
 		return { type: 'FeatureCollection', features };
 	}
 
+	// Earthquake magnitude colors
+	const EARTHQUAKE_MAGNITUDE_COLORS: Record<string, string> = {
+		major: '#dc2626', // red-600 - M7.0+
+		strong: '#ef4444', // red-500 - M6.0-6.9
+		moderate: '#f97316', // orange-500 - M5.0-5.9
+		light: '#eab308' // yellow-500 - M4.0-4.9
+	};
+
+	// Generate earthquake GeoJSON from USGS data
+	function getEarthquakesGeoJSON(): GeoJSON.FeatureCollection {
+		if (!dataLayers.earthquakes.visible || earthquakes.length === 0) {
+			return { type: 'FeatureCollection', features: [] };
+		}
+
+		const features: GeoJSON.Feature[] = earthquakes.map((quake) => {
+			// Determine magnitude category
+			let category: string;
+			if (quake.magnitude >= 7.0) category = 'major';
+			else if (quake.magnitude >= 6.0) category = 'strong';
+			else if (quake.magnitude >= 5.0) category = 'moderate';
+			else category = 'light';
+
+			const color = EARTHQUAKE_MAGNITUDE_COLORS[category] || '#eab308';
+
+			// Smaller base size with magnitude scaling (reduced from previous)
+			const baseSize = Math.max(3, Math.min(8, 2 + (quake.magnitude - 4) * 1.5));
+
+			return {
+				type: 'Feature',
+				geometry: {
+					type: 'Point',
+					coordinates: [quake.lon, quake.lat]
+				},
+				properties: {
+					id: quake.id,
+					type: 'earthquake',
+					magnitude: quake.magnitude,
+					place: quake.place,
+					depth: quake.depth,
+					time: quake.time,
+					url: quake.url,
+					category,
+					color,
+					baseSize, // Used for zoom interpolation
+					glowOpacity: category === 'major' ? 0.5 :
+						category === 'strong' ? 0.4 :
+						category === 'moderate' ? 0.3 : 0.25
+				}
+			};
+		});
+
+		return { type: 'FeatureCollection', features };
+	}
+
 	// Pause/resume layer data
 	function toggleLayerPause(layer: keyof typeof dataLayers) {
 		if (layer === 'news') {
@@ -1541,6 +1604,10 @@
 			// Update disease outbreaks source
 			const diseaseSource = map.getSource('diseases') as mapboxgl.GeoJSONSource;
 			if (diseaseSource) diseaseSource.setData(getDiseaseGeoJSON());
+
+			// Update earthquakes source
+			const earthquakesSource = map.getSource('earthquakes') as mapboxgl.GeoJSONSource;
+			if (earthquakesSource) earthquakesSource.setData(getEarthquakesGeoJSON());
 
 			// Update traffic and road layer visibility
 			const trafficVisibility = dataLayers.traffic.visible ? 'visible' : 'none';
@@ -2018,6 +2085,9 @@
 
 				// Disease outbreaks source
 				map.addSource('diseases', { type: 'geojson', data: getDiseaseGeoJSON() });
+
+				// USGS Earthquake source
+				map.addSource('earthquakes', { type: 'geojson', data: getEarthquakesGeoJSON() });
 
 				// Mapbox Traffic source (real-time traffic data)
 				map.addSource('mapbox-traffic', {
@@ -3276,6 +3346,102 @@
 					}
 				});
 
+				// ========== EARTHQUAKE LAYERS ==========
+				// Earthquake glow layer - zoom responsive, fades at high zoom
+				map.addLayer({
+					id: 'earthquakes-glow',
+					type: 'circle',
+					source: 'earthquakes',
+					paint: {
+						// Glow radius: smaller at low zoom, grows with zoom but capped
+						'circle-radius': [
+							'interpolate', ['linear'], ['zoom'],
+							1, ['*', ['get', 'baseSize'], 1.5],
+							4, ['*', ['get', 'baseSize'], 2],
+							8, ['*', ['get', 'baseSize'], 2.5],
+							12, ['*', ['get', 'baseSize'], 3]
+						],
+						'circle-color': ['get', 'color'],
+						// Opacity fades as you zoom in
+						'circle-opacity': [
+							'interpolate', ['linear'], ['zoom'],
+							1, ['get', 'glowOpacity'],
+							6, ['*', ['get', 'glowOpacity'], 0.7],
+							10, ['*', ['get', 'glowOpacity'], 0.4]
+						],
+						'circle-blur': 0.8
+					}
+				});
+
+				// Earthquake main marker - zoom responsive sizing
+				map.addLayer({
+					id: 'earthquakes-layer',
+					type: 'circle',
+					source: 'earthquakes',
+					paint: {
+						// Size grows with zoom for detail
+						'circle-radius': [
+							'interpolate', ['linear'], ['zoom'],
+							1, ['get', 'baseSize'],
+							4, ['*', ['get', 'baseSize'], 1.2],
+							8, ['*', ['get', 'baseSize'], 1.8],
+							12, ['*', ['get', 'baseSize'], 2.5]
+						],
+						'circle-color': ['get', 'color'],
+						// Opacity decreases as you zoom in (markers become more transparent)
+						'circle-opacity': [
+							'interpolate', ['linear'], ['zoom'],
+							1, 0.9,
+							6, 0.75,
+							10, 0.5
+						],
+						'circle-stroke-color': '#ffffff',
+						'circle-stroke-width': [
+							'interpolate', ['linear'], ['zoom'],
+							1, 0.5,
+							6, 1,
+							12, 1.5
+						],
+						'circle-stroke-opacity': [
+							'interpolate', ['linear'], ['zoom'],
+							1, 0.7,
+							6, 0.6,
+							10, 0.4
+						]
+					}
+				});
+
+				// Earthquake icon (seismic wave symbol ~) - appears at closer zoom
+				map.addLayer({
+					id: 'earthquakes-icon',
+					type: 'symbol',
+					source: 'earthquakes',
+					minzoom: 3, // Only show icon when zoomed in a bit
+					layout: {
+						'text-field': '〰', // Wavy line as seismic wave indicator
+						'text-size': [
+							'interpolate', ['linear'], ['zoom'],
+							3, 6,
+							6, 8,
+							10, 12
+						],
+						'text-allow-overlap': true,
+						'text-ignore-placement': true,
+						'text-anchor': 'center'
+					},
+					paint: {
+						'text-color': '#ffffff',
+						'text-halo-color': 'rgba(0, 0, 0, 0.9)',
+						'text-halo-width': 1,
+						'text-opacity': [
+							'interpolate', ['linear'], ['zoom'],
+							3, 0.4,
+							6, 0.7,
+							10, 0.5
+						]
+					}
+				});
+
 				// Legacy points layers for backward compatibility (now mainly used by interactivity)
 				map.addLayer({
 					id: 'points-glow',
@@ -3477,19 +3643,25 @@
 			pauseRotation();
 		});
 
-		// UCDP Conflict hotspot tooltip
+		// VIEWS Conflict forecast hotspot tooltip (Smart Hotspots)
 		map.on('mousemove', 'ucdp-hotspots-layer', (e) => {
 			if (!e.features || e.features.length === 0 || tooltipLocked) return;
 
 			const feature = e.features[0];
 			const props = feature.properties;
 
-			const violenceType = props?.typeOfViolence === 1 ? 'State-based' : props?.typeOfViolence === 2 ? 'Non-state' : 'One-sided';
+			// Use VIEWS-specific data fields
+			const forecastMonth = props?.forecastMonth || 'Unknown';
+			const fatalities = props?.forecastedFatalities || 0;
+			const probability = props?.fatalityProbability || 0;
+
+			// Build concise hover description
+			const hoverDesc = `${forecastMonth} forecast: ~${fatalities} fatalities (${probability}% probability)`;
 
 			tooltipData = {
-				label: props?.conflictName || props?.label || 'Armed Conflict',
-				type: 'ucdp-conflict',
-				desc: `${props?.sideA || ''} vs ${props?.sideB || ''} (${violenceType})`,
+				label: props?.label || props?.name || 'Conflict Forecast',
+				type: 'views-conflict',
+				desc: hoverDesc,
 				level: props?.intensity,
 				isAlert: props?.intensity === 'critical' || props?.intensity === 'high'
 			};
@@ -3666,6 +3838,39 @@
 			pauseRotation();
 		});
 
+		// Earthquake mousemove handler
+		map.on('mouseleave', 'earthquakes-layer', handleMouseLeave);
+		map.on('mousemove', 'earthquakes-layer', (e) => {
+			if (!e.features || e.features.length === 0 || tooltipLocked) return;
+
+			const feature = e.features[0];
+			const props = feature.properties;
+
+			const magnitude = props?.magnitude || 0;
+			const place = props?.place || 'Unknown Location';
+			const depth = props?.depth || 0;
+			const time = props?.time || Date.now();
+			const category = props?.category || 'light';
+
+			// Format time
+			const quakeDate = new Date(time);
+			const timeAgo = formatTimeAgo(quakeDate);
+
+			// Magnitude category label
+			const categoryLabel = category.charAt(0).toUpperCase() + category.slice(1);
+
+			tooltipData = {
+				label: `M${magnitude.toFixed(1)} - ${place}`,
+				type: 'earthquake',
+				desc: `${categoryLabel} | Depth: ${depth.toFixed(1)}km | ${timeAgo}`,
+				level: category,
+				isAlert: category === 'major' || category === 'strong'
+			};
+			tooltipVisible = true;
+			updateTooltipPosition(e.point);
+			pauseRotation();
+		});
+
 		map.on('click', 'points-layer', (e) => handlePointClick(e));
 		map.on('click', 'news-events-layer', (e) => handlePointClick(e));
 		map.on('click', 'outages-layer', (e) => handleOutageClick(e));
@@ -3676,6 +3881,7 @@
 		map.on('click', 'air-quality-layer', (e) => handleAirQualityClick(e));
 		map.on('click', 'radiation-layer', (e) => handleRadiationClick(e));
 		map.on('click', 'diseases-layer', (e) => handleDiseaseClick(e));
+		map.on('click', 'earthquakes-layer', (e) => handleEarthquakeClick(e));
 
 		// Cluster click handler - zoom in to expand cluster
 		map.on('click', 'news-clusters', (e) => {
@@ -3825,15 +4031,32 @@
 		const feature = e.features[0];
 		const props = feature.properties;
 
-		const violenceType = props?.typeOfViolence === 1 ? 'State-based conflict' : props?.typeOfViolence === 2 ? 'Non-state conflict' : 'One-sided violence';
-		const deathInfo = props?.totalDeaths ? `${props.totalDeaths} deaths` : '';
-		const eventInfo = props?.eventCount ? `${props.eventCount} events` : '';
-		const dateRange = props?.dateStart && props?.dateEnd ? `${props.dateStart} to ${props.dateEnd}` : '';
+		// Build detailed description using VIEWS data
+		const country = props?.name || props?.country || 'Unknown';
+		const isoCode = props?.isoCode || '';
+		const forecastMonth = props?.forecastMonth || 'Unknown';
+		const fatalities = props?.forecastedFatalities || 0;
+		const probability = props?.fatalityProbability || 0;
+		const riskDescription = props?.riskDescription || '';
+		const reasoning = props?.reasoning || '';
+		const dataSource = props?.dataSource || 'VIEWS';
+
+		// Format multi-line description for detailed click view
+		const descParts = [
+			`Country: ${country}${isoCode ? ` (${isoCode})` : ''}`,
+			`Forecast Period: ${forecastMonth}`,
+			``,
+			riskDescription,
+			``,
+			`Analysis: ${reasoning}`,
+			``,
+			`Source: ${dataSource}`
+		];
 
 		tooltipData = {
-			label: props?.conflictName || props?.label || 'Armed Conflict',
-			type: 'ucdp-conflict',
-			desc: `${props?.sideA || ''} vs ${props?.sideB || ''}\n${violenceType}. ${[deathInfo, eventInfo].filter(Boolean).join(', ')}${dateRange ? ` (${dateRange})` : ''}`,
+			label: props?.label || `${country} - Conflict Forecast`,
+			type: 'views-conflict',
+			desc: descParts.join('\n'),
 			level: props?.intensity,
 			isAlert: props?.intensity === 'critical' || props?.intensity === 'high'
 		};
@@ -4010,6 +4233,61 @@
 		tooltipLocked = true;
 		updateTooltipPosition(e.point);
 		pauseRotation();
+	}
+
+	// Format time as relative (e.g., "2h ago", "15m ago")
+	function formatTimeAgo(date: Date): string {
+		const now = Date.now();
+		const diff = now - date.getTime();
+		const minutes = Math.floor(diff / 60000);
+		const hours = Math.floor(minutes / 60);
+		const days = Math.floor(hours / 24);
+
+		if (days > 0) return `${days}d ago`;
+		if (hours > 0) return `${hours}h ago`;
+		if (minutes > 0) return `${minutes}m ago`;
+		return 'just now';
+	}
+
+	function handleEarthquakeClick(e: mapboxgl.MapMouseEvent & { features?: mapboxgl.MapboxGeoJSONFeature[] }) {
+		if (!e.features || e.features.length === 0) return;
+		const feature = e.features[0];
+		const props = feature.properties;
+
+		const magnitude = props?.magnitude || 0;
+		const place = props?.place || 'Unknown Location';
+		const depth = props?.depth || 0;
+		const time = props?.time || Date.now();
+		const category = props?.category || 'light';
+		const url = props?.url || '';
+
+		const quakeDate = new Date(time);
+		const formattedDate = quakeDate.toLocaleDateString('en-US', {
+			weekday: 'short',
+			month: 'short',
+			day: 'numeric',
+			hour: '2-digit',
+			minute: '2-digit'
+		});
+
+		const categoryLabel = category.charAt(0).toUpperCase() + category.slice(1);
+
+		tooltipData = {
+			label: `〰 M${magnitude.toFixed(1)} Earthquake`,
+			type: 'earthquake',
+			desc: `Location: ${place}\nMagnitude: ${magnitude.toFixed(1)} (${categoryLabel})\nDepth: ${depth.toFixed(1)} km\nTime: ${formattedDate}${url ? `\n\nClick USGS link for details` : ''}`,
+			level: category,
+			isAlert: category === 'major' || category === 'strong'
+		};
+		tooltipVisible = true;
+		tooltipLocked = true;
+		updateTooltipPosition(e.point);
+		pauseRotation();
+
+		// Open USGS link if available
+		if (url) {
+			window.open(url, '_blank', 'noopener,noreferrer');
+		}
 	}
 
 	function updateTooltipPosition(point: mapboxgl.Point) {
@@ -4374,7 +4652,7 @@
 				const mapBounds = map.getBounds();
 				const zoom = map.getZoom();
 				// Use viewport bounds if zoomed in, otherwise use default high-traffic region
-				if (zoom > 2) {
+				if (zoom > 2 && mapBounds) {
 					bounds = [
 						mapBounds.getWest(),
 						mapBounds.getSouth(),

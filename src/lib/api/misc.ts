@@ -1295,6 +1295,11 @@ export interface VIEWSConflictHotspot {
 	fatalityProbability: number;
 	forecastMonth: string;  // e.g., "Dec 2025"
 	forecastYear: number;
+	// Enhanced descriptive fields for improved tooltips
+	label: string;           // Human-readable label for display (e.g., "Ukraine - High Conflict Risk")
+	riskDescription: string; // Brief explanation of risk level meaning
+	reasoning: string;       // Contextual reasoning for the forecast
+	dataSource: string;      // Attribution to VIEWS
 }
 
 /** Conflict data container matching the existing UCDP structure for compatibility */
@@ -1457,6 +1462,86 @@ function formatForecastMonth(year: number, month: number): string {
 }
 
 /**
+ * Get human-readable risk level description
+ */
+function getVIEWSRiskDescription(intensity: 'low' | 'elevated' | 'high' | 'critical', fatalities: number, probability: number): string {
+	const probPercent = Math.round(probability * 100);
+	switch (intensity) {
+		case 'critical':
+			return `CRITICAL: ${probPercent}% probability of armed conflict. Forecast predicts ~${Math.round(fatalities)} fatalities. Immediate monitoring required.`;
+		case 'high':
+			return `HIGH RISK: ${probPercent}% probability of conflict fatalities. Model predicts ~${Math.round(fatalities)} deaths. Close monitoring recommended.`;
+		case 'elevated':
+			return `ELEVATED: ${probPercent}% probability of some violence. ~${fatalities.toFixed(1)} predicted fatalities. Situation warrants attention.`;
+		case 'low':
+			return `LOW RISK: ${probPercent}% probability of conflict. Minimal fatalities expected (~${fatalities.toFixed(1)}). Baseline monitoring.`;
+	}
+}
+
+/**
+ * Get contextual reasoning for VIEWS prediction based on country context
+ */
+function getVIEWSReasoning(countryCode: string, intensity: 'low' | 'elevated' | 'high' | 'critical', _fatalities: number): string {
+	// Country-specific context based on known geopolitical situations
+	const countryContext: Record<string, string> = {
+		UKR: 'Active interstate conflict with ongoing military operations. VIEWS model incorporates historical fatality patterns and conflict dynamics.',
+		RUS: 'Involved in active conflict with regional implications. Prediction based on conflict event data and territorial dynamics.',
+		ISR: 'Recurring conflict cycles and regional tensions. Model factors in historical violence patterns and escalation indicators.',
+		PSE: 'Ongoing conflict and territorial disputes. Predictions reflect cyclical violence patterns and regional instability.',
+		ETH: 'Multiple internal conflicts and ethnic tensions. Model reflects subnational violence patterns and governance instability.',
+		SOM: 'Protracted insurgency and state fragility. Predictions based on sustained conflict patterns and armed group activity.',
+		AFG: 'Post-transition instability and armed opposition. Model reflects historical violence trends and governance challenges.',
+		YEM: 'Multi-party civil conflict and humanitarian crisis. Predictions incorporate conflict intensity and fragmentation data.',
+		SYR: 'Protracted civil war with multiple actors. Model reflects territorial control dynamics and ongoing hostilities.',
+		MMR: 'Military coup aftermath with armed resistance. Predictions based on escalating violence and ethnic conflicts.',
+		PAK: 'Counter-insurgency operations and regional tensions. Model factors in militant activity and border dynamics.',
+		NGA: 'Multiple security challenges including insurgency. Predictions reflect Boko Haram activity and communal violence.',
+		COD: 'Multiple armed groups and resource conflicts. Model incorporates eastern DRC violence patterns and displacement.',
+		MLI: 'Insurgency and intercommunal violence. Predictions reflect Sahel instability and jihadist activity.',
+		BFA: 'Expanding jihadist insurgency. Model reflects rapid deterioration and displacement patterns.',
+		SDN: 'Civil conflict and factional fighting. Predictions based on military rivalries and humanitarian crisis.',
+		SSD: 'Intercommunal violence and political instability. Model reflects recurring conflict cycles.',
+		HTI: 'Gang violence and state fragility. Predictions incorporate urban conflict and governance collapse.',
+		COL: 'Post-peace agreement remnant violence. Model reflects dissident groups and organized crime.',
+		IND: 'Internal security challenges and regional tensions. Predictions factor in insurgency and border dynamics.',
+		CHN: 'Regional power dynamics and territorial claims. Model reflects geopolitical tensions.',
+		PRK: 'Isolated regime with regional threat posture. Predictions incorporate peninsular tensions.',
+		IRN: 'Regional proxy conflicts and internal dissent. Model reflects security dynamics.',
+		IRQ: 'Post-ISIS stabilization with sectarian dynamics. Predictions factor in militia activity.',
+		LBY: 'Political fragmentation and armed factions. Model reflects governance vacuum.',
+		MOZ: 'Northern insurgency and resource conflicts. Predictions based on Cabo Delgado violence.',
+		NER: 'Sahel instability spillover. Model reflects regional jihadist expansion.',
+		CMR: 'Anglophone crisis and Boko Haram spillover. Predictions incorporate dual conflict dynamics.',
+		TCD: 'Political instability and regional conflicts. Model reflects Sahel dynamics.',
+		CAF: 'Armed group activity and weak state capacity. Predictions based on territorial fragmentation.'
+	};
+
+	const baseReasoning = countryContext[countryCode] ||
+		'VIEWS prediction based on historical conflict patterns, structural indicators, and machine learning models trained on global conflict data.';
+
+	const intensityContext = intensity === 'critical' || intensity === 'high'
+		? ' Current indicators suggest heightened risk requiring close monitoring.'
+		: intensity === 'elevated'
+			? ' Risk factors warrant continued attention.'
+			: ' Baseline risk level within normal parameters.';
+
+	return baseReasoning + intensityContext;
+}
+
+/**
+ * Generate descriptive label for VIEWS hotspot
+ */
+function getVIEWSLabel(countryName: string, intensity: 'low' | 'elevated' | 'high' | 'critical'): string {
+	const intensityLabels = {
+		critical: 'Critical Conflict Risk',
+		high: 'High Conflict Risk',
+		elevated: 'Elevated Risk',
+		low: 'Monitored Region'
+	};
+	return `${countryName} - ${intensityLabels[intensity]}`;
+}
+
+/**
  * Get the latest VIEWS forecast run ID
  * Falls back to a known recent run if API fails
  */
@@ -1536,6 +1621,8 @@ export async function fetchVIEWSConflicts(): Promise<VIEWSConflictData> {
 			}
 
 			const intensity = getVIEWSIntensity(prediction.main_mean, prediction.main_dich);
+			const forecastedFatalities = Math.round(prediction.main_mean * 10) / 10;
+			const fatalityProbability = prediction.main_dich; // Keep as 0-1 for calculations
 
 			hotspots.push({
 				id: `views-${prediction.country_id}`,
@@ -1545,10 +1632,15 @@ export async function fetchVIEWSConflicts(): Promise<VIEWSConflictData> {
 				country: prediction.name,
 				isoCode: prediction.isoab,
 				intensity,
-				forecastedFatalities: Math.round(prediction.main_mean * 10) / 10,
-				fatalityProbability: Math.round(prediction.main_dich * 1000) / 10, // As percentage
+				forecastedFatalities,
+				fatalityProbability: Math.round(fatalityProbability * 1000) / 10, // As percentage for display
 				forecastMonth: formatForecastMonth(prediction.year, prediction.month),
-				forecastYear: prediction.year
+				forecastYear: prediction.year,
+				// Enhanced descriptive fields
+				label: getVIEWSLabel(prediction.name, intensity),
+				riskDescription: getVIEWSRiskDescription(intensity, forecastedFatalities, fatalityProbability),
+				reasoning: getVIEWSReasoning(prediction.isoab, intensity, forecastedFatalities),
+				dataSource: 'VIEWS (Violence Early-Warning System) - Uppsala University'
 			});
 		}
 

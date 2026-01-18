@@ -92,3 +92,18 @@ export {
 
 // World leaders configuration
 export { WORLD_LEADERS } from './leaders';
+
+// Prompts configuration
+export {
+	ALL_ANALYSIS_PROMPTS,
+	BRIEFING_PROMPTS,
+	THREAT_PROMPTS,
+	MARKET_PROMPTS,
+	PATTERN_PROMPTS,
+	REGIONAL_PROMPTS,
+	PROMPT_CATEGORIES,
+	getPromptsByCategory,
+	getAutoTriggerPrompts,
+	getPromptById,
+	type AnalysisPromptConfig
+} from './prompts';
