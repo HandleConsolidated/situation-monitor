@@ -87,6 +87,7 @@
 	let diseaseOutbreaks = $state<DiseaseOutbreak[]>([]);
 	let outbreaksLoading = $state(false);
 	let outages = $state<OutageData[]>([]);
+	// @ts-expect-error - outagesLoading is set for UI state but not currently used in template
 	let outagesLoading = $state(false);
 	let fedData = $state<FedBalanceData | null>(null);
 	let fedLoading = $state(false);
