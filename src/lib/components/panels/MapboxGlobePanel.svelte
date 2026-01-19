@@ -5675,11 +5675,45 @@
 	.filter-row select {
 		font-size: 0.5625rem;
 		font-family: 'SF Mono', Monaco, monospace;
-		background: rgb(30 41 59);
+		/* Solid dark background for cross-browser dropdown support */
+		background-color: #1e293b; /* slate-800 */
 		border: 1px solid rgb(51 65 85);
 		border-radius: 2px;
-		color: rgb(203 213 225);
+		color: #e2e8f0; /* slate-200 - light text */
 		padding: 0.125rem 0.25rem;
+		cursor: pointer;
+		transition: all 0.15s ease;
+		/* Custom dropdown arrow */
+		-webkit-appearance: none;
+		-moz-appearance: none;
+		appearance: none;
+		background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+		background-repeat: no-repeat;
+		background-position: right 0.25rem center;
+		padding-right: 1.25rem;
+	}
+
+	.filter-row select:hover {
+		background-color: #334155; /* slate-700 */
+		border-color: rgb(6 182 212 / 0.5); /* accent-border */
+	}
+
+	.filter-row select:focus {
+		border-color: rgb(34 211 238); /* accent */
+		background-color: #334155; /* slate-700 */
+		outline: none;
+	}
+
+	.filter-row select option {
+		background-color: #1e293b; /* slate-800 */
+		color: #e2e8f0; /* slate-200 */
+		padding: 0.25rem;
+	}
+
+	.filter-row select option:hover,
+	.filter-row select option:checked {
+		background-color: #334155; /* slate-700 */
+		color: #22d3ee; /* cyan-400 */
 	}
 
 	.filter-row input[type='checkbox'] {

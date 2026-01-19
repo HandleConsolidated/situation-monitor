@@ -55,7 +55,8 @@ import type {
 	Layoff,
 	Prediction,
 	GridStressData,
-	RadiationReading
+	RadiationReading,
+	OutageData
 } from '$lib/api';
 
 // Version for context schema
@@ -361,11 +362,7 @@ export interface ExternalData {
 	layoffs?: Layoff[];
 	predictions?: Prediction[];
 	gridStress?: GridStressData[];
-	outages?: Array<{
-		location: string;
-		type: string;
-		severity: string;
-	}>;
+	outages?: OutageData[];
 	worldLeaders?: Array<{
 		id: string;
 		name: string;

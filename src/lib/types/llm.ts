@@ -21,7 +21,8 @@ import type {
 	Layoff,
 	Prediction,
 	GridStressData,
-	RadiationReading
+	RadiationReading,
+	OutageData
 } from '$lib/api';
 
 // ============================================================================
@@ -133,11 +134,7 @@ export interface DataQualityInfo {
  */
 export interface InfrastructureContext {
 	gridStress: GridStressData[];
-	outages: Array<{
-		location: string;
-		type: string;
-		severity: string;
-	}>;
+	outages: OutageData[];
 	dataQuality?: DataQualityInfo;
 }
 

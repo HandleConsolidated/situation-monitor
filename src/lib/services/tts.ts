@@ -48,15 +48,19 @@ export interface TTSPreferences {
 // Voice Definitions
 // ============================================================================
 
+// Optimized voices for Turbo v2.5 model
 export const ELEVENLABS_VOICES: TTSVoice[] = [
-	{ id: '21m00Tcm4TlvDq8ikWAM', name: 'Rachel', provider: 'elevenlabs', description: 'Calm, professional female' },
-	{ id: 'AZnzlk1XvdvUeBnXmlld', name: 'Domi', provider: 'elevenlabs', description: 'Confident female' },
-	{ id: 'EXAVITQu4vr4xnSDxMaL', name: 'Bella', provider: 'elevenlabs', description: 'Soft female' },
-	{ id: 'ErXwobaYiN019PkySvjV', name: 'Antoni', provider: 'elevenlabs', description: 'Mature male' },
-	{ id: 'TxGEqnHWrfWFTfGW9XjX', name: 'Josh', provider: 'elevenlabs', description: 'Deep male' },
-	{ id: 'VR6AewLTigWG4xSOukaG', name: 'Arnold', provider: 'elevenlabs', description: 'Strong male' },
-	{ id: 'pNInz6obpgDQGcFmaJgB', name: 'Adam', provider: 'elevenlabs', description: 'Deep male narrator' },
-	{ id: 'yoZ06aMxZJJ28mfd3POQ', name: 'Sam', provider: 'elevenlabs', description: 'Young male' }
+	// Recommended for Turbo v2.5
+	{ id: '9BWtsMINqrJLrRacOk9x', name: 'Aria', provider: 'elevenlabs', description: 'Expressive female, great for audiobooks & podcasts' },
+	{ id: 'EXAVITQu4vr4xnSDxMaL', name: 'Sarah', provider: 'elevenlabs', description: 'Natural conversational female' },
+	{ id: 'nPczCjzI2devNBz1zQrb', name: 'Brian', provider: 'elevenlabs', description: 'Professional male, ideal for news & ads' },
+	{ id: 'CwhRBWXzGAHq8TQ4Fs17', name: 'Roger', provider: 'elevenlabs', description: 'Confident male, social media style' },
+	{ id: 'JBFqnCBsd6RMkjVDRZzb', name: 'George', provider: 'elevenlabs', description: 'Warm British male, narration' },
+	{ id: 'XrExE9yKIg1WjnnlVkGX', name: 'Matilda', provider: 'elevenlabs', description: 'Friendly female narrator' },
+	{ id: 'cgSgspJ2msm6clMCkdW9', name: 'Jessica', provider: 'elevenlabs', description: 'Expressive conversational female' },
+	{ id: 'pFZP5JQG7iQjIQuC4Bku', name: 'Lily', provider: 'elevenlabs', description: 'Warm British female narrator' },
+	{ id: 'SAz9YHcvj6GT2YYXdXww', name: 'River', provider: 'elevenlabs', description: 'Confident non-binary voice' },
+	{ id: 'bIHbv24MWmeRgasZH58o', name: 'Will', provider: 'elevenlabs', description: 'Friendly young male' }
 ];
 
 export const OPENAI_VOICES: TTSVoice[] = [
@@ -398,8 +402,11 @@ class TTSService {
 				text,
 				model_id: 'eleven_turbo_v2_5',
 				voice_settings: {
-					stability: 0.5,
-					similarity_boost: 0.75
+					// Optimal settings for Turbo v2.5
+					stability: 0.7, // 0.6-0.8 recommended (lower = more expressive, higher = more consistent)
+					similarity_boost: 0.75, // 0.7-0.75 recommended (maintains voice consistency)
+					style: 0.4, // 0.3-0.5 recommended (adds natural emotion)
+					use_speaker_boost: true
 				}
 			}),
 			signal: this.abortController.signal

@@ -109,3 +109,16 @@ export {
 	newsFilterCategories,
 	type LLMPreferences
 } from './llmPreferences';
+
+// Analysis Results store (correlations, narratives, main characters)
+export {
+	analysisResults,
+	correlationResults,
+	narrativeResults,
+	mainCharacterResults,
+	hasAnalysisResults,
+	emergingTopics,
+	risingCorrelations,
+	topCharacters,
+	type AnalysisResultsState
+} from './analysisResults';

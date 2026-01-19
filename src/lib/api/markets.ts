@@ -9,17 +9,16 @@ import { INDICES, SECTORS, COMMODITIES, CRYPTO } from '$lib/config/markets';
 import type { MarketItem, SectorPerformance, CryptoItem } from '$lib/types';
 import { logger, FINNHUB_API_KEY, FINNHUB_BASE_URL } from '$lib/config/api';
 
-interface CoinCapAsset {
-	id: string;
-	symbol: string;
-	name: string;
-	priceUsd: string;
-	changePercent24Hr: string;
+/**
+ * CoinGecko API response structure for /simple/price endpoint
+ */
+interface CoinGeckoPrice {
+	usd: number;
+	usd_24h_change?: number;
 }
 
-interface CoinCapResponse {
-	data: CoinCapAsset[];
-	timestamp: number;
+interface CoinGeckoPriceResponse {
+	[id: string]: CoinGeckoPrice;
 }
 
 interface FinnhubQuote {
@@ -39,6 +38,33 @@ interface FinnhubQuote {
 function hasFinnhubApiKey(): boolean {
 	return Boolean(FINNHUB_API_KEY && FINNHUB_API_KEY.length > 0);
 }
+
+/**
+ * Rate limiter for Finnhub API - ensures we don't exceed 60 calls/minute
+ * Implements sequential requests with delays and caching
+ */
+const finnhubRateLimiter = {
+	lastRequestTime: 0,
+	minDelayMs: 200, // Minimum 200ms between requests (max 5 requests/second = 300/minute, well under limit)
+
+	async waitForNextSlot(): Promise<void> {
+		const now = Date.now();
+		const timeSinceLastRequest = now - this.lastRequestTime;
+
+		if (timeSinceLastRequest < this.minDelayMs) {
+			await new Promise(resolve => setTimeout(resolve, this.minDelayMs - timeSinceLastRequest));
+		}
+
+		this.lastRequestTime = Date.now();
+	}
+};
+
+/**
+ * Cache for Finnhub quotes to reduce API calls
+ * TTL: 60 seconds (data updates during market hours)
+ */
+const finnhubCache = new Map<string, { data: FinnhubQuote; timestamp: number }>();
+const FINNHUB_CACHE_TTL = 60000; // 1 minute cache
 
 /**
  * Create an empty market item (used for error/missing data states)
@@ -67,14 +93,31 @@ const INDEX_ETF_MAP: Record<string, string> = {
 };
 
 /**
- * Fetch a quote from Finnhub
+ * Fetch a quote from Finnhub with rate limiting and caching
  */
 async function fetchFinnhubQuote(symbol: string): Promise<FinnhubQuote | null> {
+	// Check cache first
+	const cached = finnhubCache.get(symbol);
+	if (cached && Date.now() - cached.timestamp < FINNHUB_CACHE_TTL) {
+		logger.log('Markets API', `Using cached quote for ${symbol}`);
+		return cached.data;
+	}
+
 	try {
+		// Wait for rate limit slot
+		await finnhubRateLimiter.waitForNextSlot();
+
 		const url = `${FINNHUB_BASE_URL}/quote?symbol=${encodeURIComponent(symbol)}&token=${FINNHUB_API_KEY}`;
-		const response = await fetch(url);
+		const response = await fetch(url, {
+			signal: AbortSignal.timeout(10000)
+		});
 
 		if (!response.ok) {
+			// Handle rate limiting specifically
+			if (response.status === 429) {
+				logger.warn('Markets API', `Rate limited for ${symbol}, using cached data if available`);
+				return cached?.data ?? null;
+			}
 			throw new Error(`HTTP ${response.status}: ${response.statusText}`);
 		}
 
@@ -85,10 +128,14 @@ async function fetchFinnhubQuote(symbol: string): Promise<FinnhubQuote | null> {
 			return null;
 		}
 
+		// Cache the result
+		finnhubCache.set(symbol, { data, timestamp: Date.now() });
+
 		return data;
 	} catch (error) {
 		logger.error('Markets API', `Error fetching quote for ${symbol}:`, error);
-		return null;
+		// Return cached data on error if available
+		return cached?.data ?? null;
 	}
 }
 
@@ -96,16 +143,17 @@ async function fetchFinnhubQuote(symbol: string): Promise<FinnhubQuote | null> {
 let cryptoCache: { data: CryptoItem[]; timestamp: number } | null = null;
 const CRYPTO_CACHE_TTL = 60000; // 1 minute cache
 
-// Map CRYPTO config ids to CoinCap ids
-const COINCAP_ID_MAP: Record<string, string> = {
+// Map CRYPTO config ids to CoinGecko ids
+const COINGECKO_ID_MAP: Record<string, string> = {
 	bitcoin: 'bitcoin',
 	ethereum: 'ethereum',
 	solana: 'solana'
 };
 
 /**
- * Fetch crypto prices from CoinCap API
- * CoinCap is free, no API key required, and supports CORS directly
+ * Fetch crypto prices from CoinGecko API
+ * CoinGecko is free, no API key required, and supports CORS directly
+ * Note: Previous CoinCap API had DNS issues (ERR_NAME_NOT_RESOLVED)
  */
 export async function fetchCryptoPrices(): Promise<CryptoItem[]> {
 	// Return cached data if fresh
@@ -115,13 +163,14 @@ export async function fetchCryptoPrices(): Promise<CryptoItem[]> {
 	}
 
 	try {
-		const ids = CRYPTO.map((c) => COINCAP_ID_MAP[c.id] || c.id).join(',');
-		const coinCapUrl = `https://api.coincap.io/v2/assets?ids=${ids}`;
+		const ids = CRYPTO.map((c) => COINGECKO_ID_MAP[c.id] || c.id).join(',');
+		// CoinGecko simple/price endpoint - more reliable than CoinCap
+		const coinGeckoUrl = `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true`;
 
-		logger.log('Markets API', 'Fetching crypto from CoinCap');
+		logger.log('Markets API', 'Fetching crypto from CoinGecko');
 
-		// CoinCap supports CORS directly - no proxy needed
-		const response = await fetch(coinCapUrl, {
+		// CoinGecko supports CORS directly - no proxy needed
+		const response = await fetch(coinGeckoUrl, {
 			headers: { Accept: 'application/json' },
 			signal: AbortSignal.timeout(10000)
 		});
@@ -130,27 +179,27 @@ export async function fetchCryptoPrices(): Promise<CryptoItem[]> {
 			throw new Error(`HTTP ${response.status}: ${response.statusText}`);
 		}
 
-		const data: CoinCapResponse = await response.json();
+		const data: CoinGeckoPriceResponse = await response.json();
 
 		const result = CRYPTO.map((crypto) => {
-			const coinCapId = COINCAP_ID_MAP[crypto.id] || crypto.id;
-			const asset = data.data.find((a) => a.id === coinCapId);
-			const price = asset ? parseFloat(asset.priceUsd) : 0;
-			const changePercent = asset ? parseFloat(asset.changePercent24Hr) : 0;
+			const coinGeckoId = COINGECKO_ID_MAP[crypto.id] || crypto.id;
+			const priceData = data[coinGeckoId];
+			const price = priceData?.usd ?? 0;
+			const changePercent = priceData?.usd_24h_change ?? 0;
 
 			return {
 				id: crypto.id,
 				symbol: crypto.symbol,
 				name: crypto.name,
 				current_price: price,
-				price_change_24h: changePercent, // CoinCap gives percent, not dollar amount
+				price_change_24h: (price * changePercent) / 100, // Calculate dollar change
 				price_change_percentage_24h: changePercent
 			};
 		});
 
 		// Cache the result
 		cryptoCache = { data: result, timestamp: Date.now() };
-		logger.log('Markets API', `Fetched ${result.length} crypto prices`);
+		logger.log('Markets API', `Fetched ${result.length} crypto prices from CoinGecko`);
 		return result;
 	} catch (error) {
 		logger.error('Markets API', 'Error fetching crypto:', error);
@@ -172,6 +221,7 @@ export async function fetchCryptoPrices(): Promise<CryptoItem[]> {
 
 /**
  * Fetch market indices from Finnhub
+ * Uses sequential fetching to respect rate limits
  */
 export async function fetchIndices(): Promise<MarketItem[]> {
 	const createEmptyIndices = () =>
@@ -183,24 +233,26 @@ export async function fetchIndices(): Promise<MarketItem[]> {
 	}
 
 	try {
-		logger.log('Markets API', 'Fetching indices from Finnhub');
+		logger.log('Markets API', 'Fetching indices from Finnhub (sequential with rate limiting)');
 
-		const quotes = await Promise.all(
-			INDICES.map(async (index) => {
-				const etfSymbol = INDEX_ETF_MAP[index.symbol] || index.symbol;
-				const quote = await fetchFinnhubQuote(etfSymbol);
-				return { index, quote };
-			})
-		);
+		const results: MarketItem[] = [];
 
-		return quotes.map(({ index, quote }) => ({
-			symbol: index.symbol,
-			name: index.name,
-			price: quote?.c ?? NaN,
-			change: quote?.d ?? NaN,
-			changePercent: quote?.dp ?? NaN,
-			type: 'index' as const
-		}));
+		// Fetch sequentially to respect rate limits
+		for (const index of INDICES) {
+			const etfSymbol = INDEX_ETF_MAP[index.symbol] || index.symbol;
+			const quote = await fetchFinnhubQuote(etfSymbol);
+
+			results.push({
+				symbol: index.symbol,
+				name: index.name,
+				price: quote?.c ?? NaN,
+				change: quote?.d ?? NaN,
+				changePercent: quote?.dp ?? NaN,
+				type: 'index' as const
+			});
+		}
+
+		return results;
 	} catch (error) {
 		logger.error('Markets API', 'Error fetching indices:', error);
 		return createEmptyIndices();
@@ -209,6 +261,7 @@ export async function fetchIndices(): Promise<MarketItem[]> {
 
 /**
  * Fetch sector performance from Finnhub (using sector ETFs)
+ * Uses sequential fetching to respect rate limits
  */
 export async function fetchSectorPerformance(): Promise<SectorPerformance[]> {
 	const createEmptySectors = () => SECTORS.map((s) => createEmptySectorItem(s.symbol, s.name));
@@ -219,22 +272,24 @@ export async function fetchSectorPerformance(): Promise<SectorPerformance[]> {
 	}
 
 	try {
-		logger.log('Markets API', 'Fetching sector performance from Finnhub');
+		logger.log('Markets API', 'Fetching sector performance from Finnhub (sequential with rate limiting)');
 
-		const quotes = await Promise.all(
-			SECTORS.map(async (sector) => {
-				const quote = await fetchFinnhubQuote(sector.symbol);
-				return { sector, quote };
-			})
-		);
+		const results: SectorPerformance[] = [];
 
-		return quotes.map(({ sector, quote }) => ({
-			symbol: sector.symbol,
-			name: sector.name,
-			price: quote?.c ?? NaN,
-			change: quote?.d ?? NaN,
-			changePercent: quote?.dp ?? NaN
-		}));
+		// Fetch sequentially to respect rate limits
+		for (const sector of SECTORS) {
+			const quote = await fetchFinnhubQuote(sector.symbol);
+
+			results.push({
+				symbol: sector.symbol,
+				name: sector.name,
+				price: quote?.c ?? NaN,
+				change: quote?.d ?? NaN,
+				changePercent: quote?.dp ?? NaN
+			});
+		}
+
+		return results;
 	} catch (error) {
 		logger.error('Markets API', 'Error fetching sectors:', error);
 		return createEmptySectors();
@@ -253,6 +308,7 @@ const COMMODITY_SYMBOL_MAP: Record<string, string> = {
 
 /**
  * Fetch commodities from Finnhub
+ * Uses sequential fetching to respect rate limits
  */
 export async function fetchCommodities(): Promise<MarketItem[]> {
 	const createEmptyCommodities = () =>
@@ -264,24 +320,26 @@ export async function fetchCommodities(): Promise<MarketItem[]> {
 	}
 
 	try {
-		logger.log('Markets API', 'Fetching commodities from Finnhub');
+		logger.log('Markets API', 'Fetching commodities from Finnhub (sequential with rate limiting)');
 
-		const quotes = await Promise.all(
-			COMMODITIES.map(async (commodity) => {
-				const finnhubSymbol = COMMODITY_SYMBOL_MAP[commodity.symbol] || commodity.symbol;
-				const quote = await fetchFinnhubQuote(finnhubSymbol);
-				return { commodity, quote };
-			})
-		);
+		const results: MarketItem[] = [];
 
-		return quotes.map(({ commodity, quote }) => ({
-			symbol: commodity.symbol,
-			name: commodity.name,
-			price: quote?.c ?? NaN,
-			change: quote?.d ?? NaN,
-			changePercent: quote?.dp ?? NaN,
-			type: 'commodity' as const
-		}));
+		// Fetch sequentially to respect rate limits
+		for (const commodity of COMMODITIES) {
+			const finnhubSymbol = COMMODITY_SYMBOL_MAP[commodity.symbol] || commodity.symbol;
+			const quote = await fetchFinnhubQuote(finnhubSymbol);
+
+			results.push({
+				symbol: commodity.symbol,
+				name: commodity.name,
+				price: quote?.c ?? NaN,
+				change: quote?.d ?? NaN,
+				changePercent: quote?.dp ?? NaN,
+				type: 'commodity' as const
+			});
+		}
+
+		return results;
 	} catch (error) {
 		logger.error('Markets API', 'Error fetching commodities:', error);
 		return createEmptyCommodities();

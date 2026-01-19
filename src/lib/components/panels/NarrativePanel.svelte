@@ -2,8 +2,9 @@
 	import { Panel, Badge } from '$lib/components/common';
 	import Modal from '$lib/components/modals/Modal.svelte';
 	import { analyzeNarratives } from '$lib/analysis/narrative';
-	import type { NewsItem } from '$lib/types';
-	import type { NarrativeData, EmergingFringe, FringeToMainstream } from '$lib/analysis/narrative';
+	import { analysisResults } from '$lib/stores';
+	import type { NewsItem, NarrativeResult } from '$lib/types';
+	import type { NarrativeData, EmergingFringe, FringeToMainstream, DisinfoSignal } from '$lib/analysis/narrative';
 
 	interface Props {
 		news?: NewsItem[];
@@ -15,12 +16,80 @@
 
 	const analysis = $derived(analyzeNarratives(news));
 
+	// Convert analysis results to NarrativeResult format and update store
+	$effect(() => {
+		if (!analysis) {
+			analysisResults.setNarratives([]);
+			return;
+		}
+
+		// Convert narrative analysis to NarrativeResult format
+		const narratives: NarrativeResult[] = [];
+		const now = Date.now();
+
+		// Add emerging fringe narratives
+		for (const narrative of analysis.emergingFringe) {
+			narratives.push({
+				narrative: narrative.name,
+				mentions: narrative.count,
+				firstSeen: now - (narrative.count * 60000), // Estimate based on count
+				lastSeen: now,
+				trend: narrative.status === 'viral' || narrative.status === 'spreading' ? 'emerging' : 'established',
+				relatedTopics: []
+			});
+		}
+
+		// Add fringe-to-mainstream crossovers
+		for (const crossover of analysis.fringeToMainstream) {
+			if (!narratives.some(n => n.narrative === crossover.name)) {
+				narratives.push({
+					narrative: crossover.name,
+					mentions: crossover.count,
+					firstSeen: now - (crossover.count * 60000),
+					lastSeen: now,
+					trend: 'emerging', // Crossovers are by definition emerging into mainstream
+					relatedTopics: []
+				});
+			}
+		}
+
+		// Add narrative watch items
+		for (const watch of analysis.narrativeWatch) {
+			if (!narratives.some(n => n.narrative === watch.name)) {
+				narratives.push({
+					narrative: watch.name,
+					mentions: watch.count,
+					firstSeen: now - (watch.count * 60000),
+					lastSeen: now,
+					trend: 'established',
+					relatedTopics: []
+				});
+			}
+		}
+
+		// Add disinfo signals
+		for (const disinfo of analysis.disinfoSignals) {
+			if (!narratives.some(n => n.narrative === disinfo.name)) {
+				narratives.push({
+					narrative: `[DISINFO] ${disinfo.name}`,
+					mentions: disinfo.count,
+					firstSeen: now - (disinfo.count * 60000),
+					lastSeen: now,
+					trend: disinfo.threatLevel === 'high' || disinfo.threatLevel === 'critical' ? 'emerging' : 'established',
+					relatedTopics: []
+				});
+			}
+		}
+
+		analysisResults.setNarratives(narratives);
+	});
+
 	// Selected narrative for detail view
-	let selectedNarrative = $state<NarrativeData | EmergingFringe | FringeToMainstream | null>(null);
+	let selectedNarrative = $state<NarrativeData | EmergingFringe | FringeToMainstream | DisinfoSignal | null>(null);
 	let selectedType = $state<'emerging' | 'crossover' | 'watch' | 'disinfo' | null>(null);
 
 	function openNarrativeDetail(
-		narrative: NarrativeData | EmergingFringe | FringeToMainstream,
+		narrative: NarrativeData | EmergingFringe | FringeToMainstream | DisinfoSignal,
 		type: 'emerging' | 'crossover' | 'watch' | 'disinfo'
 	) {
 		selectedNarrative = narrative;
@@ -51,10 +120,13 @@
 		severity: string
 	): 'default' | 'warning' | 'danger' | 'success' | 'info' {
 		switch (severity) {
+			case 'critical':
 			case 'high':
 				return 'danger';
 			case 'medium':
 				return 'warning';
+			case 'low':
+				return 'info';
 			default:
 				return 'default';
 		}
@@ -188,8 +260,8 @@
 							<div class="disinfo-header">
 								<span class="disinfo-name">{signal.name}</span>
 								<Badge
-									text={signal.severity.toUpperCase()}
-									variant={getSeverityVariant(signal.severity)}
+									text={signal.threatLevel.toUpperCase()}
+									variant={getSeverityVariant(signal.threatLevel)}
 								/>
 							</div>
 							<div class="disinfo-meta">{signal.count} mentions</div>

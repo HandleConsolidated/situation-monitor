@@ -39,7 +39,10 @@
 		layoutSettings,
 		leftPanels,
 		rightPanels,
-		bottomPanels
+		bottomPanels,
+		correlationResults,
+		narrativeResults,
+		mainCharacterResults
 	} from '$lib/stores';
 	import { DropZone } from '$lib/components/common';
 	import {
@@ -53,9 +56,11 @@
 		fetchAllGridStress,
 		fetchEarthquakes,
 		fetchRadiationData,
-		fetchDiseaseOutbreaks
+		fetchDiseaseOutbreaks,
+		fetchOutageData,
+		fetchFedBalanceData
 	} from '$lib/api';
-	import type { Prediction, WhaleTransaction, Contract, Layoff, GridStressData, RadiationReading } from '$lib/api';
+	import type { Prediction, WhaleTransaction, Contract, Layoff, GridStressData, RadiationReading, OutageData, FedBalanceData } from '$lib/api';
 	import type { EarthquakeData, DiseaseOutbreak } from '$lib/types';
 	import type { CustomMonitor, WorldLeader } from '$lib/types';
 	import type { PanelId } from '$lib/config';
@@ -95,6 +100,10 @@
 	let radiationLoading = $state(false);
 	let diseaseOutbreaks = $state<DiseaseOutbreak[]>([]);
 	let outbreaksLoading = $state(false);
+	let outages = $state<OutageData[]>([]);
+	let outagesLoading = $state(false);
+	let fedData = $state<FedBalanceData | null>(null);
+	let fedLoading = $state(false);
 
 	// Track when initial data load is complete for AI panel
 	let initialDataLoaded = $state(false);
@@ -201,7 +210,6 @@
 	}
 
 	async function loadWorldLeaders() {
-		if (!isPanelVisible('leaders')) return;
 		leadersLoading = true;
 		try {
 			leaders = await fetchWorldLeaders();
@@ -213,7 +221,6 @@
 	}
 
 	async function loadGridStress() {
-		if (!isPanelVisible('gridstress')) return;
 		gridStressLoading = true;
 		try {
 			gridStress = await fetchAllGridStress();
@@ -227,10 +234,11 @@
 	}
 
 	async function loadEarthquakes() {
-		if (!isPanelVisible('earthquakes')) return;
 		earthquakesLoading = true;
 		try {
 			earthquakes = await fetchEarthquakes(4.0);
+			// Track freshness
+			dataFreshness = { ...dataFreshness, environmental: Date.now() };
 		} catch (error) {
 			console.error('Failed to load earthquake data:', error);
 		} finally {
@@ -239,7 +247,6 @@
 	}
 
 	async function loadRadiation() {
-		if (!isPanelVisible('radiation')) return;
 		radiationLoading = true;
 		try {
 			radiationReadings = await fetchRadiationData();
@@ -251,7 +258,6 @@
 	}
 
 	async function loadDiseaseOutbreaks() {
-		if (!isPanelVisible('outbreaks')) return;
 		outbreaksLoading = true;
 		try {
 			diseaseOutbreaks = await fetchDiseaseOutbreaks();
@@ -260,6 +266,37 @@
 		} finally {
 			outbreaksLoading = false;
 		}
+	}
+
+	async function loadOutages() {
+		outagesLoading = true;
+		try {
+			outages = await fetchOutageData();
+		} catch (error) {
+			console.error('Failed to load outage data:', error);
+		} finally {
+			outagesLoading = false;
+		}
+	}
+
+	async function loadFedData() {
+		fedLoading = true;
+		try {
+			fedData = await fetchFedBalanceData();
+		} catch (error) {
+			console.error('Failed to load Fed balance sheet data:', error);
+		} finally {
+			fedLoading = false;
+		}
+	}
+
+	// Combined infrastructure data loading for AI actions
+	async function loadInfrastructureData() {
+		await Promise.all([
+			loadGridStress(),
+			loadOutages()
+		]);
+		dataFreshness = { ...dataFreshness, infrastructure: Date.now() };
 	}
 
 	// Combined environmental data loading for AI actions
@@ -397,7 +434,7 @@
 		async function initialLoad() {
 			refresh.startRefresh();
 			try {
-				await Promise.all([loadNews(), loadMarkets(), loadMiscData(), loadWorldLeaders(), loadGridStress(), loadEarthquakes(), loadRadiation(), loadDiseaseOutbreaks()]);
+				await Promise.all([loadNews(), loadMarkets(), loadMiscData(), loadWorldLeaders(), loadGridStress(), loadEarthquakes(), loadRadiation(), loadDiseaseOutbreaks(), loadOutages(), loadFedData()]);
 				refresh.endRefresh();
 				initialDataLoaded = true;
 			} catch (error) {
@@ -468,7 +505,7 @@
 					{:else if panelId === 'layoffs'}
 						<LayoffsPanel {layoffs} />
 					{:else if panelId === 'printer'}
-						<PrinterPanel />
+						<PrinterPanel data={fedData} loading={fedLoading} />
 					{:else if panelId === 'monitors'}
 						<MonitorsPanel
 							monitors={$monitors.monitors}
@@ -551,7 +588,12 @@
 								govContracts: contracts,
 								layoffs,
 								predictions,
-								gridStress
+								gridStress,
+								outages,
+								correlations: $correlationResults,
+								narratives: $narrativeResults,
+								mainCharacters: $mainCharacterResults,
+								worldLeaders: leaders
 							}}
 							onOpenSettings={() => settingsOpen = true}
 							{actionHandlers}
@@ -643,7 +685,7 @@
 					{:else if panelId === 'layoffs'}
 						<LayoffsPanel {layoffs} />
 					{:else if panelId === 'printer'}
-						<PrinterPanel />
+						<PrinterPanel data={fedData} loading={fedLoading} />
 					{:else if panelId === 'monitors'}
 						<MonitorsPanel
 							monitors={$monitors.monitors}
@@ -726,7 +768,12 @@
 								govContracts: contracts,
 								layoffs,
 								predictions,
-								gridStress
+								gridStress,
+								outages,
+								correlations: $correlationResults,
+								narratives: $narrativeResults,
+								mainCharacters: $mainCharacterResults,
+								worldLeaders: leaders
 							}}
 							onOpenSettings={() => settingsOpen = true}
 							{actionHandlers}
@@ -776,7 +823,7 @@
 			{:else if panelId === 'layoffs'}
 				<LayoffsPanel {layoffs} />
 			{:else if panelId === 'printer'}
-				<PrinterPanel />
+				<PrinterPanel data={fedData} loading={fedLoading} />
 			{:else if panelId === 'monitors'}
 				<MonitorsPanel
 					monitors={$monitors.monitors}
@@ -859,7 +906,12 @@
 						govContracts: contracts,
 						layoffs,
 						predictions,
-						gridStress
+						gridStress,
+						outages,
+						correlations: $correlationResults,
+						narratives: $narrativeResults,
+						mainCharacters: $mainCharacterResults,
+						worldLeaders: leaders
 					}}
 					onOpenSettings={() => settingsOpen = true}
 					{initialDataLoaded}

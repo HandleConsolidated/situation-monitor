@@ -276,12 +276,26 @@
 				const updatedSystemPrompt = `${baseSystemPrompt}\n\n${toolsPrompt}\n\n## Current Intelligence Context\n${updatedContextContent}`;
 
 				// Convert tool calls to assistant content blocks format for Anthropic
-				const assistantContentBlocks = response.toolCalls!.map(tc => ({
-					type: 'tool_use' as const,
-					id: tc.id,
-					name: tc.name,
-					input: tc.parameters
-				}));
+				// Include any text content from the response along with tool_use blocks
+				const assistantContentBlocks: Array<{ type: 'text'; text: string } | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }> = [];
+
+				// Add text content if present (the assistant may have said something before tool calls)
+				if (response.content && response.content.trim()) {
+					assistantContentBlocks.push({
+						type: 'text' as const,
+						text: response.content
+					});
+				}
+
+				// Add all tool_use blocks
+				for (const tc of response.toolCalls!) {
+					assistantContentBlocks.push({
+						type: 'tool_use' as const,
+						id: tc.id,
+						name: tc.name,
+						input: tc.parameters
+					});
+				}
 
 				// Convert tool results to Anthropic format
 				const anthropicToolResults = toolResults.map(tr => ({
@@ -582,7 +596,7 @@
 					<p class="text-[10px] sm:text-xs">Select a prompt or ask a question</p>
 				</div>
 			{:else}
-				{#each messages as message (message.id)}
+				{#each messages.filter(m => m.role === 'user' || m.role === 'assistant') as message (message.id)}
 					<div class="message" class:user={message.role === 'user'} class:assistant={message.role === 'assistant'}>
 						<div class="message-header">
 							<span class="message-role text-[9px] sm:text-[10px]">
@@ -1216,34 +1230,60 @@
 	.prompt-select {
 		width: 100%;
 		padding: 0.3rem 0.5rem;
-		background: var(--interactive-bg);
+		/* Use solid dark background for cross-browser dropdown compatibility */
+		background-color: #1e293b; /* slate-800 solid */
 		border: 1px solid var(--border);
 		border-radius: 2px;
-		color: var(--text);
+		color: #e2e8f0; /* slate-200 - light text */
 		font-family: 'SF Mono', Monaco, monospace;
 		cursor: pointer;
+		/* Custom dropdown arrow */
+		-webkit-appearance: none;
+		-moz-appearance: none;
+		appearance: none;
+		background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+		background-repeat: no-repeat;
+		background-position: right 0.5rem center;
+		padding-right: 1.75rem;
+		transition: all 0.15s ease;
 	}
 
 	.prompt-select:hover:not(:disabled) {
+		background-color: #334155; /* slate-700 */
 		border-color: var(--accent-border);
+	}
+
+	.prompt-select:focus {
+		border-color: var(--accent);
+		background-color: #334155; /* slate-700 */
 	}
 
 	.prompt-select:disabled {
 		opacity: 0.5;
 		cursor: not-allowed;
+		background-color: #0f172a; /* slate-900 */
 	}
 
+	/* Optgroup and option styling - solid colors for cross-browser support */
 	.prompt-select optgroup {
 		font-weight: 700;
-		color: var(--accent);
-		background: var(--surface);
+		color: #22d3ee; /* cyan-400 accent */
+		background-color: #0f172a; /* slate-900 - darker for contrast */
 		padding: 0.25rem 0;
 	}
 
 	.prompt-select option {
 		font-weight: 400;
-		color: var(--text);
+		color: #e2e8f0; /* slate-200 - light text */
+		background-color: #1e293b; /* slate-800 solid */
 		padding: 0.2rem 0.5rem;
+	}
+
+	.prompt-select option:hover,
+	.prompt-select option:focus,
+	.prompt-select option:checked {
+		background-color: #334155; /* slate-700 */
+		color: #22d3ee; /* cyan-400 accent */
 	}
 
 	.prompt-info {

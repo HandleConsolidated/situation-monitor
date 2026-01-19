@@ -4,6 +4,30 @@
  */
 
 // ============================================================================
+// Staleness Configuration
+// ============================================================================
+
+/**
+ * Default staleness threshold in milliseconds.
+ * Data older than this will be refreshed; fresher data will use cache.
+ */
+export const DEFAULT_STALENESS_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes
+
+/**
+ * Per-category staleness thresholds (in milliseconds).
+ * Categories not listed use DEFAULT_STALENESS_THRESHOLD_MS.
+ */
+export const CATEGORY_STALENESS_THRESHOLDS: Record<string, number> = {
+	news: 2 * 60 * 1000, // 2 minutes - news updates frequently
+	markets: 60 * 1000, // 1 minute - markets are time-sensitive
+	crypto: 60 * 1000, // 1 minute - crypto is volatile
+	geopolitical: 2 * 60 * 1000, // 2 minutes
+	infrastructure: 5 * 60 * 1000, // 5 minutes - infrastructure data is more stable
+	environmental: 5 * 60 * 1000, // 5 minutes - earthquakes/radiation update less frequently
+	alternative: 5 * 60 * 1000 // 5 minutes - polymarket/contracts/layoffs
+};
+
+// ============================================================================
 // Tool Definitions (for Anthropic/OpenAI tool use)
 // ============================================================================
 
@@ -29,49 +53,57 @@ export const AI_TOOLS: ToolDefinition[] = [
 	// Data refresh tools
 	{
 		name: 'refresh_news',
-		description: 'Refresh news data from all RSS feeds and news sources. Use when user asks to check for new news, updates, or breaking stories.',
+		description:
+			'Refresh news data from all RSS feeds and news sources. Smart caching: only fetches if data is older than 2 minutes, otherwise uses cached data. Use when user asks to check for new news, updates, or breaking stories.',
 		parameters: [],
 		category: 'data'
 	},
 	{
 		name: 'refresh_markets',
-		description: 'Refresh market data including stock indices, sectors, commodities, and cryptocurrency prices. Use when user asks about current market conditions or prices.',
+		description:
+			'Refresh market data including stock indices, sectors, and commodities. Smart caching: only fetches if data is older than 1 minute, otherwise uses cached data. Use when user asks about current market conditions or prices.',
 		parameters: [],
 		category: 'data'
 	},
 	{
 		name: 'refresh_crypto',
-		description: 'Refresh cryptocurrency prices and whale transaction data. Use when user asks about crypto, Bitcoin, Ethereum, or whale activity.',
+		description:
+			'Refresh cryptocurrency prices and whale transaction data. Smart caching: only fetches if data is older than 1 minute, otherwise uses cached data. Use when user asks about crypto, Bitcoin, Ethereum, or whale activity.',
 		parameters: [],
 		category: 'data'
 	},
 	{
 		name: 'refresh_geopolitical',
-		description: 'Refresh geopolitical data including hotspot statuses, conflicts, and threat indicators. Use when user asks about conflicts, tensions, or geopolitical situations.',
+		description:
+			'Refresh geopolitical data including hotspot statuses, conflicts, and threat indicators. Smart caching: only fetches if data is older than 2 minutes. Use when user asks about conflicts, tensions, or geopolitical situations.',
 		parameters: [],
 		category: 'data'
 	},
 	{
 		name: 'refresh_infrastructure',
-		description: 'Refresh infrastructure data including grid stress levels and outage information. Use when user asks about power grid, infrastructure, or outages.',
+		description:
+			'Refresh infrastructure data including grid stress levels and outage information. Smart caching: only fetches if data is older than 5 minutes. Use when user asks about power grid, infrastructure, or outages.',
 		parameters: [],
 		category: 'data'
 	},
 	{
 		name: 'refresh_environmental',
-		description: 'Refresh environmental data including earthquakes, radiation readings, and disease outbreaks. Use when user asks about natural disasters, radiation, or health emergencies.',
+		description:
+			'Refresh environmental data including earthquakes, radiation readings, and disease outbreaks. Smart caching: only fetches if data is older than 5 minutes. Use when user asks about natural disasters, radiation, or health emergencies.',
 		parameters: [],
 		category: 'data'
 	},
 	{
 		name: 'refresh_alternative',
-		description: 'Refresh alternative data including prediction markets (Polymarket), government contracts, and layoff announcements. Use when user asks about predictions, contracts, or layoffs.',
+		description:
+			'Refresh alternative data including prediction markets (Polymarket), government contracts, and layoff announcements. Smart caching: only fetches if data is older than 5 minutes. Use when user asks about predictions, contracts, or layoffs.',
 		parameters: [],
 		category: 'data'
 	},
 	{
 		name: 'refresh_all',
-		description: 'Refresh all data sources. Use when user asks for a complete refresh or wants everything updated.',
+		description:
+			'Refresh all data sources. Smart caching applies per-category: only stale data is refreshed. Use when user asks for a complete refresh or wants everything updated.',
 		parameters: [],
 		category: 'data'
 	},
@@ -268,6 +300,111 @@ export function getAnthropicTools(): AnthropicTool[] {
 // ============================================================================
 
 /**
+ * Check if a data category is stale and needs refresh
+ */
+function isCategoryStale(
+	category: string,
+	freshness: Record<string, number | null>
+): { isStale: boolean; ageSeconds: number | null } {
+	const lastUpdated = freshness[category];
+	if (lastUpdated === null || lastUpdated === undefined) {
+		return { isStale: true, ageSeconds: null };
+	}
+
+	const threshold = CATEGORY_STALENESS_THRESHOLDS[category] ?? DEFAULT_STALENESS_THRESHOLD_MS;
+	const ageMs = Date.now() - lastUpdated;
+	const ageSeconds = Math.round(ageMs / 1000);
+
+	return {
+		isStale: ageMs > threshold,
+		ageSeconds
+	};
+}
+
+/**
+ * Format age for human-readable output
+ */
+function formatAge(seconds: number | null): string {
+	if (seconds === null) return 'never fetched';
+	if (seconds < 60) return `${seconds} seconds ago`;
+	const minutes = Math.floor(seconds / 60);
+	if (minutes === 1) return '1 minute ago';
+	return `${minutes} minutes ago`;
+}
+
+/**
+ * Execute a conditional refresh for a single category.
+ * Only refreshes if data is stale; returns appropriate message.
+ */
+async function executeConditionalRefresh(
+	category: string,
+	refreshFn: () => Promise<void>,
+	freshness: Record<string, number | null>,
+	dataDescription: string
+): Promise<{ refreshed: boolean; message: string }> {
+	const { isStale, ageSeconds } = isCategoryStale(category, freshness);
+
+	if (!isStale) {
+		return {
+			refreshed: false,
+			message: `Using cached ${dataDescription} (last updated ${formatAge(ageSeconds)}). Data is still fresh.`
+		};
+	}
+
+	await refreshFn();
+	return {
+		refreshed: true,
+		message: `${dataDescription} has been refreshed with latest data.${ageSeconds !== null ? ` Previous data was ${formatAge(ageSeconds)}.` : ''}`
+	};
+}
+
+/**
+ * Execute conditional refreshes for multiple categories.
+ * Returns a summary of what was refreshed vs cached.
+ */
+async function executeMultiCategoryRefresh(
+	categories: Array<{ category: string; refreshFn: () => Promise<void>; description: string }>,
+	freshness: Record<string, number | null>
+): Promise<{ refreshedCount: number; cachedCount: number; message: string }> {
+	const results: Array<{ category: string; refreshed: boolean; description: string; ageSeconds: number | null }> = [];
+
+	for (const { category, refreshFn, description } of categories) {
+		const { isStale, ageSeconds } = isCategoryStale(category, freshness);
+
+		if (isStale) {
+			await refreshFn();
+			results.push({ category, refreshed: true, description, ageSeconds });
+		} else {
+			results.push({ category, refreshed: false, description, ageSeconds });
+		}
+	}
+
+	const refreshed = results.filter((r) => r.refreshed);
+	const cached = results.filter((r) => !r.refreshed);
+
+	const lines: string[] = [];
+
+	if (refreshed.length > 0) {
+		lines.push(
+			`Refreshed: ${refreshed.map((r) => r.description).join(', ')}.`
+		);
+	}
+
+	if (cached.length > 0) {
+		const cachedDetails = cached
+			.map((r) => `${r.description} (${formatAge(r.ageSeconds)})`)
+			.join(', ');
+		lines.push(`Using cached data for: ${cachedDetails}.`);
+	}
+
+	return {
+		refreshedCount: refreshed.length,
+		cachedCount: cached.length,
+		message: lines.join(' ')
+	};
+}
+
+/**
  * Execute a tool call using the provided handlers
  */
 export async function executeToolCall(
@@ -275,70 +412,135 @@ export async function executeToolCall(
 	handlers: ActionHandlers
 ): Promise<ToolResult> {
 	try {
+		// Get current data freshness for smart caching decisions
+		const freshness = handlers.getDataFreshness();
+
 		switch (toolCall.name) {
-			case 'refresh_news':
-				await handlers.refreshNews();
+			case 'refresh_news': {
+				const { refreshed, message } = await executeConditionalRefresh(
+					'news',
+					handlers.refreshNews,
+					freshness,
+					'News data'
+				);
 				return {
 					toolCallId: toolCall.id,
 					success: true,
-					result: 'News data has been refreshed. New articles and alerts are now available in the context.'
+					result: message,
+					data: { refreshed, category: 'news' }
 				};
+			}
 
-			case 'refresh_markets':
-				await handlers.refreshMarkets();
+			case 'refresh_markets': {
+				const { refreshed, message } = await executeConditionalRefresh(
+					'markets',
+					handlers.refreshMarkets,
+					freshness,
+					'Market data'
+				);
 				return {
 					toolCallId: toolCall.id,
 					success: true,
-					result: 'Market data has been refreshed including indices, sectors, and commodities.'
+					result: message,
+					data: { refreshed, category: 'markets' }
 				};
+			}
 
-			case 'refresh_crypto':
-				await handlers.refreshCrypto();
+			case 'refresh_crypto': {
+				const { refreshed, message } = await executeConditionalRefresh(
+					'crypto',
+					handlers.refreshCrypto,
+					freshness,
+					'Cryptocurrency data'
+				);
 				return {
 					toolCallId: toolCall.id,
 					success: true,
-					result: 'Cryptocurrency data has been refreshed including prices and whale transactions.'
+					result: message,
+					data: { refreshed, category: 'crypto' }
 				};
+			}
 
-			case 'refresh_geopolitical':
-				await handlers.refreshGeopolitical();
+			case 'refresh_geopolitical': {
+				const { refreshed, message } = await executeConditionalRefresh(
+					'geopolitical',
+					handlers.refreshGeopolitical,
+					freshness,
+					'Geopolitical data'
+				);
 				return {
 					toolCallId: toolCall.id,
 					success: true,
-					result: 'Geopolitical data has been refreshed including hotspot statuses and conflicts.'
+					result: message,
+					data: { refreshed, category: 'geopolitical' }
 				};
+			}
 
-			case 'refresh_infrastructure':
-				await handlers.refreshInfrastructure();
+			case 'refresh_infrastructure': {
+				const { refreshed, message } = await executeConditionalRefresh(
+					'infrastructure',
+					handlers.refreshInfrastructure,
+					freshness,
+					'Infrastructure data'
+				);
 				return {
 					toolCallId: toolCall.id,
 					success: true,
-					result: 'Infrastructure data has been refreshed including grid stress and outage information.'
+					result: message,
+					data: { refreshed, category: 'infrastructure' }
 				};
+			}
 
-			case 'refresh_environmental':
-				await handlers.refreshEnvironmental();
+			case 'refresh_environmental': {
+				const { refreshed, message } = await executeConditionalRefresh(
+					'environmental',
+					handlers.refreshEnvironmental,
+					freshness,
+					'Environmental data'
+				);
 				return {
 					toolCallId: toolCall.id,
 					success: true,
-					result: 'Environmental data has been refreshed including earthquakes, radiation, and disease outbreaks.'
+					result: message,
+					data: { refreshed, category: 'environmental' }
 				};
+			}
 
-			case 'refresh_alternative':
-				await handlers.refreshAlternative();
+			case 'refresh_alternative': {
+				const { refreshed, message } = await executeConditionalRefresh(
+					'alternative',
+					handlers.refreshAlternative,
+					freshness,
+					'Alternative data'
+				);
 				return {
 					toolCallId: toolCall.id,
 					success: true,
-					result: 'Alternative data has been refreshed including predictions, contracts, and layoffs.'
+					result: message,
+					data: { refreshed, category: 'alternative' }
 				};
+			}
 
-			case 'refresh_all':
-				await handlers.refreshAll();
+			case 'refresh_all': {
+				const { refreshedCount, cachedCount, message } = await executeMultiCategoryRefresh(
+					[
+						{ category: 'news', refreshFn: handlers.refreshNews, description: 'News' },
+						{ category: 'markets', refreshFn: handlers.refreshMarkets, description: 'Markets' },
+						{ category: 'crypto', refreshFn: handlers.refreshCrypto, description: 'Crypto' },
+						{ category: 'geopolitical', refreshFn: handlers.refreshGeopolitical, description: 'Geopolitical' },
+						{ category: 'infrastructure', refreshFn: handlers.refreshInfrastructure, description: 'Infrastructure' },
+						{ category: 'environmental', refreshFn: handlers.refreshEnvironmental, description: 'Environmental' },
+						{ category: 'alternative', refreshFn: handlers.refreshAlternative, description: 'Alternative' }
+					],
+					freshness
+				);
 				return {
 					toolCallId: toolCall.id,
 					success: true,
-					result: 'All data sources have been refreshed. Full intelligence context is now up to date.'
+					result: message || 'All data is already fresh. No refresh needed.',
+					data: { refreshedCount, cachedCount }
 				};
+			}
 
 			case 'run_analysis': {
 				const analysisType = toolCall.parameters.analysis_type as string;
@@ -424,9 +626,21 @@ Available actions:
 - Highlight panels: bring attention to specific dashboard panels
 - Check data freshness: see when data was last updated
 
+IMPORTANT - Smart Caching:
+All refresh tools use smart caching. When you call a refresh tool:
+- If data is fresh (recently fetched), it will use cached data and tell you when it was last updated
+- If data is stale, it will fetch new data and confirm the refresh
+- The tool result will clearly indicate whether data was refreshed or came from cache
+- You do NOT need to check data freshness before refreshing - the tools handle this automatically
+
+Staleness thresholds by category:
+- Markets/Crypto: 1 minute (time-sensitive)
+- News/Geopolitical: 2 minutes
+- Infrastructure/Environmental/Alternative: 5 minutes
+
 When using tools:
-1. Use refresh tools when data might be stale or user asks for latest information
-2. After refreshing data, analyze the new information in your response
-3. Be proactive about suggesting refreshes when discussing potentially outdated information
+1. Call refresh tools freely - smart caching prevents unnecessary fetches
+2. Trust the tool result to tell you if data was refreshed or cached
+3. After a tool call, analyze the information in your response
 4. Use highlight_panel to direct user attention to relevant dashboard sections`;
 }

@@ -387,11 +387,11 @@
 	}
 
 	.panel.collapsed {
-		/* When collapsed, show only header with proper minimum height */
+		/* When collapsed, show only header - let header determine natural height */
 		height: auto !important;
-		min-height: 2.5rem; /* Match panel-header min-height */
-		max-height: 2.5rem;
-		overflow: hidden;
+		min-height: 0;
+		/* Don't set max-height - the panel-content.hidden handles hiding the content */
+		/* overflow: visible allows the header to render fully with all its content */
 	}
 
 	.panel.collapsed .resize-handle {
@@ -535,12 +535,12 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: 0.5rem; /* p-2 (8px) per design system */
+		padding: var(--panel-header-padding, 0.375rem 0.5rem); /* Responsive padding */
 		background: rgb(15 23 42 / 0.9); /* slate-900/90 */
 		border-bottom: 1px solid rgb(51 65 85 / 0.5); /* border-slate-700/50 */
-		min-height: 2.5rem;
+		min-height: var(--panel-header-min-height, 2rem); /* Responsive min-height */
 		min-width: 0; /* Allow shrinking */
-		gap: 0.5rem;
+		gap: 0.375rem;
 	}
 
 	.panel-title-row {
@@ -554,10 +554,10 @@
 
 	.panel-title {
 		/* Responsive panel title using CSS custom properties */
-		font-size: var(--fs-lg); /* 12px → 14px responsive */
+		font-size: var(--panel-title-font-size, var(--fs-sm)); /* Default to smaller, scale up on large screens */
 		font-weight: 700;
 		text-transform: uppercase;
-		letter-spacing: 0.1em;
+		letter-spacing: 0.08em;
 		color: rgb(226 232 240); /* text-slate-200 */
 		margin: 0;
 		line-height: var(--lh-tight);
@@ -568,12 +568,12 @@
 
 	.panel-count {
 		/* Responsive metadata using CSS custom properties */
-		font-size: var(--fs-xs); /* 9px → 10px responsive */
+		font-size: var(--panel-meta-font-size, var(--fs-2xs)); /* Smaller default for better density */
 		font-weight: 700;
 		font-family: 'SF Mono', Monaco, monospace;
 		color: rgb(34 211 238); /* cyan-400 */
 		background: rgb(34 211 238 / 0.1); /* cyan-400/10 */
-		padding: var(--sp-xs) var(--sp-md);
+		padding: 0.125rem 0.25rem;
 		border-radius: 2px;
 		border: 1px solid rgb(34 211 238 / 0.3); /* cyan-400/30 */
 		line-height: var(--lh-tight);
@@ -581,10 +581,10 @@
 
 	.panel-status {
 		/* Responsive status badge using CSS custom properties */
-		font-size: var(--fs-xs); /* 9px → 10px responsive */
+		font-size: var(--panel-meta-font-size, var(--fs-2xs)); /* Smaller default for better density */
 		font-weight: 700;
 		font-family: 'SF Mono', Monaco, monospace;
-		padding: var(--sp-xs) var(--sp-md);
+		padding: 0.125rem 0.25rem;
 		border-radius: 2px;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
@@ -611,12 +611,13 @@
 	}
 
 	.panel-loading {
-		width: 14px;
-		height: 14px;
-		border: 2px solid rgb(51 65 85); /* slate-700 */
+		width: 12px;
+		height: 12px;
+		border: 1.5px solid rgb(51 65 85); /* slate-700 */
 		border-top-color: rgb(34 211 238); /* cyan-400 */
 		border-radius: 50%;
 		animation: spin 1s linear infinite;
+		flex-shrink: 0;
 	}
 
 	@keyframes spin {
@@ -636,14 +637,15 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		width: 20px;
-		height: 20px;
+		width: 18px;
+		height: 18px;
 		background: rgb(15 23 42 / 0.8); /* slate-900/80 */
 		border: 1px solid rgb(51 65 85 / 0.5); /* slate-700/50 */
 		border-radius: 2px;
 		color: rgb(148 163 184); /* slate-400 */
 		cursor: pointer;
 		transition: all 0.15s ease;
+		flex-shrink: 0;
 	}
 
 	.panel-collapse-btn:hover {

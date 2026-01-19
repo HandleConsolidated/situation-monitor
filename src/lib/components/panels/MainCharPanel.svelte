@@ -1,12 +1,31 @@
 <script lang="ts">
 	import { Panel } from '$lib/components/common';
-	import { allNewsItems } from '$lib/stores';
+	import { allNewsItems, analysisResults } from '$lib/stores';
 	import { calculateMainCharacter, type MainCharacterResults } from '$lib/analysis';
+	import type { MainCharacterResult } from '$lib/types';
 
 	// Calculate main character from all news (reactive via derived store)
 	const results: MainCharacterResults = $derived(calculateMainCharacter($allNewsItems));
 	const topChar = $derived(results.topCharacter);
 	const rankings = $derived(results.characters);
+
+	// Convert results to MainCharacterResult format and update store
+	$effect(() => {
+		if (!results || results.characters.length === 0) {
+			analysisResults.setMainCharacters([]);
+			return;
+		}
+
+		// Convert MainCharacterEntry to MainCharacterResult format
+		const mainCharacters: MainCharacterResult[] = results.characters.map(char => ({
+			name: char.name,
+			mentions: char.count,
+			sources: [], // We don't track sources per character currently
+			sentiment: 'neutral' as const // We don't analyze sentiment per character currently
+		}));
+
+		analysisResults.setMainCharacters(mainCharacters);
+	});
 </script>
 
 <Panel id="mainchar" title="Main Character">

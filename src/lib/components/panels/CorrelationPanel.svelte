@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { Panel, Badge } from '$lib/components/common';
 	import { analyzeCorrelations } from '$lib/analysis/correlation';
-	import type { NewsItem } from '$lib/types';
+	import { analysisResults } from '$lib/stores';
+	import type { NewsItem, CorrelationResult } from '$lib/types';
 
 	interface Props {
 		news?: NewsItem[];
@@ -12,6 +13,54 @@
 	let { news = [], loading = false, error = null }: Props = $props();
 
 	const analysis = $derived(analyzeCorrelations(news));
+
+	// Convert analysis results to CorrelationResult format and update store
+	$effect(() => {
+		if (!analysis) {
+			analysisResults.setCorrelations([]);
+			return;
+		}
+
+		// Convert emerging patterns and momentum signals to CorrelationResult format
+		const correlations: CorrelationResult[] = [];
+
+		// Add emerging patterns
+		for (const pattern of analysis.emergingPatterns) {
+			correlations.push({
+				topic: pattern.name,
+				count: pattern.count,
+				sources: pattern.sources,
+				momentum: pattern.level === 'high' ? 'rising' : 'stable'
+			});
+		}
+
+		// Add momentum signals
+		for (const signal of analysis.momentumSignals) {
+			// Avoid duplicates
+			if (!correlations.some(c => c.topic === signal.name)) {
+				correlations.push({
+					topic: signal.name,
+					count: signal.current,
+					sources: [],
+					momentum: signal.momentum === 'surging' || signal.momentum === 'rising' ? 'rising' : 'stable'
+				});
+			}
+		}
+
+		// Add cross-source correlations
+		for (const corr of analysis.crossSourceCorrelations) {
+			if (!correlations.some(c => c.topic === corr.name)) {
+				correlations.push({
+					topic: corr.name,
+					count: corr.sourceCount,
+					sources: corr.sources,
+					momentum: corr.level === 'high' ? 'rising' : 'stable'
+				});
+			}
+		}
+
+		analysisResults.setCorrelations(correlations);
+	});
 
 	function getLevelVariant(level: string): 'default' | 'warning' | 'danger' | 'success' | 'info' {
 		switch (level) {

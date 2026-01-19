@@ -263,7 +263,7 @@ Before finalizing, verify:
 <verification_log>
 [Document any corrections made during CoVe verification]
 </verification_log>`,
-		focusCategories: ['geopolitical', 'news', 'markets', 'analysis'],
+		focusCategories: ['geopolitical', 'news', 'markets', 'analysis', 'crypto'],
 		suggestedDepth: 'standard',
 		thinkingBudget: 10000, // Increased to accommodate CoVe
 		coveEnabled: true,
@@ -544,7 +544,7 @@ Before responding, verify:
 - Impact statements are specific, not generic
 - Actions are immediately executable
 </validation>`,
-		focusCategories: ['news', 'geopolitical'],
+		focusCategories: ['news', 'geopolitical', 'markets'],
 		suggestedDepth: 'brief',
 		thinkingBudget: 2000,
 		autoTrigger: true,
@@ -847,7 +847,7 @@ Before finalizing:
 - Removed claims: [List any claims removed due to lack of evidence]
 - Added caveats: [List any caveats added for unverifiable claims]
 </verification_log>`,
-		focusCategories: ['geopolitical', 'news', 'infrastructure', 'environmental'],
+		focusCategories: ['geopolitical', 'news', 'infrastructure', 'environmental', 'monitors'],
 		suggestedDepth: 'detailed',
 		thinkingBudget: 20000, // Increased significantly for CoVe
 		coveEnabled: true,
@@ -1109,7 +1109,7 @@ Avoid these common errors:
 - Indicators removed: [List any claimed indicators not supported by intelligence]
 - Caveats added: [List uncertainty acknowledgments added]
 </verification_log>`,
-		focusCategories: ['geopolitical', 'news'],
+		focusCategories: ['geopolitical', 'news', 'infrastructure'],
 		suggestedDepth: 'standard',
 		thinkingBudget: 14000, // Increased for CoVe
 		autoTrigger: true,
@@ -2787,7 +2787,7 @@ For each impact prediction:
 <verification_log>
 [Document verification outcomes]
 </verification_log>`,
-		focusCategories: ['analysis', 'news'],
+		focusCategories: ['analysis', 'news', 'monitors'],
 		suggestedDepth: 'standard',
 		thinkingBudget: 10000,
 		coveEnabled: true,
