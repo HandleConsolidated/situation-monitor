@@ -1,5 +1,8 @@
 <script lang="ts">
-	import { isRefreshing, lastRefresh } from '$lib/stores';
+	import { isRefreshing, lastRefresh, alerts as newsAlerts } from '$lib/stores';
+	import { autoAnalysis, type AnalysisAlert } from '$lib/services/auto-analysis';
+	import { tts, ttsPreferences, playAlertSoundOnce } from '$lib/services/tts';
+	import { get } from 'svelte/store';
 
 	interface Props {
 		onSettingsClick?: () => void;
@@ -7,6 +10,215 @@
 	}
 
 	let { onSettingsClick, onRefreshClick }: Props = $props();
+
+	// Alert playback state
+	let isPlayingAlerts = $state(false);
+	let playbackError = $state<string | null>(null);
+
+	// Subscribe to autoAnalysis state
+	const autoAnalysisState = autoAnalysis.state;
+
+	// Get recent analysis alerts (up to 3)
+	const analysisAlerts = $derived(
+		$autoAnalysisState.alerts
+			.filter((a: AnalysisAlert) => !a.acknowledged)
+			.slice(0, 3)
+	);
+
+	// Get recent news alerts as fallback (up to 3)
+	const recentNewsAlerts = $derived($newsAlerts.slice(0, 3));
+
+	// Combined alert count - prefer analysis alerts, fall back to news alerts
+	const alertCount = $derived(analysisAlerts.length > 0 ? analysisAlerts.length : recentNewsAlerts.length);
+	const hasAlerts = $derived(alertCount > 0);
+
+	// Check if TTS is properly configured
+	function isTTSConfigured(): boolean {
+		const prefs = get(ttsPreferences);
+		return prefs.enabled && prefs.provider !== 'none';
+	}
+
+	// Helper for pauses between speech segments
+	function pause(ms: number): Promise<void> {
+		return new Promise(resolve => setTimeout(resolve, ms));
+	}
+
+	// Convert number to ordinal word for natural speech
+	function getOrdinalWord(n: number): string {
+		const ordinals = ['First', 'Second', 'Third', 'Fourth', 'Fifth'];
+		return ordinals[n - 1] || `Number ${n}`;
+	}
+
+	// Clean and format text for better TTS pronunciation
+	function formatForTTS(text: string): string {
+		return text
+			// Remove markdown formatting
+			.replace(/\*\*/g, '')
+			.replace(/\*/g, '')
+			.replace(/_/g, ' ')
+			.replace(/`/g, '')
+			.replace(/#{1,6}\s/g, '')
+			// Remove URLs
+			.replace(/https?:\/\/\S+/g, '')
+			// Fix common abbreviations for pronunciation
+			.replace(/U\.S\./g, 'U.S.')
+			.replace(/U\.K\./g, 'U.K.')
+			.replace(/E\.U\./g, 'E.U.')
+			.replace(/vs\./g, 'versus')
+			.replace(/etc\./g, 'etcetera')
+			.replace(/govt\./gi, 'government')
+			.replace(/approx\./gi, 'approximately')
+			// Handle common news abbreviations
+			.replace(/GOP/g, 'G.O.P.')
+			.replace(/GDP/g, 'G.D.P.')
+			.replace(/CEO/g, 'C.E.O.')
+			.replace(/AI(?![a-z])/g, 'A.I.')
+			// Clean up punctuation for better pacing
+			.replace(/\.{2,}/g, '.')
+			.replace(/!{2,}/g, '!')
+			.replace(/\?{2,}/g, '?')
+			.replace(/—/g, ', ')
+			.replace(/–/g, ', ')
+			.replace(/\s*-\s*/g, ' ')
+			// Clean whitespace
+			.replace(/\s+/g, ' ')
+			.trim();
+	}
+
+	// Format current time for speech
+	function getSpokenTime(): string {
+		return new Date().toLocaleTimeString([], {
+			hour: 'numeric',
+			minute: '2-digit',
+			hour12: true
+		});
+	}
+
+	// Play alerts with TTS - Professional briefing format
+	async function playRecentAlerts() {
+		if (isPlayingAlerts) {
+			tts.stop();
+			isPlayingAlerts = false;
+			return;
+		}
+
+		if (!isTTSConfigured()) {
+			playbackError = 'TTS not enabled - configure in Settings';
+			setTimeout(() => playbackError = null, 4000);
+			return;
+		}
+
+		isPlayingAlerts = true;
+		playbackError = null;
+
+		try {
+			const spokenTime = getSpokenTime();
+
+			// Play the alert sound ONCE at the beginning of the sequence
+			console.log('[Header] Playing alert sound once at start of alert sequence');
+			await playAlertSoundOnce();
+			await pause(300); // Brief pause after alert sound before speech begins
+
+			if (analysisAlerts.length > 0) {
+				// === INTELLIGENCE BRIEFING FORMAT ===
+				const alertWord = analysisAlerts.length === 1 ? 'item' : 'items';
+				const hasCritical = analysisAlerts.some(a => a.severity === 'critical');
+				const hasWarning = analysisAlerts.some(a => a.severity === 'warning');
+
+				// Opening with severity context
+				let opening = `Artemis intelligence briefing, ${spokenTime}. `;
+				if (hasCritical) {
+					opening += `Attention: ${analysisAlerts.length} priority ${alertWord} requiring immediate review.`;
+				} else if (hasWarning) {
+					opening += `${analysisAlerts.length} elevated priority ${alertWord} for your attention.`;
+				} else {
+					opening += `${analysisAlerts.length} ${alertWord} in the queue.`;
+				}
+
+				// Skip alert sound for all speak calls since we already played it once
+				await tts.speak(opening, { skipAlertSound: true });
+				await pause(600);
+
+				// Read each alert with structure
+				for (let i = 0; i < analysisAlerts.length; i++) {
+					if (!isPlayingAlerts) break;
+
+					const alert = analysisAlerts[i];
+					const position = getOrdinalWord(i + 1);
+					const cleanSummary = formatForTTS(alert.summary);
+
+					// Build the alert script
+					let alertScript = `${position}. `;
+
+					if (alert.severity === 'critical') {
+						alertScript += 'Critical priority. ';
+					} else if (alert.severity === 'warning') {
+						alertScript += 'Elevated concern. ';
+					}
+
+					alertScript += cleanSummary;
+
+					await tts.speak(alertScript, { skipAlertSound: true });
+
+					// Longer pause after critical alerts
+					await pause(alert.severity === 'critical' ? 800 : 500);
+				}
+
+				// Closing
+				await pause(300);
+				await tts.speak('End of briefing. Artemis standing by.', { skipAlertSound: true });
+
+			} else if (recentNewsAlerts.length > 0) {
+				// === NEWS HEADLINES FORMAT ===
+				const headlineWord = recentNewsAlerts.length === 1 ? 'headline' : 'headlines';
+
+				await tts.speak(
+					`Artemis news update, ${spokenTime}. ` +
+					`No active intelligence alerts. ` +
+					`Reading ${recentNewsAlerts.length} priority ${headlineWord}.`,
+					{ skipAlertSound: true }
+				);
+				await pause(600);
+
+				for (let i = 0; i < recentNewsAlerts.length; i++) {
+					if (!isPlayingAlerts) break;
+
+					const newsItem = recentNewsAlerts[i];
+					const position = getOrdinalWord(i + 1);
+					const cleanTitle = formatForTTS(newsItem.title);
+
+					// Include source if available
+					let newsScript = `${position}. `;
+					if (newsItem.source) {
+						newsScript += `From ${newsItem.source}: `;
+					}
+					newsScript += cleanTitle;
+
+					await tts.speak(newsScript, { skipAlertSound: true });
+					await pause(500);
+				}
+
+				await pause(300);
+				await tts.speak('End of headlines.', { skipAlertSound: true });
+
+			} else {
+				// === STATUS REPORT FORMAT ===
+				await tts.speak(
+					`Artemis status report, ${spokenTime}. ` +
+					`All clear. No active intelligence alerts. No priority headlines detected. ` +
+					`All monitored systems are nominal. Standing by for updates.`,
+					{ skipAlertSound: true }
+				);
+			}
+		} catch (e) {
+			console.error('TTS playback error:', e);
+			const errorMsg = e instanceof Error ? e.message : 'Playback failed';
+			playbackError = errorMsg;
+			setTimeout(() => playbackError = null, 4000);
+		} finally {
+			isPlayingAlerts = false;
+		}
+	}
 
 	const lastRefreshText = $derived(
 		$lastRefresh
@@ -78,6 +290,27 @@
 	</div>
 
 	<div class="header-right">
+		<!-- Play Alerts Button -->
+		<button
+			class="header-btn alerts-btn"
+			class:playing={isPlayingAlerts}
+			class:has-alerts={hasAlerts}
+			class:error={playbackError}
+			onclick={playRecentAlerts}
+			title={playbackError || (isPlayingAlerts ? 'Stop Playback' : hasAlerts ? `Play ${alertCount} Alert${alertCount > 1 ? 's' : ''}` : 'No Active Alerts')}
+		>
+			{#if isPlayingAlerts}
+				<span class="btn-icon stop-icon">◼</span>
+				<span class="btn-label">STOP</span>
+			{:else}
+				<span class="btn-icon play-icon">▶</span>
+				{#if hasAlerts}
+					<span class="alert-badge">{alertCount}</span>
+				{/if}
+				<span class="btn-label">ALERTS</span>
+			{/if}
+		</button>
+
 		{#if onRefreshClick}
 			<button
 				class="header-btn refresh-btn"
@@ -172,7 +405,7 @@
 
 	.logo {
 		display: flex;
-		align-items: baseline;
+		align-items: center;
 		gap: 0.35em;
 		margin: 0;
 	}
@@ -340,6 +573,61 @@
 
 	.refresh-btn {
 		padding: clamp(0.25rem, 0.75vw, 0.375rem);
+	}
+
+	/* Alerts Button */
+	.alerts-btn {
+		position: relative;
+		gap: clamp(0.125rem, 0.5vw, 0.25rem);
+	}
+
+	.alerts-btn .play-icon {
+		font-size: clamp(0.5rem, 1.5vw, 0.625rem);
+	}
+
+	.alerts-btn .stop-icon {
+		font-size: clamp(0.5rem, 1.5vw, 0.625rem);
+	}
+
+	.alerts-btn.has-alerts {
+		border-color: var(--warning);
+		color: var(--warning);
+	}
+
+	.alerts-btn.has-alerts:hover {
+		background: rgba(251, 191, 36, 0.1);
+		border-color: var(--warning);
+		color: var(--warning);
+	}
+
+	.alerts-btn.playing {
+		border-color: var(--accent);
+		color: var(--accent);
+		background: rgba(34, 211, 238, 0.1);
+	}
+
+	.alerts-btn.error {
+		border-color: var(--danger);
+		color: var(--danger);
+	}
+
+	.alert-badge {
+		position: absolute;
+		top: -4px;
+		right: -4px;
+		min-width: 14px;
+		height: 14px;
+		padding: 0 3px;
+		background: var(--warning);
+		color: black;
+		font-size: 9px;
+		font-weight: 700;
+		font-family: 'SF Mono', Monaco, monospace;
+		border-radius: 7px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		box-shadow: 0 0 8px var(--warning);
 	}
 
 	.btn-icon {

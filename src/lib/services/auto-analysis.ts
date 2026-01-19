@@ -4,6 +4,7 @@
  */
 
 import { browser } from '$app/environment';
+import { base } from '$app/paths';
 import { get, writable, derived } from 'svelte/store';
 import { buildIntelligenceContext, type ExternalData } from './context-builder';
 import { sendLLMRequest, hasApiKey, formatContextForLLM } from './llm';
@@ -12,6 +13,7 @@ import { chat } from '$lib/stores/chat';
 import { alerts as newsAlerts } from '$lib/stores/news';
 import { getAutoTriggerPrompts } from '$lib/config/prompts';
 import type { IntelligenceContext } from '$lib/types/llm';
+import { tts, ttsPreferences } from './tts';
 
 // Storage keys
 const STORAGE_KEY_PREFERENCES = 'aegis_auto_analysis_prefs';
@@ -132,6 +134,7 @@ class TTSService {
 	private synth: SpeechSynthesis | null = null;
 	private voices: SpeechSynthesisVoice[] = [];
 	private selectedVoice: SpeechSynthesisVoice | null = null;
+	private alertSoundCache: HTMLAudioElement | null = null;
 
 	constructor() {
 		if (browser && 'speechSynthesis' in window) {
@@ -142,6 +145,9 @@ class TTSService {
 			if (this.synth.onvoiceschanged !== undefined) {
 				this.synth.onvoiceschanged = () => this.loadVoices();
 			}
+
+			// Preload alert sound
+			this.preloadAlertSound();
 		}
 	}
 
@@ -157,6 +163,63 @@ class TTSService {
 			|| null;
 	}
 
+	private preloadAlertSound(): void {
+		if (!browser || this.alertSoundCache) return;
+
+		try {
+			const alertPath = `${base}/alert.mp3`;
+			this.alertSoundCache = new Audio(alertPath);
+			this.alertSoundCache.preload = 'auto';
+			this.alertSoundCache.load();
+			console.log('[AutoAnalysis TTS] Alert sound preloaded from:', alertPath);
+		} catch (e) {
+			console.warn('[AutoAnalysis TTS] Failed to preload alert sound:', e);
+		}
+	}
+
+	private playAlertSound(): Promise<void> {
+		return new Promise((resolve) => {
+			// Check if alert sound is enabled via ttsPreferences
+			const prefs = get(ttsPreferences);
+			if (!prefs.playAlertSound) {
+				console.log('[AutoAnalysis TTS] Alert sound disabled, skipping');
+				resolve();
+				return;
+			}
+
+			if (!this.alertSoundCache) {
+				this.preloadAlertSound();
+			}
+
+			if (!this.alertSoundCache) {
+				console.warn('[AutoAnalysis TTS] Alert sound not available, skipping');
+				resolve();
+				return;
+			}
+
+			const alertAudio = this.alertSoundCache.cloneNode() as HTMLAudioElement;
+			// Use the volume from TTS preferences
+			alertAudio.volume = Math.max(0, Math.min(1, prefs.volume ?? 0.7));
+
+			console.log(`[AutoAnalysis TTS] Playing alert sound with volume: ${alertAudio.volume}`);
+
+			alertAudio.onended = () => {
+				console.log('[AutoAnalysis TTS] Alert sound finished');
+				resolve();
+			};
+
+			alertAudio.onerror = (e) => {
+				console.warn('[AutoAnalysis TTS] Alert sound playback error:', e);
+				resolve();
+			};
+
+			alertAudio.play().catch((err) => {
+				console.warn('[AutoAnalysis TTS] Alert sound play failed:', err);
+				resolve();
+			});
+		});
+	}
+
 	getAvailableVoices(): SpeechSynthesisVoice[] {
 		return this.voices;
 	}
@@ -168,18 +231,22 @@ class TTSService {
 		}
 	}
 
-	speak(text: string, priority: AlertSeverity = 'info'): Promise<void> {
+	async speak(text: string, priority: AlertSeverity = 'info'): Promise<void> {
+		if (!this.synth) {
+			throw new Error('Speech synthesis not available');
+		}
+
+		// Cancel any ongoing speech for critical alerts
+		if (priority === 'critical') {
+			this.synth.cancel();
+		}
+
+		// Play alert sound first (if enabled)
+		await this.playAlertSound();
+
+		console.log(`[AutoAnalysis TTS] Speaking with priority: ${priority}`);
+
 		return new Promise((resolve, reject) => {
-			if (!this.synth) {
-				reject(new Error('Speech synthesis not available'));
-				return;
-			}
-
-			// Cancel any ongoing speech for critical alerts
-			if (priority === 'critical') {
-				this.synth.cancel();
-			}
-
 			const utterance = new SpeechSynthesisUtterance(text);
 
 			if (this.selectedVoice) {
@@ -204,7 +271,7 @@ class TTSService {
 			utterance.onend = () => resolve();
 			utterance.onerror = (event) => reject(event.error);
 
-			this.synth.speak(utterance);
+			this.synth!.speak(utterance);
 		});
 	}
 
@@ -567,7 +634,12 @@ function createAutoAnalysisStore() {
 	}
 
 	async function playAlertTTS(alert: AnalysisAlert): Promise<void> {
-		if (!ttsService.isAvailable()) return;
+		// Use the proper multi-provider TTS service from tts.ts
+		const prefs = get(ttsPreferences);
+		if (!prefs.enabled || prefs.provider === 'none') {
+			// Fall back to browser TTS if no provider configured
+			if (!ttsService.isAvailable()) return;
+		}
 
 		// Construct TTS message
 		let message = '';
@@ -586,9 +658,12 @@ function createAutoAnalysisStore() {
 		message += alert.summary;
 
 		try {
-			await ttsService.speak(message, alert.severity);
+			// Use the multi-provider TTS service (ElevenLabs, OpenAI, or Browser)
+			await tts.speak(message);
 		} catch (e) {
 			console.warn('TTS failed:', e);
+			// If the configured provider fails, don't fall back to browser TTS
+			// The user has explicitly chosen a provider
 		}
 	}
 
@@ -693,11 +768,13 @@ function createAutoAnalysisStore() {
 		},
 
 		stopTTS(): void {
-			ttsService.stop();
+			// Stop the multi-provider TTS service
+			tts.stop();
 		},
 
 		testTTS(message: string = 'This is a test of the intelligence alert system.'): Promise<void> {
-			return ttsService.speak(message, 'info');
+			// Use the multi-provider TTS service (ElevenLabs, OpenAI, or Browser)
+			return tts.test(message);
 		}
 	};
 }

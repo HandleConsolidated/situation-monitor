@@ -18,7 +18,7 @@ export const PRESETS: Record<string, Preset> = {
 		name: 'News Junkie',
 		icon: '📰',
 		description: 'Stay on top of breaking news across politics, tech, and finance',
-		panels: ['politics', 'tech', 'finance', 'gov', 'ai', 'mainchar', 'map']
+		panels: ['map', 'analysis', 'politics', 'tech', 'finance', 'gov', 'ai', 'mainchar', 'monitors']
 	},
 	trader: {
 		id: 'trader',
@@ -26,6 +26,8 @@ export const PRESETS: Record<string, Preset> = {
 		icon: '📈',
 		description: 'Market-focused dashboard with stocks, crypto, and commodities',
 		panels: [
+			'map',
+			'analysis',
 			'markets',
 			'heatmap',
 			'commodities',
@@ -34,7 +36,7 @@ export const PRESETS: Record<string, Preset> = {
 			'whales',
 			'printer',
 			'finance',
-			'map'
+			'monitors'
 		]
 	},
 	geopolitics: {
@@ -44,6 +46,7 @@ export const PRESETS: Record<string, Preset> = {
 		description: 'Global situation awareness and regional hotspots',
 		panels: [
 			'map',
+			'analysis',
 			'intel',
 			'leaders',
 			'politics',
@@ -52,7 +55,8 @@ export const PRESETS: Record<string, Preset> = {
 			'greenland',
 			'iran',
 			'correlation',
-			'narrative'
+			'narrative',
+			'monitors'
 		]
 	},
 	intel: {
@@ -60,14 +64,40 @@ export const PRESETS: Record<string, Preset> = {
 		name: 'Intelligence Analyst',
 		icon: '🔍',
 		description: 'Deep analysis, pattern detection, and narrative tracking',
-		panels: ['map', 'intel', 'leaders', 'correlation', 'narrative', 'mainchar', 'politics']
+		panels: [
+			'map',
+			'analysis',
+			'intel',
+			'leaders',
+			'correlation',
+			'narrative',
+			'mainchar',
+			'politics',
+			'monitors'
+		]
+	},
+	hazards: {
+		id: 'hazards',
+		name: 'Infrastructure & Hazards',
+		icon: '⚠️',
+		description: 'Monitor grid stress, earthquakes, radiation, and disease outbreaks',
+		panels: [
+			'map',
+			'analysis',
+			'gridstress',
+			'earthquakes',
+			'radiation',
+			'outbreaks',
+			'politics',
+			'monitors'
+		]
 	},
 	minimal: {
 		id: 'minimal',
 		name: 'Minimal',
 		icon: '⚡',
 		description: 'Just the essentials - map, news, and markets',
-		panels: ['map', 'politics', 'markets']
+		panels: ['map', 'politics', 'markets', 'monitors']
 	},
 	everything: {
 		id: 'everything',
@@ -76,29 +106,34 @@ export const PRESETS: Record<string, Preset> = {
 		description: 'Kitchen sink - all panels enabled',
 		panels: [
 			'map',
+			'analysis',
+			'monitors',
 			'politics',
 			'tech',
 			'finance',
 			'gov',
-			'heatmap',
+			'ai',
+			'intel',
 			'markets',
-			'monitors',
+			'heatmap',
 			'commodities',
 			'crypto',
 			'polymarket',
 			'whales',
-			'mainchar',
 			'printer',
+			'correlation',
+			'narrative',
+			'mainchar',
 			'contracts',
-			'ai',
 			'layoffs',
+			'leaders',
 			'venezuela',
 			'greenland',
 			'iran',
-			'leaders',
-			'intel',
-			'correlation',
-			'narrative'
+			'gridstress',
+			'earthquakes',
+			'radiation',
+			'outbreaks'
 		]
 	}
 };
@@ -108,6 +143,7 @@ export const PRESET_ORDER = [
 	'trader',
 	'geopolitics',
 	'intel',
+	'hazards',
 	'minimal',
 	'everything'
 ];

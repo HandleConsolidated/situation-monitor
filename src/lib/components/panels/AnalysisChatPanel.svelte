@@ -43,6 +43,21 @@
 	// Configure marked
 	marked.setOptions({ breaks: true, gfm: true });
 
+	// Portal action - teleports element to document body to escape stacking contexts
+	function portal(node: HTMLElement) {
+		// Move the node to the body
+		document.body.appendChild(node);
+
+		return {
+			destroy() {
+				// Clean up - remove from body when component is destroyed
+				if (node.parentNode === document.body) {
+					document.body.removeChild(node);
+				}
+			}
+		};
+	}
+
 	interface Props {
 		loading?: boolean;
 		error?: string | null;
@@ -65,7 +80,8 @@
 	let inputValue = $state('');
 	let selectedPromptId = $state('custom');
 	let messagesContainer: HTMLDivElement | undefined = $state();
-	// eslint-disable-next-line @typescript-eslint/no-unused-vars
+	// Context is built per-request but kept for potential future debugging
+	// @ts-expect-error - intentionally unused, kept for future debugging
 	let _currentContext: IntelligenceContext | null = $state(null);
 	let executingTools = $state<string[]>([]);
 	let toolsEnabled = $derived(!!actionHandlers);
@@ -423,16 +439,18 @@
 	});
 </script>
 
-<!-- Full Response Modal - Uses global portal styles to escape z-index stacking context -->
-<div class="analysis-modal-portal">
-	<AnalysisResponseModal
-		open={modalOpen}
-		content={modalContent}
-		timestamp={modalTimestamp}
-		onClose={() => modalOpen = false}
-		onExportPDF={handleExportPDF}
-	/>
-</div>
+<!-- Full Response Modal - Portal to body to escape all stacking contexts -->
+{#if modalOpen}
+	<div class="analysis-modal-portal" use:portal>
+		<AnalysisResponseModal
+			open={modalOpen}
+			content={modalContent}
+			timestamp={modalTimestamp}
+			onClose={() => modalOpen = false}
+			onExportPDF={handleExportPDF}
+		/>
+	</div>
+{/if}
 
 <Panel id="analysis" title="AI Analysis" {count} loading={loading || isProcessing} {error} skeletonType="generic" skeletonCount={3}>
 	{#snippet actions()}
@@ -1212,18 +1230,10 @@
 		color: var(--accent);
 	}
 
-	/* Modal portal wrapper - ensures modal escapes parent stacking context */
+	/* Modal portal wrapper - teleported to body to escape all stacking contexts */
 	.analysis-modal-portal {
 		position: fixed;
-		top: 0;
-		left: 0;
-		width: 0;
-		height: 0;
+		inset: 0;
 		z-index: 99999;
-		pointer-events: none;
-	}
-
-	.analysis-modal-portal :global(*) {
-		pointer-events: auto;
 	}
 </style>

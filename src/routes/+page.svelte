@@ -111,7 +111,7 @@
 	});
 
 	// Panel highlight state for AI actions (reserved for future panel highlighting feature)
-	// eslint-disable-next-line @typescript-eslint/no-unused-vars
+	// @ts-expect-error - intentionally unused, reserved for future feature
 	let highlightedPanelId = $state<string | null>(null);
 
 	// Globe navigation target - when set, the globe flies to these coordinates
@@ -785,6 +785,7 @@
 					onEditMonitor={handleEditMonitor}
 					onDeleteMonitor={handleDeleteMonitor}
 					onToggleMonitor={handleToggleMonitor}
+					onViewMatches={handleViewMatches}
 				/>
 			{:else if panelId === 'venezuela'}
 				<SituationPanel
@@ -883,6 +884,7 @@
 		onClose={() => (monitorMatchesOpen = false)}
 		monitor={viewingMonitor}
 		matches={$monitors.matches}
+		onEdit={handleEditMonitor}
 	/>
 	<OnboardingModal open={onboardingOpen} onSelectPreset={handleSelectPreset} />
 </div>

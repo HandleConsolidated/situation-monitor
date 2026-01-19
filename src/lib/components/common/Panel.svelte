@@ -16,9 +16,7 @@
 		error?: string | null;
 		draggable?: boolean;
 		collapsible?: boolean;
-		collapsed?: boolean;
 		resizable?: boolean;
-		onCollapse?: () => void;
 		header?: Snippet;
 		actions?: Snippet;
 		children: Snippet;
@@ -39,10 +37,8 @@
 		loading = false,
 		error = null,
 		draggable = true,
-		collapsible = false,
-		collapsed = false,
+		collapsible = true,
 		resizable = true,
-		onCollapse,
 		header,
 		actions,
 		children,
@@ -54,6 +50,9 @@
 	// Drag state
 	const isBeingDragged = $derived($draggedPanelId === id);
 
+	// Collapsed state from settings store
+	const isCollapsed = $derived($settings.collapsed[id] ?? false);
+
 	// Resize state
 	let isResizing = $state(false);
 	let resizeDirection = $state<'width' | 'height' | 'both' | null>(null);
@@ -62,6 +61,8 @@
 	let startY = 0;
 	let startWidth = 0;
 	let startHeight = 0;
+	let maxAvailableWidth = 800;
+	let maxAvailableHeight = 800;
 
 	// Get saved panel size from settings store
 	const panelSize = $derived($settings.sizes[id] || {});
@@ -80,8 +81,8 @@
 	});
 
 	function handleCollapse() {
-		if (collapsible && onCollapse) {
-			onCollapse();
+		if (collapsible) {
+			settings.toggleCollapsed(id);
 		}
 	}
 
@@ -101,6 +102,25 @@
 		startWidth = rect.width;
 		startHeight = rect.height;
 
+		// Calculate maximum available space based on parent container
+		const parent = panelElement.parentElement;
+		if (parent) {
+			const parentRect = parent.getBoundingClientRect();
+			// For width: use parent width minus some padding
+			maxAvailableWidth = Math.min(800, parentRect.width - 16);
+			// For height: use parent height for bottom panels, or viewport height for side columns
+			const isBottomPanel = parent.classList.contains('bottom-panels');
+			if (isBottomPanel) {
+				// Bottom panels: respect the container height
+				maxAvailableHeight = Math.min(800, parentRect.height - 8);
+			} else {
+				// Side panels: allow more height but cap at available viewport
+				const viewportHeight = window.innerHeight;
+				const panelTop = rect.top;
+				maxAvailableHeight = Math.min(800, viewportHeight - panelTop - 40);
+			}
+		}
+
 		document.addEventListener('mousemove', handleResizeMove);
 		document.addEventListener('mouseup', handleResizeEnd);
 		document.body.style.cursor = direction === 'both' ? 'nwse-resize' : direction === 'width' ? 'ew-resize' : 'ns-resize';
@@ -116,14 +136,14 @@
 		const newSize: { width?: number; height?: number } = {};
 
 		if (resizeDirection === 'width' || resizeDirection === 'both') {
-			const newWidth = Math.max(200, Math.min(800, startWidth + deltaX));
+			const newWidth = Math.max(200, Math.min(maxAvailableWidth, startWidth + deltaX));
 			newSize.width = newWidth;
 			// Use max-width to allow shrinking if container is smaller
 			panelElement.style.maxWidth = `${newWidth}px`;
 		}
 
 		if (resizeDirection === 'height' || resizeDirection === 'both') {
-			const newHeight = Math.max(150, Math.min(800, startHeight + deltaY));
+			const newHeight = Math.max(150, Math.min(maxAvailableHeight, startHeight + deltaY));
 			newSize.height = newHeight;
 			panelElement.style.height = `${newHeight}px`;
 		}
@@ -206,7 +226,7 @@
 <div
 	class="panel"
 	class:draggable
-	class:collapsed
+	class:collapsed={isCollapsed}
 	class:dragging={isBeingDragged}
 	class:resizing={isResizing}
 	class:resizable
@@ -285,14 +305,22 @@
 				</button>
 			{/if}
 			{#if collapsible}
-				<button class="panel-collapse-btn" onclick={handleCollapse} aria-label="Toggle panel">
-					{collapsed ? '▼' : '▲'}
+				<button class="panel-collapse-btn" class:collapsed={isCollapsed} onclick={handleCollapse} aria-label={isCollapsed ? 'Expand panel' : 'Collapse panel'} title={isCollapsed ? 'Expand' : 'Collapse'}>
+					<svg width="10" height="10" viewBox="0 0 10 10" fill="none" xmlns="http://www.w3.org/2000/svg">
+						{#if isCollapsed}
+							<!-- Expand icon (chevron down) -->
+							<path d="M2 4L5 7L8 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+						{:else}
+							<!-- Collapse icon (chevron up) -->
+							<path d="M2 6L5 3L8 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+						{/if}
+					</svg>
 				</button>
 			{/if}
 		</div>
 	</div>
 
-	<div class="panel-content" class:hidden={collapsed}>
+	<div class="panel-content" class:hidden={isCollapsed}>
 		{#if error}
 			<div class="error-state">
 				<span class="error-icon">⚠</span>
@@ -356,6 +384,24 @@
 		transform: scale(0.98);
 		border-color: rgb(34 211 238); /* cyan-400 */
 		box-shadow: 0 0 20px rgba(34, 211, 238, 0.3);
+	}
+
+	.panel.collapsed {
+		/* When collapsed, show only header with proper minimum height */
+		height: auto !important;
+		min-height: 2.5rem; /* Match panel-header min-height */
+		max-height: 2.5rem;
+		overflow: hidden;
+	}
+
+	.panel.collapsed .resize-handle {
+		display: none;
+	}
+
+	.panel.collapsed .tech-corner.bottom-left,
+	.panel.collapsed .tech-corner.bottom-right {
+		/* Move bottom corners up when collapsed */
+		bottom: 0;
 	}
 
 	.drag-handle {
@@ -587,18 +633,35 @@
 	}
 
 	.panel-collapse-btn {
-		background: none;
-		border: none;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 20px;
+		height: 20px;
+		background: rgb(15 23 42 / 0.8); /* slate-900/80 */
+		border: 1px solid rgb(51 65 85 / 0.5); /* slate-700/50 */
+		border-radius: 2px;
 		color: rgb(148 163 184); /* slate-400 */
 		cursor: pointer;
-		padding: var(--sp-sm);
-		font-size: var(--fs-xs); /* 9px → 10px responsive */
-		line-height: 1;
-		transition: color 0.15s;
+		transition: all 0.15s ease;
 	}
 
 	.panel-collapse-btn:hover {
 		color: rgb(34 211 238); /* cyan-400 */
+		border-color: rgb(34 211 238 / 0.5); /* cyan-400/50 */
+		background: rgb(34 211 238 / 0.1); /* cyan-400/10 */
+	}
+
+	.panel-collapse-btn.collapsed {
+		color: rgb(100 116 139); /* slate-500 - dimmer when collapsed */
+	}
+
+	.panel-collapse-btn.collapsed:hover {
+		color: rgb(34 211 238); /* cyan-400 */
+	}
+
+	.panel-collapse-btn svg {
+		flex-shrink: 0;
 	}
 
 	.panel-reset-btn {

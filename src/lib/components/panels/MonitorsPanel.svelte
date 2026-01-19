@@ -55,15 +55,14 @@
 
 			<div class="monitors-list">
 				{#each monitors as monitor (monitor.id)}
-					<div class="monitor-item" class:disabled={!monitor.enabled}>
+					<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+					<div
+						class="monitor-item clickable"
+						class:disabled={!monitor.enabled}
+						onclick={() => onViewMatches?.(monitor)}
+					>
 						<div class="monitor-header">
-							<!-- svelte-ignore a11y_click_events_have_key_events -->
-							<!-- svelte-ignore a11y_no_static_element_interactions -->
-							<div
-								class="monitor-info"
-								class:clickable={monitor.matchCount > 0 && onViewMatches}
-								onclick={() => monitor.matchCount > 0 && onViewMatches?.(monitor)}
-							>
+								<div class="monitor-info">
 								{#if monitor.color}
 									<span
 										class="monitor-color"
@@ -73,10 +72,10 @@
 								<span class="monitor-name text-[10px] sm:text-xs">{monitor.name}</span>
 								{#if monitor.matchCount > 0}
 									<Badge text={String(monitor.matchCount)} variant="info" />
-									<span class="view-all-hint">VIEW ALL</span>
 								{/if}
 							</div>
-							<div class="monitor-actions">
+							<!-- svelte-ignore a11y_no_static_element_interactions -->
+							<div class="monitor-actions" onclick={(e) => e.stopPropagation()}>
 								{#if onToggleMonitor}
 									<button
 										class="action-btn text-[10px] sm:text-xs"
@@ -203,11 +202,17 @@
 		background: var(--card-bg);
 		border: 1px solid var(--border);
 		border-radius: 2px;
-		transition: border-color 0.15s;
+		transition: all 0.15s ease;
 	}
 
-	.monitor-item:hover {
+	.monitor-item.clickable {
+		cursor: pointer;
+	}
+
+	.monitor-item.clickable:hover {
 		border-color: var(--accent-border);
+		background: var(--surface-hover);
+		box-shadow: 0 0 8px rgba(6, 182, 212, 0.15);
 	}
 
 	.monitor-item.disabled {
@@ -225,31 +230,8 @@
 		display: flex;
 		align-items: center;
 		gap: 0.3rem;
-	}
-
-	.monitor-info.clickable {
-		cursor: pointer;
-		padding: 0.125rem 0.25rem;
-		margin: -0.125rem -0.25rem;
-		border-radius: 2px;
-		transition: background-color 0.15s;
-	}
-
-	.monitor-info.clickable:hover {
-		background: var(--surface-hover, rgb(30 41 59 / 0.5));
-	}
-
-	.view-all-hint {
-		font-size: var(--fs-2xs, 9px);
-		font-family: 'SF Mono', Monaco, monospace;
-		color: var(--accent, rgb(34 211 238));
-		opacity: 0;
-		transition: opacity 0.15s;
-		margin-left: 0.25rem;
-	}
-
-	.monitor-info.clickable:hover .view-all-hint {
-		opacity: 1;
+		flex: 1;
+		min-width: 0;
 	}
 
 	.monitor-color {

@@ -43,6 +43,7 @@
 	let ttsVoice = $state('');
 	let ttsAutoPlay = $state(false);
 	let ttsSpeed = $state(1.0);
+	let ttsVolume = $state(0.7);
 	let elevenLabsKey = $state(getTTSApiKey('elevenlabs') || '');
 	let openaiTtsKey = $state(getTTSApiKey('openai') || '');
 	let showTtsApiKeys = $state(false);
@@ -79,6 +80,7 @@
 			ttsVoice = prefs.voice;
 			ttsAutoPlay = prefs.autoPlay;
 			ttsSpeed = prefs.speed;
+			ttsVolume = prefs.volume ?? 0.7;
 		});
 		return unsub;
 	});
@@ -114,6 +116,40 @@
 		{ id: 'elevenlabs', name: 'ElevenLabs', description: 'High-quality voices' },
 		{ id: 'openai', name: 'OpenAI TTS', description: 'Fast and reliable' },
 		{ id: 'browser', name: 'Browser', description: 'Built-in (free)' }
+	];
+
+	// Panel categories for organized display
+	const PANEL_CATEGORIES: { name: string; icon: string; panels: PanelId[] }[] = [
+		{
+			name: 'Core',
+			icon: '◆',
+			panels: ['map', 'analysis', 'monitors']
+		},
+		{
+			name: 'News & Information',
+			icon: '📰',
+			panels: ['politics', 'tech', 'finance', 'gov', 'ai', 'intel']
+		},
+		{
+			name: 'Markets & Finance',
+			icon: '📈',
+			panels: ['markets', 'heatmap', 'commodities', 'crypto', 'polymarket', 'whales', 'printer']
+		},
+		{
+			name: 'Analysis & Intelligence',
+			icon: '🔍',
+			panels: ['correlation', 'narrative', 'mainchar', 'contracts', 'layoffs']
+		},
+		{
+			name: 'Geopolitical Situations',
+			icon: '🌍',
+			panels: ['leaders', 'venezuela', 'greenland', 'iran']
+		},
+		{
+			name: 'Infrastructure & Hazards',
+			icon: '⚠',
+			panels: ['gridstress', 'earthquakes', 'radiation', 'outbreaks']
+		}
 	];
 
 	function handleTogglePanel(panelId: PanelId) {
@@ -220,6 +256,11 @@
 	function handleTTSSpeedChange(speed: number) {
 		ttsSpeed = speed;
 		tts.setSpeed(speed);
+	}
+
+	function handleTTSVolumeChange(volume: number) {
+		ttsVolume = volume;
+		tts.setVolume(volume);
 	}
 
 	function handleSaveTTSApiKey(provider: 'elevenlabs' | 'openai', key: string) {
@@ -527,6 +568,23 @@
 						/>
 					</div>
 
+					<!-- Volume Control -->
+					<div class="volume-control">
+						<div class="slider-label">
+							<span class="field-label">Volume</span>
+							<span class="slider-value">{Math.round(ttsVolume * 100)}%</span>
+						</div>
+						<input
+							type="range"
+							min="0"
+							max="1"
+							step="0.05"
+							value={ttsVolume}
+							oninput={(e) => handleTTSVolumeChange(parseFloat(e.currentTarget.value))}
+							class="range-slider"
+						/>
+					</div>
+
 					<!-- Auto-play Toggle -->
 					<label class="toggle-control" class:enabled={ttsAutoPlay}>
 						<input type="checkbox" checked={ttsAutoPlay} onchange={handleTTSAutoPlayToggle} />
@@ -616,19 +674,28 @@
 			<h3 class="section-title">Enabled Panels</h3>
 			<p class="section-desc">Toggle panels on/off to customize your dashboard</p>
 
-			<div class="panels-grid">
-				{#each Object.entries(PANELS) as [id, config]}
-					{@const panelId = id as PanelId}
-					{@const isEnabled = $settings.enabled[panelId]}
-					<label class="panel-toggle" class:enabled={isEnabled}>
-						<input
-							type="checkbox"
-							checked={isEnabled}
-							onchange={() => handleTogglePanel(panelId)}
-						/>
-						<span class="panel-name">{config.name}</span>
-						<span class="panel-priority">P{config.priority}</span>
-					</label>
+			<div class="panels-categories">
+				{#each PANEL_CATEGORIES as category}
+					<div class="panel-category">
+						<div class="category-header">
+							<span class="category-icon">{category.icon}</span>
+							<span class="category-name">{category.name}</span>
+						</div>
+						<div class="category-panels">
+							{#each category.panels as panelId}
+								{@const config = PANELS[panelId]}
+								{@const isEnabled = $settings.enabled[panelId]}
+								<label class="panel-toggle" class:enabled={isEnabled}>
+									<input
+										type="checkbox"
+										checked={isEnabled}
+										onchange={() => handleTogglePanel(panelId)}
+									/>
+									<span class="panel-name">{config.name}</span>
+								</label>
+							{/each}
+						</div>
+					</div>
 				{/each}
 			</div>
 		</section>
@@ -768,17 +835,50 @@
 		color: var(--text-muted);
 	}
 
-	.panels-grid {
+	/* Panel Categories */
+	.panels-categories {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+
+	.panel-category {
+		display: flex;
+		flex-direction: column;
+		gap: 0.375rem;
+	}
+
+	.category-header {
+		display: flex;
+		align-items: center;
+		gap: 0.375rem;
+		padding-bottom: 0.25rem;
+		border-bottom: 1px solid var(--border);
+	}
+
+	.category-icon {
+		font-size: 0.625rem;
+	}
+
+	.category-name {
+		font-size: 0.5625rem;
+		font-family: 'SF Mono', Monaco, monospace;
+		text-transform: uppercase;
+		letter-spacing: 0.1em;
+		color: var(--text-muted);
+	}
+
+	.category-panels {
 		display: grid;
 		grid-template-columns: repeat(2, 1fr);
-		gap: 0.5rem;
+		gap: 0.375rem;
 	}
 
 	.panel-toggle {
 		display: flex;
 		align-items: center;
 		gap: 0.4rem;
-		padding: 0.4rem 0.6rem;
+		padding: 0.35rem 0.5rem;
 		background: var(--card-bg);
 		border: 1px solid var(--border);
 		border-radius: 2px;
@@ -798,22 +898,14 @@
 
 	.panel-toggle input {
 		accent-color: var(--accent);
+		width: 12px;
+		height: 12px;
 	}
 
 	.panel-name {
 		flex: 1;
-		font-size: 0.625rem;
+		font-size: 0.5625rem;
 		color: var(--text);
-	}
-
-	.panel-priority {
-		font-size: 0.5rem;
-		font-family: 'SF Mono', Monaco, monospace;
-		color: var(--text-muted);
-		background: var(--interactive-bg);
-		padding: 0.1rem 0.25rem;
-		border-radius: 2px;
-		border: 1px solid var(--border);
 	}
 
 	.reconfigure-btn {
@@ -1201,7 +1293,8 @@
 		gap: 0.25rem;
 	}
 
-	.speed-control {
+	.speed-control,
+	.volume-control {
 		display: flex;
 		flex-direction: column;
 		gap: 0.25rem;
