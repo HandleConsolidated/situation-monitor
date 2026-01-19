@@ -8,7 +8,8 @@
 		activeSession,
 		activeMessages,
 		isLoading as isChatLoading,
-		chatError
+		chatError,
+		recentSessions
 	} from '$lib/stores/chat';
 	import {
 		llmPreferences,
@@ -38,7 +39,7 @@
 	} from '$lib/services/tts';
 	import type { ExternalData } from '$lib/services/context-builder';
 	import type { IntelligenceContext, ContextCategory, ChatMessage } from '$lib/types/llm';
-	import { ANALYSIS_PROMPTS } from '$lib/types/llm';
+	import { ALL_ANALYSIS_PROMPTS, PROMPT_CATEGORIES, COVE_VARIANT_DESCRIPTIONS, type AnalysisPromptConfig } from '$lib/config/prompts';
 
 	// Configure marked
 	marked.setOptions({ breaks: true, gfm: true });
@@ -95,6 +96,10 @@
 	let speakingMessageId = $state<string | null>(null);
 	let lastAutoPlayedMessageId = $state<string | null>(null);
 
+	// Session dropdown state
+	let showSessionDropdown = $state(false);
+	const sessions = $derived($recentSessions);
+
 	// Derived values
 	const hasApiKeyConfigured = $derived(hasApiKey($llmPreferences.provider));
 	const session = $derived($activeSession);
@@ -107,8 +112,17 @@
 
 	// Get selected prompt template
 	const selectedPrompt = $derived(
-		ANALYSIS_PROMPTS.find((p) => p.id === selectedPromptId) || ANALYSIS_PROMPTS[ANALYSIS_PROMPTS.length - 1]
+		ALL_ANALYSIS_PROMPTS.find((p) => p.id === selectedPromptId) as AnalysisPromptConfig | undefined
 	);
+
+	// Group prompts by category for the dropdown
+	const groupedPrompts = $derived.by(() => {
+		const groups: Record<string, AnalysisPromptConfig[]> = {};
+		for (const cat of PROMPT_CATEGORIES) {
+			groups[cat.id] = ALL_ANALYSIS_PROMPTS.filter(p => p.category === cat.id);
+		}
+		return groups;
+	});
 
 	// Build context summary - updates reactively when selectedPrompt changes
 	const contextSummary = $derived.by(() => {
@@ -134,6 +148,13 @@
 	$effect(() => {
 		if (messages.length > 0 && messagesContainer) {
 			messagesContainer.scrollTop = messagesContainer.scrollHeight;
+		}
+	});
+
+	// Auto-apply suggested depth when a prompt is selected
+	$effect(() => {
+		if (selectedPrompt?.suggestedDepth && selectedPrompt.suggestedDepth !== $analysisDepth) {
+			llmPreferences.setAnalysisDepth(selectedPrompt.suggestedDepth);
 		}
 	});
 
@@ -454,6 +475,31 @@
 
 <Panel id="analysis" title="AI Analysis" {count} loading={loading || isProcessing} {error} skeletonType="generic" skeletonCount={3}>
 	{#snippet actions()}
+		<!-- Session History Dropdown -->
+		<div class="session-dropdown-container">
+			<button
+				class="action-btn text-[10px] sm:text-xs"
+				onclick={() => showSessionDropdown = !showSessionDropdown}
+				title="Session History"
+			>
+				H
+			</button>
+			{#if showSessionDropdown && sessions.length > 0}
+				<div class="session-dropdown">
+					<div class="session-dropdown-header text-[8px] sm:text-[9px]">RECENT SESSIONS</div>
+					{#each sessions as sess (sess.id)}
+						<button
+							class="session-item text-[9px] sm:text-[10px]"
+							class:active={sess.id === session?.id}
+							onclick={() => { chat.setActiveSession(sess.id); showSessionDropdown = false; }}
+						>
+							<span class="session-title">{sess.title}</span>
+							<span class="session-count">{sess.messages.length}</span>
+						</button>
+					{/each}
+				</div>
+			{/if}
+		</div>
 		<button class="action-btn text-[10px] sm:text-xs" onclick={handleNewSession} title="New Session">
 			+
 		</button>
@@ -605,10 +651,36 @@
 				bind:value={selectedPromptId}
 				disabled={isProcessing || !initialDataLoaded}
 			>
-				{#each ANALYSIS_PROMPTS as prompt}
-					<option value={prompt.id}>{prompt.name}</option>
+				<option value="custom">Custom Question...</option>
+				{#each PROMPT_CATEGORIES as category}
+					<optgroup label="{category.icon} {category.name}">
+						{#each groupedPrompts[category.id] || [] as prompt}
+							<option value={prompt.id}>{prompt.icon} {prompt.name}</option>
+						{/each}
+					</optgroup>
 				{/each}
 			</select>
+			{#if selectedPrompt}
+				<div class="prompt-info">
+					<span class="prompt-desc text-[9px] sm:text-[10px]">{selectedPrompt.description}</span>
+					<div class="prompt-badges">
+						{#if selectedPrompt.coveEnabled && selectedPrompt.coveVariant}
+							{@const coveInfo = COVE_VARIANT_DESCRIPTIONS[selectedPrompt.coveVariant]}
+							<span
+								class="prompt-cove text-[8px] sm:text-[9px]"
+								title="{coveInfo.description} Accuracy: {coveInfo.accuracyGain}"
+							>
+								✓ {coveInfo.name}
+							</span>
+						{:else}
+							<span class="prompt-cove prompt-cove-disabled text-[8px] sm:text-[9px]" title="No verification - faster response">
+								FAST
+							</span>
+						{/if}
+						<span class="prompt-depth text-[8px] sm:text-[9px]">{selectedPrompt.suggestedDepth.toUpperCase()}</span>
+					</div>
+				</div>
+			{/if}
 		</div>
 
 		<!-- Input Area -->
@@ -1136,6 +1208,9 @@
 
 	.prompt-selector {
 		margin-top: auto;
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
 	}
 
 	.prompt-select {
@@ -1156,6 +1231,69 @@
 	.prompt-select:disabled {
 		opacity: 0.5;
 		cursor: not-allowed;
+	}
+
+	.prompt-select optgroup {
+		font-weight: 700;
+		color: var(--accent);
+		background: var(--surface);
+		padding: 0.25rem 0;
+	}
+
+	.prompt-select option {
+		font-weight: 400;
+		color: var(--text);
+		padding: 0.2rem 0.5rem;
+	}
+
+	.prompt-info {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 0.2rem 0.4rem;
+		background: rgba(6, 182, 212, 0.05);
+		border: 1px solid rgba(6, 182, 212, 0.15);
+		border-radius: 2px;
+		gap: 0.5rem;
+	}
+
+	.prompt-desc {
+		font-family: 'SF Mono', Monaco, monospace;
+		color: var(--text-dim);
+		flex: 1;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.prompt-badges {
+		display: flex;
+		gap: 0.25rem;
+		flex-shrink: 0;
+	}
+
+	.prompt-depth {
+		font-family: 'SF Mono', Monaco, monospace;
+		color: var(--accent);
+		letter-spacing: 0.1em;
+		padding: 0.1rem 0.3rem;
+		background: rgba(6, 182, 212, 0.15);
+		border-radius: 2px;
+	}
+
+	.prompt-cove {
+		font-family: 'SF Mono', Monaco, monospace;
+		color: #10b981;
+		letter-spacing: 0.05em;
+		padding: 0.1rem 0.3rem;
+		background: rgba(16, 185, 129, 0.15);
+		border-radius: 2px;
+		cursor: help;
+	}
+
+	.prompt-cove-disabled {
+		color: var(--text-muted);
+		background: rgba(100, 116, 139, 0.15);
 	}
 
 	.input-area {
@@ -1228,6 +1366,82 @@
 		background: var(--surface-hover);
 		border-color: var(--accent);
 		color: var(--accent);
+	}
+
+	/* Session dropdown */
+	.session-dropdown-container {
+		position: relative;
+	}
+
+	.session-dropdown {
+		position: absolute;
+		top: 100%;
+		right: 0;
+		margin-top: 0.25rem;
+		min-width: 160px;
+		max-width: 220px;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: 2px;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+		z-index: 100;
+		overflow: hidden;
+	}
+
+	.session-dropdown-header {
+		padding: 0.3rem 0.5rem;
+		font-family: 'SF Mono', Monaco, monospace;
+		color: var(--accent);
+		letter-spacing: 0.1em;
+		background: var(--card-bg);
+		border-bottom: 1px solid var(--border);
+	}
+
+	.session-item {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		width: 100%;
+		padding: 0.4rem 0.5rem;
+		background: transparent;
+		border: none;
+		border-bottom: 1px solid var(--border-subtle);
+		color: var(--text);
+		font-family: 'SF Mono', Monaco, monospace;
+		cursor: pointer;
+		text-align: left;
+		transition: all 0.15s ease;
+	}
+
+	.session-item:last-child {
+		border-bottom: none;
+	}
+
+	.session-item:hover {
+		background: var(--surface-hover);
+		color: var(--accent);
+	}
+
+	.session-item.active {
+		background: rgba(6, 182, 212, 0.1);
+		border-left: 2px solid var(--accent);
+	}
+
+	.session-title {
+		flex: 1;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		margin-right: 0.5rem;
+	}
+
+	.session-count {
+		flex-shrink: 0;
+		padding: 0.1rem 0.3rem;
+		background: var(--card-bg);
+		border-radius: 2px;
+		font-size: 0.65rem;
+		color: var(--text-muted);
 	}
 
 	/* Modal portal wrapper - teleported to body to escape all stacking contexts */

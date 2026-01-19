@@ -396,6 +396,38 @@
 						</select>
 					</div>
 				{/if}
+
+				<!-- Analysis Depth Selection -->
+				<div class="depth-select">
+					<label class="field-label">Analysis Depth</label>
+					<p class="depth-hint">Controls response length and detail level</p>
+					<div class="depth-options">
+						<button
+							class="depth-btn"
+							class:active={$llmPreferences.analysisDepth === 'brief'}
+							onclick={() => llmPreferences.setAnalysisDepth('brief')}
+						>
+							<span class="depth-name">Brief</span>
+							<span class="depth-desc">Quick summary, ~500 tokens</span>
+						</button>
+						<button
+							class="depth-btn"
+							class:active={$llmPreferences.analysisDepth === 'standard'}
+							onclick={() => llmPreferences.setAnalysisDepth('standard')}
+						>
+							<span class="depth-name">Standard</span>
+							<span class="depth-desc">Balanced detail, ~2K tokens</span>
+						</button>
+						<button
+							class="depth-btn"
+							class:active={$llmPreferences.analysisDepth === 'detailed'}
+							onclick={() => llmPreferences.setAnalysisDepth('detailed')}
+						>
+							<span class="depth-name">Detailed</span>
+							<span class="depth-desc">Full analysis, ~4K tokens</span>
+						</button>
+					</div>
+				</div>
 			</div>
 		</section>
 
@@ -1120,6 +1152,64 @@
 	.model-dropdown option {
 		background: var(--card-bg);
 		color: var(--text);
+	}
+
+	/* Analysis Depth Styles */
+	.depth-select {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+
+	.depth-hint {
+		font-size: 0.5rem;
+		color: var(--text-muted);
+		margin: 0 0 0.25rem 0;
+	}
+
+	.depth-options {
+		display: flex;
+		gap: 0.5rem;
+	}
+
+	.depth-btn {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.2rem;
+		padding: 0.5rem 0.4rem;
+		background: var(--card-bg);
+		border: 1px solid var(--border);
+		border-radius: 2px;
+		cursor: pointer;
+		transition: all 0.15s ease;
+	}
+
+	.depth-btn:hover {
+		background: var(--surface-hover);
+		border-color: var(--accent-border);
+	}
+
+	.depth-btn.active {
+		border-color: var(--accent);
+		background: rgba(34, 211, 238, 0.1);
+	}
+
+	.depth-name {
+		font-size: 0.5625rem;
+		font-weight: 600;
+		color: var(--text);
+	}
+
+	.depth-btn.active .depth-name {
+		color: var(--accent);
+	}
+
+	.depth-desc {
+		font-size: 0.45rem;
+		color: var(--text-muted);
+		text-align: center;
 	}
 
 	/* Auto Analysis Styles */
