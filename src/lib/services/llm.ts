@@ -12,6 +12,7 @@ import type {
 	IntelligenceContext,
 	AnalysisDepth
 } from '$lib/types/llm';
+import type { NewsItem } from '$lib/types';
 import type { AnthropicTool, ToolCall } from './ai-actions';
 import { getToolsSystemPrompt } from './ai-actions';
 
@@ -73,9 +74,18 @@ Provide concise, actionable intelligence analysis. Focus on:
 3. Noting correlations between disparate data points
 4. Highlighting items requiring attention
 
+**CITATION REQUIREMENTS:**
+- When referencing specific news articles, include the source name and article link in markdown format: [Article Title](url)
+- Cite the data source (e.g., "per CoinGecko data", "according to BBC World News", "USGS reports")
+- At the end of your analysis, include a "Sources" section listing the key sources you referenced
+
 Use professional intelligence briefing style. Be direct and avoid unnecessary caveats.`,
 
-	brief: `You are an intelligence analyst. Provide brief, bullet-point analysis. Focus only on the most critical items. Keep responses under 300 words.`,
+	brief: `You are an intelligence analyst. Provide brief, bullet-point analysis. Focus only on the most critical items. Keep responses under 300 words.
+
+**CITATION REQUIREMENTS:**
+- Include source attribution for key claims (e.g., "via Reuters", "per CoinGecko")
+- When available, include markdown links to referenced articles`,
 
 	detailed: `You are a senior intelligence analyst for Aegis Situation Monitor. Provide comprehensive analysis with:
 - Executive summary
@@ -85,7 +95,16 @@ Use professional intelligence briefing style. Be direct and avoid unnecessary ca
 - Recommended watch items and potential scenarios
 - Confidence levels for key assessments
 
-Support conclusions with specific data points from the provided context.`
+Support conclusions with specific data points from the provided context.
+
+**CITATION REQUIREMENTS:**
+- When referencing news articles, use markdown links: [Article Title](url)
+- Cite data sources explicitly (e.g., "CoinGecko API data shows...", "According to USGS earthquake data...")
+- Include a "Sources & References" section at the end with:
+  1. Links to specific articles referenced
+  2. Data APIs/sources used (CoinGecko, Yahoo Finance, USGS, etc.)
+  3. Intelligence feeds cited (CSIS, Brookings, Bellingcat, etc.)
+- Use numbered citations [1], [2], etc. when referencing multiple sources`
 };
 
 /**
@@ -136,6 +155,77 @@ export function hasApiKey(provider: LLMProvider): boolean {
 }
 
 /**
+ * Data sources documentation for citation
+ */
+const DATA_SOURCES = {
+	news: {
+		name: 'RSS News Feeds',
+		description: 'Real-time news from major outlets',
+		feeds: [
+			'BBC World News',
+			'NPR News',
+			'The Guardian',
+			'New York Times',
+			'Reuters',
+			'Hacker News',
+			'Ars Technica',
+			'The Verge',
+			'MIT Technology Review',
+			'CNBC',
+			'MarketWatch',
+			'Financial Times',
+			'White House',
+			'Federal Reserve',
+			'SEC',
+			'Department of Defense'
+		]
+	},
+	markets: {
+		name: 'Financial Market APIs',
+		description: 'Real-time market data',
+		sources: ['Yahoo Finance API', 'Alpha Vantage API']
+	},
+	crypto: {
+		name: 'CoinGecko API',
+		description: 'Cryptocurrency prices and market data',
+		url: 'https://www.coingecko.com'
+	},
+	intel: {
+		name: 'Intelligence Sources',
+		description: 'Analysis from think tanks and defense sources',
+		sources: [
+			'CSIS (Center for Strategic & International Studies)',
+			'Brookings Institution',
+			'Council on Foreign Relations (CFR)',
+			'Defense One',
+			'War on the Rocks',
+			'Breaking Defense',
+			'The Diplomat',
+			'Al-Monitor',
+			'Bellingcat (OSINT)',
+			'CISA Alerts',
+			'Krebs on Security'
+		]
+	},
+	geopolitical: {
+		name: 'Geopolitical Configuration',
+		description: 'Curated hotspot and infrastructure data'
+	},
+	environmental: {
+		name: 'Environmental APIs',
+		sources: ['USGS Earthquake API', 'Safecast Radiation Network', 'ProMED Disease Surveillance']
+	},
+	infrastructure: {
+		name: 'Infrastructure Monitoring',
+		sources: ['IODA (Internet Outage Detection)', 'OONI (Network Interference)', 'Internet Society Pulse']
+	},
+	alternative: {
+		name: 'Alternative Data Sources',
+		sources: ['Polymarket Prediction Markets', 'USASpending.gov (Government Contracts)', 'Layoffs.fyi']
+	}
+};
+
+/**
  * Format context for LLM consumption
  */
 export function formatContextForLLM(
@@ -146,9 +236,14 @@ export function formatContextForLLM(
 	formatted += `Generated: ${context.timestamp}\n`;
 	formatted += `Categories: ${context.metadata.enabledCategories.join(', ')}\n\n`;
 
+	// Track referenced sources for citation section
+	const referencedSources: Set<string> = new Set();
+	const articleLinks: Array<{ title: string; url: string; source: string; category: string }> = [];
+
 	// Add each section
 	if (context.geopolitical) {
 		formatted += `## Geopolitical Situation\n`;
+		referencedSources.add('geopolitical');
 		const critical = context.geopolitical.hotspots.filter(
 			(h) => h.level === 'critical' || h.level === 'high'
 		);
@@ -165,22 +260,31 @@ export function formatContextForLLM(
 	}
 
 	if (context.news) {
+		referencedSources.add('news');
 		formatted += `## News Intelligence (${context.news.totalCount} items, ${context.news.alertCount} alerts)\n`;
 
 		if (context.news.alerts.length > 0) {
 			formatted += `### Alert Headlines\n`;
 			context.news.alerts.slice(0, 10).forEach((item) => {
-				formatted += `- [${item.category.toUpperCase()}] ${item.title} (${item.alertKeyword || 'alert'})\n`;
+				const linkText = item.link ? ` [Link](${item.link})` : '';
+				formatted += `- [${item.category.toUpperCase()}] ${item.title} (${item.alertKeyword || 'alert'})${linkText}\n`;
+				if (item.link) {
+					articleLinks.push({ title: item.title, url: item.link, source: item.source, category: item.category });
+				}
 			});
 			formatted += '\n';
 		}
 
-		// Top items per category
-		for (const [category, items] of Object.entries(context.news.byCategory)) {
+		// Top items per category with links
+		for (const [category, items] of Object.entries(context.news.byCategory) as [string, NewsItem[]][]) {
 			if (items.length > 0) {
 				formatted += `### ${category.charAt(0).toUpperCase() + category.slice(1)} (${items.length} items)\n`;
 				items.slice(0, 5).forEach((item) => {
-					formatted += `- ${item.title}\n`;
+					const linkText = item.link ? ` [Link](${item.link})` : '';
+					formatted += `- ${item.title} (${item.source})${linkText}\n`;
+					if (item.link) {
+						articleLinks.push({ title: item.title, url: item.link, source: item.source, category });
+					}
 				});
 				formatted += '\n';
 			}
@@ -188,6 +292,7 @@ export function formatContextForLLM(
 	}
 
 	if (context.markets) {
+		referencedSources.add('markets');
 		formatted += `## Market Intelligence\n`;
 		formatted += `**Overall Trend:** ${context.markets.trend.toUpperCase()}\n`;
 		if (context.markets.vix) {
@@ -211,6 +316,7 @@ export function formatContextForLLM(
 	}
 
 	if (context.crypto) {
+		referencedSources.add('crypto');
 		formatted += `## Cryptocurrency\n`;
 		formatted += `**Whale Activity:** ${context.crypto.dominantDirection} ($${(context.crypto.totalWhaleVolume / 1000000).toFixed(1)}M volume)\n`;
 		if (context.crypto.prices.length > 0) {
@@ -260,6 +366,7 @@ export function formatContextForLLM(
 	}
 
 	if (context.environmental) {
+		referencedSources.add('environmental');
 		if (context.environmental.significantEvents.length > 0) {
 			formatted += `## Environmental Events\n`;
 			context.environmental.significantEvents.forEach((e) => {
@@ -270,6 +377,7 @@ export function formatContextForLLM(
 	}
 
 	if (context.alternative) {
+		referencedSources.add('alternative');
 		if (context.alternative.predictions.length > 0) {
 			formatted += `## Prediction Markets\n`;
 			context.alternative.predictions.slice(0, 5).forEach((p) => {
@@ -278,6 +386,53 @@ export function formatContextForLLM(
 			formatted += '\n';
 		}
 	}
+
+	// Add Data Sources section
+	formatted += `\n---\n\n## Data Sources & APIs Used\n`;
+	formatted += `*When citing information in your analysis, reference these sources:*\n\n`;
+
+	if (referencedSources.has('news')) {
+		formatted += `### News & Intelligence Feeds\n`;
+		formatted += `- **RSS Feeds**: ${DATA_SOURCES.news.feeds.slice(0, 8).join(', ')}, and more\n`;
+		formatted += `- **Intelligence Sources**: ${DATA_SOURCES.intel.sources.slice(0, 5).join(', ')}\n\n`;
+	}
+
+	if (referencedSources.has('markets')) {
+		formatted += `### Market Data\n`;
+		formatted += `- **APIs**: ${DATA_SOURCES.markets.sources.join(', ')}\n\n`;
+	}
+
+	if (referencedSources.has('crypto')) {
+		formatted += `### Cryptocurrency Data\n`;
+		formatted += `- **API**: CoinGecko (${DATA_SOURCES.crypto.url})\n\n`;
+	}
+
+	if (referencedSources.has('environmental')) {
+		formatted += `### Environmental Monitoring\n`;
+		formatted += `- **Sources**: ${DATA_SOURCES.environmental.sources.join(', ')}\n\n`;
+	}
+
+	if (referencedSources.has('alternative')) {
+		formatted += `### Alternative Data\n`;
+		formatted += `- **Sources**: ${DATA_SOURCES.alternative.sources.join(', ')}\n\n`;
+	}
+
+	if (referencedSources.has('geopolitical')) {
+		formatted += `### Geopolitical Data\n`;
+		formatted += `- **Source**: Curated geopolitical hotspot database\n\n`;
+	}
+
+	// Add article links section if we have any
+	if (articleLinks.length > 0) {
+		formatted += `### Referenced Article Links\n`;
+		formatted += `*Include these links when referencing specific articles:*\n`;
+		articleLinks.slice(0, 15).forEach((article, i) => {
+			formatted += `${i + 1}. [${article.title}](${article.url}) - ${article.source}\n`;
+		});
+		formatted += '\n';
+	}
+
+	formatted += `\n**IMPORTANT**: When providing analysis, cite specific sources by name and include article links where relevant. The reader should be able to verify claims by following the source references.\n`;
 
 	// Truncate if too long
 	if (formatted.length > maxLength) {

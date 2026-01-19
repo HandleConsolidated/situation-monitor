@@ -23,9 +23,94 @@ interface PDFExportOptions {
 	reportType?: string;
 }
 
+/**
+ * Data sources used by the Aegis Situation Monitor
+ */
+const AEGIS_DATA_SOURCES = {
+	news: {
+		category: 'News & Intelligence Feeds',
+		sources: [
+			{ name: 'BBC World News', url: 'https://www.bbc.com/news/world' },
+			{ name: 'NPR News', url: 'https://www.npr.org/sections/news/' },
+			{ name: 'The Guardian', url: 'https://www.theguardian.com/world' },
+			{ name: 'New York Times', url: 'https://www.nytimes.com/section/world' },
+			{ name: 'Hacker News', url: 'https://news.ycombinator.com/' },
+			{ name: 'Ars Technica', url: 'https://arstechnica.com/' },
+			{ name: 'The Verge', url: 'https://www.theverge.com/' },
+			{ name: 'MIT Technology Review', url: 'https://www.technologyreview.com/' }
+		]
+	},
+	intel: {
+		category: 'Intelligence & Analysis',
+		sources: [
+			{ name: 'CSIS', url: 'https://www.csis.org/' },
+			{ name: 'Brookings Institution', url: 'https://www.brookings.edu/' },
+			{ name: 'Council on Foreign Relations', url: 'https://www.cfr.org/' },
+			{ name: 'Defense One', url: 'https://www.defenseone.com/' },
+			{ name: 'War on the Rocks', url: 'https://warontherocks.com/' },
+			{ name: 'Bellingcat', url: 'https://www.bellingcat.com/' },
+			{ name: 'CISA Alerts', url: 'https://www.cisa.gov/news-events/cybersecurity-advisories' }
+		]
+	},
+	markets: {
+		category: 'Financial Markets',
+		sources: [
+			{ name: 'Yahoo Finance API', url: 'https://finance.yahoo.com/' },
+			{ name: 'Alpha Vantage API', url: 'https://www.alphavantage.co/' },
+			{ name: 'CNBC', url: 'https://www.cnbc.com/' },
+			{ name: 'MarketWatch', url: 'https://www.marketwatch.com/' }
+		]
+	},
+	crypto: {
+		category: 'Cryptocurrency',
+		sources: [
+			{ name: 'CoinGecko API', url: 'https://www.coingecko.com/' }
+		]
+	},
+	government: {
+		category: 'Government Sources',
+		sources: [
+			{ name: 'White House', url: 'https://www.whitehouse.gov/news/' },
+			{ name: 'Federal Reserve', url: 'https://www.federalreserve.gov/' },
+			{ name: 'SEC', url: 'https://www.sec.gov/' },
+			{ name: 'Department of Defense', url: 'https://www.defense.gov/' },
+			{ name: 'USASpending.gov', url: 'https://www.usaspending.gov/' }
+		]
+	},
+	environmental: {
+		category: 'Environmental Monitoring',
+		sources: [
+			{ name: 'USGS Earthquake API', url: 'https://earthquake.usgs.gov/' },
+			{ name: 'Safecast Radiation Network', url: 'https://safecast.org/' },
+			{ name: 'ProMED Disease Surveillance', url: 'https://promedmail.org/' }
+		]
+	},
+	infrastructure: {
+		category: 'Infrastructure Monitoring',
+		sources: [
+			{ name: 'IODA (Internet Outage Detection)', url: 'https://ioda.inetintel.cc.gatech.edu/' },
+			{ name: 'OONI', url: 'https://ooni.org/' },
+			{ name: 'Internet Society Pulse', url: 'https://pulse.internetsociety.org/' }
+		]
+	},
+	alternative: {
+		category: 'Alternative Data',
+		sources: [
+			{ name: 'Polymarket', url: 'https://polymarket.com/' },
+			{ name: 'Layoffs.fyi', url: 'https://layoffs.fyi/' }
+		]
+	}
+};
+
+interface ExtractedLink {
+	title: string;
+	url: string;
+}
+
 interface ExtractedContent {
 	html: string;
 	sources: string[];
+	articleLinks: ExtractedLink[];
 	hasExecutiveSummary: boolean;
 }
 
@@ -69,6 +154,32 @@ function extractSources(content: string): string[] {
 }
 
 /**
+ * Extract markdown links from content
+ * Looks for patterns like [Title](url)
+ */
+function extractArticleLinks(content: string): ExtractedLink[] {
+	const links: ExtractedLink[] = [];
+	const seenUrls = new Set<string>();
+
+	// Match markdown links: [text](url)
+	const linkPattern = /\[([^\]]+)\]\((https?:\/\/[^)]+)\)/gi;
+
+	let match;
+	while ((match = linkPattern.exec(content)) !== null) {
+		const title = match[1]?.trim();
+		const url = match[2]?.trim();
+
+		// Skip if already seen or if it's a generic "Link" text
+		if (title && url && !seenUrls.has(url) && title.toLowerCase() !== 'link') {
+			seenUrls.add(url);
+			links.push({ title, url });
+		}
+	}
+
+	return links;
+}
+
+/**
  * Check if content starts with an executive summary section
  */
 function hasExecutiveSummary(content: string): boolean {
@@ -85,6 +196,7 @@ function hasExecutiveSummary(content: string): boolean {
  */
 function processContent(content: string): ExtractedContent {
 	const sources = extractSources(content);
+	const articleLinks = extractArticleLinks(content);
 	const hasSummary = hasExecutiveSummary(content);
 
 	// Remove source citations from main content (they'll be in references)
@@ -135,7 +247,7 @@ function processContent(content: string): ExtractedContent {
 	// Add alternating row colors to tables
 	html = html.replace(/<tbody>/g, '<tbody class="alternating-rows">');
 
-	return { html, sources, hasExecutiveSummary: hasSummary };
+	return { html, sources, articleLinks, hasExecutiveSummary: hasSummary };
 }
 
 /**
@@ -172,20 +284,55 @@ function generatePDFHTML(content: string, options: PDFExportOptions = {}): strin
 		day: 'numeric'
 	});
 
-	const { html: htmlContent, sources } = processContent(content);
+	const { html: htmlContent, sources, articleLinks } = processContent(content);
 
-	// Generate sources section if any found
-	const sourcesSection =
-		sources.length > 0
-			? `
+	// Generate comprehensive sources section
+	let sourcesSection = `
 		<section class="sources-section">
 			<h2 class="sources-title">Sources & References</h2>
-			<ol class="sources-list">
-				${sources.map((source, i) => `<li><span class="source-number">[${i + 1}]</span> ${source}</li>`).join('\n')}
-			</ol>
+	`;
+
+	// Add article links if any were extracted from content
+	if (articleLinks.length > 0) {
+		sourcesSection += `
+			<div class="sources-subsection">
+				<h3 class="sources-subtitle">Referenced Articles</h3>
+				<ol class="sources-list article-links">
+					${articleLinks.slice(0, 20).map((link, i) => `<li><span class="source-number">[${i + 1}]</span> <a href="${link.url}" target="_blank">${link.title}</a></li>`).join('\n')}
+				</ol>
+			</div>
+		`;
+	}
+
+	// Add extracted inline sources if any
+	if (sources.length > 0) {
+		sourcesSection += `
+			<div class="sources-subsection">
+				<h3 class="sources-subtitle">Cited Sources</h3>
+				<ol class="sources-list">
+					${sources.map((source, i) => `<li><span class="source-number">[${articleLinks.length + i + 1}]</span> ${source}</li>`).join('\n')}
+				</ol>
+			</div>
+		`;
+	}
+
+	// Always add the data sources/APIs section
+	sourcesSection += `
+			<div class="sources-subsection data-sources">
+				<h3 class="sources-subtitle">Data Sources & APIs</h3>
+				<div class="data-sources-grid">
+					${Object.entries(AEGIS_DATA_SOURCES).map(([, category]) => `
+						<div class="data-source-category">
+							<h4 class="category-name">${category.category}</h4>
+							<ul class="category-sources">
+								${category.sources.map(s => `<li><a href="${s.url}" target="_blank">${s.name}</a></li>`).join('\n')}
+							</ul>
+						</div>
+					`).join('\n')}
+				</div>
+			</div>
 		</section>
-	`
-			: '';
+	`;
 
 	// Classification color mapping
 	const classificationColors: Record<string, { bg: string; text: string; border: string }> = {
@@ -733,6 +880,76 @@ function generatePDFHTML(content: string, options: PDFExportOptions = {}): strin
 			font-weight: 600;
 			color: var(--color-primary);
 			min-width: 28px;
+		}
+
+		.sources-subsection {
+			margin-bottom: 25px;
+		}
+
+		.sources-subtitle {
+			font-size: 10pt;
+			font-weight: 600;
+			color: var(--color-text);
+			margin-bottom: 12px;
+			padding-bottom: 6px;
+			border-bottom: 1px dashed var(--color-border);
+		}
+
+		.sources-list a {
+			color: var(--color-primary-dark);
+			text-decoration: none;
+		}
+
+		.sources-list a:hover {
+			text-decoration: underline;
+		}
+
+		.article-links li {
+			border-left-color: var(--color-primary);
+		}
+
+		.data-sources-grid {
+			display: grid;
+			grid-template-columns: repeat(2, 1fr);
+			gap: 20px;
+		}
+
+		.data-source-category {
+			background: var(--color-bg-light);
+			border-radius: 6px;
+			padding: 15px;
+			border: 1px solid var(--color-border);
+		}
+
+		.category-name {
+			font-size: 9pt;
+			font-weight: 700;
+			color: var(--color-primary-dark);
+			margin: 0 0 10px 0;
+			text-transform: uppercase;
+			letter-spacing: 0.05em;
+		}
+
+		.category-sources {
+			list-style: none;
+			padding: 0;
+			margin: 0;
+		}
+
+		.category-sources li {
+			font-size: 8.5pt;
+			padding: 4px 0;
+			color: var(--color-text-light);
+		}
+
+		.category-sources a {
+			color: var(--color-text);
+			text-decoration: none;
+		}
+
+		.category-sources a:hover {
+			color: var(--color-primary);
+			text-decoration: underline;
 		}
 
 		/* Footer */
