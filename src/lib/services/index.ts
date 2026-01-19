@@ -15,6 +15,15 @@ export {
 	type CacheStats
 } from './cache';
 
+// Persistent API Cache
+export {
+	apiCache,
+	withCache,
+	createCachedFetcher,
+	API_CACHE_TTL,
+	type ApiCacheKey
+} from './api-cache';
+
 // Circuit Breaker
 export {
 	CircuitBreaker,

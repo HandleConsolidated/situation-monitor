@@ -405,6 +405,7 @@ export function analyzeNarratives(allNews: NewsItem[]): NarrativeResults | null 
 
 	for (const narrative of NARRATIVE_PATTERNS) {
 		const headlines: HeadlineMatch[] = [];
+		const seenLinks: Set<string> = new Set(); // Track unique links to deduplicate
 		const sourceBreakdown: Record<SourceType, string[]> = {
 			fringe: [],
 			alternative: [],
@@ -419,17 +420,26 @@ export function analyzeNarratives(allNews: NewsItem[]): NarrativeResults | null 
 		for (const item of allNews) {
 			const title = item.title || '';
 			const source = item.source || '';
+			const link = item.link || '';
+
+			// Skip if we've already processed this link for this narrative
+			if (seenLinks.has(link)) {
+				continue;
+			}
 
 			const matchedKws = findMatchedKeywords(title, narrative.keywords);
 
 			if (matchedKws.length > 0) {
+				// Mark this link as seen to prevent duplicates
+				seenLinks.add(link);
+
 				const sourceType = classifySource(source);
 				const hasAmplification = detectAmplification(title, narrative);
 				const hasDebunk = detectDebunk(title, narrative);
 
 				headlines.push({
 					title,
-					link: item.link,
+					link,
 					source,
 					sourceType,
 					timestamp: item.timestamp,

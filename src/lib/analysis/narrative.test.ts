@@ -200,4 +200,85 @@ describe('Narrative Tracker', () => {
 
 		expect(deepState!.sources.length).toBeLessThanOrEqual(5);
 	});
+
+	it('should deduplicate articles by link URL', () => {
+		// Create news items with duplicate links - same article appearing multiple times
+		const news: NewsItem[] = [
+			{
+				id: '1',
+				title: 'Deep state allegations emerge',
+				source: 'Source1',
+				link: 'https://example.com/article-1',
+				timestamp: Date.now(),
+				category: 'politics'
+			},
+			{
+				id: '2',
+				title: 'Deep state allegations emerge', // Same article, duplicate
+				source: 'Source1',
+				link: 'https://example.com/article-1', // Same link
+				timestamp: Date.now(),
+				category: 'politics'
+			},
+			{
+				id: '3',
+				title: 'Deep state concerns grow',
+				source: 'Source2',
+				link: 'https://example.com/article-2', // Different link
+				timestamp: Date.now(),
+				category: 'politics'
+			},
+			{
+				id: '4',
+				title: 'Deep state allegations emerge', // Same as first, another duplicate
+				source: 'Source1',
+				link: 'https://example.com/article-1', // Same link as first
+				timestamp: Date.now(),
+				category: 'politics'
+			}
+		];
+
+		const results = analyzeNarratives(news);
+
+		const deepState =
+			results!.emergingFringe.find((n) => n.id === 'deep-state') ||
+			results!.narrativeWatch.find((n) => n.id === 'deep-state');
+
+		expect(deepState).toBeDefined();
+		// Should only count 2 unique articles, not 4
+		expect(deepState!.count).toBe(2);
+		expect(deepState!.headlines.length).toBe(2);
+	});
+
+	it('should count each unique link only once per narrative', () => {
+		// Test that the same link with different titles still counts as one
+		const news: NewsItem[] = [
+			{
+				id: '1',
+				title: 'Shadow government in the deep state',
+				source: 'Source1',
+				link: 'https://example.com/same-article',
+				timestamp: Date.now(),
+				category: 'politics'
+			},
+			{
+				id: '2',
+				title: 'Updated: Shadow government deep state', // Different title but same link
+				source: 'Source1',
+				link: 'https://example.com/same-article',
+				timestamp: Date.now() + 1000,
+				category: 'politics'
+			}
+		];
+
+		const results = analyzeNarratives(news);
+
+		const deepState =
+			results!.emergingFringe.find((n) => n.id === 'deep-state') ||
+			results!.narrativeWatch.find((n) => n.id === 'deep-state');
+
+		expect(deepState).toBeDefined();
+		// Should only count 1 unique article
+		expect(deepState!.count).toBe(1);
+	});
 });

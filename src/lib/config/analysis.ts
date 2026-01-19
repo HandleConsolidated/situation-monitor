@@ -1109,5 +1109,369 @@ export const PERSON_PATTERNS: PersonPattern[] = [
 		aliases: ['Shapiro'],
 		role: 'media',
 		titles: ['Host', 'Editor']
+	},
+	// ============================================
+	// Additional World Leaders (from WORLD_LEADERS)
+	// ============================================
+	{
+		pattern: /\b(?:giorgia\s+)?meloni\b|\bitalian?\s*(?:pm|prime\s*minister)\b|\bitaly\s*prime\s*minister\b/gi,
+		name: 'Giorgia Meloni',
+		aliases: ['Meloni', 'Italian PM', 'Italy Prime Minister'],
+		role: 'political',
+		titles: ['Prime Minister']
+	},
+	{
+		pattern: /\b(?:javier\s+)?milei\b|\bargentin(?:a|e)\s*president\b/gi,
+		name: 'Javier Milei',
+		aliases: ['Milei', 'Argentina President'],
+		role: 'political',
+		titles: ['President']
+	},
+	{
+		pattern: /\blula\b|\bluiz\s*in[aá]cio\s*lula\b|\bbrazil(?:ian)?\s*president\b/gi,
+		name: 'Luiz Inacio Lula da Silva',
+		aliases: ['Lula', 'Brazil President', 'Brazilian President'],
+		role: 'political',
+		titles: ['President']
+	},
+	{
+		pattern: /\b(?:mark\s+)?carney\b|\bcanadian?\s*(?:pm|prime\s*minister)\b(?!.*trudeau)/gi,
+		name: 'Mark Carney',
+		aliases: ['Carney', 'Canadian PM', 'Canada Prime Minister'],
+		role: 'political',
+		titles: ['Prime Minister']
+	},
+	{
+		pattern: /\b(?:shigeru\s+)?ishiba\b|\bjapan(?:ese)?\s*(?:pm|prime\s*minister)\b/gi,
+		name: 'Shigeru Ishiba',
+		aliases: ['Ishiba', 'Japanese PM', 'Japan Prime Minister'],
+		role: 'political',
+		titles: ['Prime Minister']
+	},
+	{
+		pattern: /\blai\s*ching[\s-]*te\b|\btaiwan(?:ese)?\s*president\b/gi,
+		name: 'Lai Ching-te',
+		aliases: ['Lai', 'Taiwan President', 'Taiwanese President'],
+		role: 'political',
+		titles: ['President']
+	},
+	// ============================================
+	// US Cabinet Members (Trump Administration 2025)
+	// ============================================
+	{
+		pattern: /\b(?:marco\s+)?rubio\b(?=\s*(?:secretary|state|foreign))|(?:secretary\s*(?:of\s*)?state\s*rubio)\b/gi,
+		name: 'Marco Rubio',
+		aliases: ['Rubio', 'Secretary Rubio', 'Secretary of State Rubio'],
+		role: 'political',
+		titles: ['Secretary of State', 'Senator']
+	},
+	{
+		pattern: /\b(?:pete\s+)?hegseth\b|\bdefense\s*sec(?:retary)?\s*hegseth\b|\bsecdef\s*hegseth\b/gi,
+		name: 'Pete Hegseth',
+		aliases: ['Hegseth', 'Secretary Hegseth', 'SecDef Hegseth'],
+		role: 'military',
+		titles: ['Secretary of Defense', 'Defense Secretary']
+	},
+	{
+		pattern: /\b(?:scott\s+)?bessent\b|\btreasury\s*sec(?:retary)?\s*bessent\b/gi,
+		name: 'Scott Bessent',
+		aliases: ['Bessent', 'Secretary Bessent', 'Treasury Secretary Bessent'],
+		role: 'finance',
+		titles: ['Treasury Secretary']
+	},
+	{
+		pattern: /\b(?:pam\s+)?bondi\b|\battorney\s*general\s*bondi\b|\bag\s*bondi\b/gi,
+		name: 'Pam Bondi',
+		aliases: ['Bondi', 'AG Bondi', 'Attorney General Bondi'],
+		role: 'political',
+		titles: ['Attorney General']
+	},
+	{
+		pattern: /\b(?:kristi\s+)?noem\b|\bdhs\s*sec(?:retary)?\s*noem\b|\bhomeland\s*security\s*noem\b/gi,
+		name: 'Kristi Noem',
+		aliases: ['Noem', 'Secretary Noem', 'DHS Secretary Noem'],
+		role: 'political',
+		titles: ['Secretary of Homeland Security']
+	},
+	{
+		pattern: /\b(?:robert\s+f\.?\s+)?kennedy\s*jr\.?\b|\brfk\s*jr\.?\b|\bhhs\s*sec(?:retary)?\s*kennedy\b/gi,
+		name: 'Robert F. Kennedy Jr.',
+		aliases: ['RFK Jr', 'Kennedy Jr', 'Bobby Kennedy'],
+		role: 'political',
+		titles: ['Secretary of HHS']
+	},
+	{
+		pattern: /\b(?:tulsi\s+)?gabbard\b|\bdni\s*gabbard\b|\bintelligence\s*director\s*gabbard\b/gi,
+		name: 'Tulsi Gabbard',
+		aliases: ['Gabbard', 'DNI Gabbard'],
+		role: 'political',
+		titles: ['Director of National Intelligence']
+	},
+	{
+		pattern: /\b(?:john\s+)?ratcliffe\b|\bcia\s*director\s*ratcliffe\b/gi,
+		name: 'John Ratcliffe',
+		aliases: ['Ratcliffe', 'CIA Director Ratcliffe'],
+		role: 'political',
+		titles: ['CIA Director']
+	},
+	{
+		pattern: /\b(?:kash\s+)?patel\b|\bfbi\s*director\s*patel\b/gi,
+		name: 'Kash Patel',
+		aliases: ['Patel', 'FBI Director Patel'],
+		role: 'political',
+		titles: ['FBI Director']
+	},
+	{
+		pattern: /\b(?:doug\s+)?burgum\b|\binterior\s*sec(?:retary)?\s*burgum\b/gi,
+		name: 'Doug Burgum',
+		aliases: ['Burgum', 'Secretary Burgum'],
+		role: 'political',
+		titles: ['Secretary of the Interior']
+	},
+	{
+		pattern: /\b(?:chris\s+)?wright\b|\benergy\s*sec(?:retary)?\s*wright\b/gi,
+		name: 'Chris Wright',
+		aliases: ['Wright', 'Energy Secretary Wright'],
+		role: 'political',
+		titles: ['Secretary of Energy']
+	},
+	{
+		pattern: /\b(?:linda\s+)?mcmahon\b|\beducation\s*sec(?:retary)?\s*mcmahon\b/gi,
+		name: 'Linda McMahon',
+		aliases: ['McMahon', 'Education Secretary McMahon'],
+		role: 'political',
+		titles: ['Secretary of Education']
+	},
+	{
+		pattern: /\b(?:howard\s+)?lutnick\b|\bcommerce\s*sec(?:retary)?\s*lutnick\b/gi,
+		name: 'Howard Lutnick',
+		aliases: ['Lutnick', 'Commerce Secretary Lutnick'],
+		role: 'political',
+		titles: ['Secretary of Commerce']
+	},
+	// ============================================
+	// Central Bankers
+	// ============================================
+	{
+		pattern: /\b(?:christine\s+)?lagarde\b|\becb\s*(?:president|chief)\b|\beuropean\s*central\s*bank\s*(?:president|head)\b/gi,
+		name: 'Christine Lagarde',
+		aliases: ['Lagarde', 'ECB President', 'ECB Chief'],
+		role: 'central_bank',
+		titles: ['ECB President', 'European Central Bank President']
+	},
+	{
+		pattern: /\b(?:andrew\s+)?bailey\b|\bboe\s*(?:governor)\b|\bbank\s*of\s*england\s*governor\b/gi,
+		name: 'Andrew Bailey',
+		aliases: ['Bailey', 'BOE Governor', 'Bank of England Governor'],
+		role: 'central_bank',
+		titles: ['Governor', 'Bank of England Governor']
+	},
+	{
+		pattern: /\b(?:kazuo\s+)?ueda\b|\bboj\s*(?:governor)\b|\bbank\s*of\s*japan\s*governor\b/gi,
+		name: 'Kazuo Ueda',
+		aliases: ['Ueda', 'BOJ Governor', 'Bank of Japan Governor'],
+		role: 'central_bank',
+		titles: ['Governor', 'Bank of Japan Governor']
+	},
+	{
+		pattern: /\b(?:yi\s+)?gang\b|\bpboc\s*(?:governor)\b|\bpeople'?s?\s*bank\s*of\s*china\b/gi,
+		name: 'Yi Gang',
+		aliases: ['Yi Gang', 'PBOC Governor'],
+		role: 'central_bank',
+		titles: ['Governor', 'PBOC Governor']
+	},
+	{
+		pattern: /\b(?:shaktikanta\s+)?das\b|\brbi\s*(?:governor)\b|\breserve\s*bank\s*of\s*india\b/gi,
+		name: 'Shaktikanta Das',
+		aliases: ['Das', 'RBI Governor'],
+		role: 'central_bank',
+		titles: ['Governor', 'RBI Governor']
+	},
+	{
+		pattern: /\b(?:tiff\s+)?macklem\b|\bbank\s*of\s*canada\s*governor\b|\bboc\s*governor\b/gi,
+		name: 'Tiff Macklem',
+		aliases: ['Macklem', 'BOC Governor', 'Bank of Canada Governor'],
+		role: 'central_bank',
+		titles: ['Governor', 'Bank of Canada Governor']
+	},
+	// ============================================
+	// International Organization Leaders
+	// ============================================
+	{
+		pattern: /\b(?:ant[oó]nio\s+)?guterres\b|\bun\s*secretary[\s-]*general\b|\bunited\s*nations\s*(?:chief|head|secretary)\b/gi,
+		name: 'Antonio Guterres',
+		aliases: ['Guterres', 'UN Secretary-General', 'UN Chief'],
+		role: 'international',
+		titles: ['Secretary-General', 'UN Secretary-General']
+	},
+	{
+		pattern: /\b(?:tedros\s+(?:adhanom\s+)?)?ghebreyesus\b|\bwho\s*(?:director|chief|head)\b|\bworld\s*health\s*organization\s*(?:director|chief|head)\b/gi,
+		name: 'Tedros Adhanom Ghebreyesus',
+		aliases: ['Tedros', 'WHO Director', 'WHO Chief'],
+		role: 'international',
+		titles: ['Director-General', 'WHO Director-General']
+	},
+	{
+		pattern: /\b(?:kristalina\s+)?georgieva\b|\bimf\s*(?:chief|head|director|managing)\b|\binternational\s*monetary\s*fund\s*(?:chief|head|director)\b/gi,
+		name: 'Kristalina Georgieva',
+		aliases: ['Georgieva', 'IMF Chief', 'IMF Managing Director'],
+		role: 'international',
+		titles: ['Managing Director', 'IMF Managing Director']
+	},
+	{
+		pattern: /\b(?:ajay\s+)?banga\b|\bworld\s*bank\s*(?:president|chief|head)\b/gi,
+		name: 'Ajay Banga',
+		aliases: ['Banga', 'World Bank President'],
+		role: 'international',
+		titles: ['President', 'World Bank President']
+	},
+	{
+		pattern: /\b(?:mark\s+)?rutte\b|\bnato\s*(?:secretary[\s-]*general|chief|head)\b/gi,
+		name: 'Mark Rutte',
+		aliases: ['Rutte', 'NATO Secretary General', 'NATO Chief'],
+		role: 'international',
+		titles: ['Secretary General', 'NATO Secretary General']
+	},
+	{
+		pattern: /\b(?:ursula\s+)?(?:von\s+der\s+)?leyen\b|\beu\s*commission\s*president\b|\beuropean\s*commission\s*president\b/gi,
+		name: 'Ursula von der Leyen',
+		aliases: ['von der Leyen', 'EU Commission President'],
+		role: 'international',
+		titles: ['President', 'European Commission President']
+	},
+	{
+		pattern: /\b(?:charles\s+)?michel\b|\beu\s*council\s*president\b|\beuropean\s*council\s*president\b/gi,
+		name: 'Charles Michel',
+		aliases: ['Michel', 'EU Council President'],
+		role: 'international',
+		titles: ['President', 'European Council President']
+	},
+	{
+		pattern: /\bngozi\s*okonjo[\s-]*iweala\b|\bwto\s*(?:director|chief|head)\b|\bworld\s*trade\s*organization\s*(?:director|chief|head)\b/gi,
+		name: 'Ngozi Okonjo-Iweala',
+		aliases: ['Okonjo-Iweala', 'WTO Director', 'WTO Chief'],
+		role: 'international',
+		titles: ['Director-General', 'WTO Director-General']
+	},
+	// ============================================
+	// Military Leaders
+	// ============================================
+	{
+		pattern: /\b(?:charles\s+q\.?\s+)?brown\s*jr\.?\b(?=.*(?:chairman|joint\s*chiefs|military|cjcs))|(?:chairman\s*(?:of\s*)?(?:the\s*)?joint\s*chiefs)\b/gi,
+		name: 'Charles Q. Brown Jr.',
+		aliases: ['General Brown', 'CJCS Brown', 'Chairman Brown'],
+		role: 'military',
+		titles: ['General', 'Chairman of the Joint Chiefs of Staff']
+	},
+	{
+		pattern: /\b(?:christopher\s+)?cavoli\b|\bsaceur\b|\beucom\s*commander\b/gi,
+		name: 'Christopher Cavoli',
+		aliases: ['General Cavoli', 'SACEUR'],
+		role: 'military',
+		titles: ['General', 'SACEUR', 'Supreme Allied Commander Europe']
+	},
+	{
+		pattern: /\b(?:valery|valeriy)\s*(?:zaluzhny|zaluzhnyi)\b|\bukrainian?\s*(?:general|military\s*commander)\b/gi,
+		name: 'Valery Zaluzhny',
+		aliases: ['Zaluzhny', 'General Zaluzhny'],
+		role: 'military',
+		titles: ['General', 'Commander-in-Chief of the Armed Forces of Ukraine']
+	},
+	{
+		pattern: /\b(?:oleksandr\s+)?syrsky\b|\bukrain(?:ian|e)\s*(?:army\s*)?commander\b/gi,
+		name: 'Oleksandr Syrsky',
+		aliases: ['Syrsky', 'General Syrsky'],
+		role: 'military',
+		titles: ['General', 'Commander-in-Chief of the Armed Forces of Ukraine']
+	},
+	{
+		pattern: /\b(?:valery\s+)?gerasimov\b|\brussian?\s*(?:general|chief\s*of\s*(?:general\s*)?staff|military\s*commander)\b/gi,
+		name: 'Valery Gerasimov',
+		aliases: ['Gerasimov', 'General Gerasimov'],
+		role: 'military',
+		titles: ['General', 'Chief of the General Staff of the Russian Armed Forces']
+	},
+	// ============================================
+	// Additional Tech Leaders
+	// ============================================
+	{
+		pattern: /\b(?:daniel?\s+)?ek\b|\bspotify\s*(?:ceo|founder)\b/gi,
+		name: 'Daniel Ek',
+		aliases: ['Ek', 'Spotify CEO'],
+		role: 'tech',
+		titles: ['CEO', 'Co-founder']
+	},
+	{
+		pattern: /\b(?:brian\s+)?chesky\b|\bairbnb\s*(?:ceo|founder)\b/gi,
+		name: 'Brian Chesky',
+		aliases: ['Chesky', 'Airbnb CEO'],
+		role: 'tech',
+		titles: ['CEO', 'Co-founder']
+	},
+	{
+		pattern: /\b(?:dara\s+)?khosrowshahi\b|\buber\s*ceo\b/gi,
+		name: 'Dara Khosrowshahi',
+		aliases: ['Khosrowshahi', 'Uber CEO'],
+		role: 'tech',
+		titles: ['CEO']
+	},
+	{
+		pattern: /\b(?:evan\s+)?spiegel\b|\bsnap(?:chat)?\s*(?:ceo|founder)\b/gi,
+		name: 'Evan Spiegel',
+		aliases: ['Spiegel', 'Snap CEO', 'Snapchat CEO'],
+		role: 'tech',
+		titles: ['CEO', 'Co-founder']
+	},
+	{
+		pattern: /\b(?:reed\s+)?hastings\b|\bnetflix\s*(?:ceo|founder|co-?ceo)\b/gi,
+		name: 'Reed Hastings',
+		aliases: ['Hastings', 'Netflix Founder'],
+		role: 'tech',
+		titles: ['Co-founder', 'Executive Chairman']
+	},
+	{
+		pattern: /\b(?:bob\s+)?iger\b|\bdisney\s*ceo\b/gi,
+		name: 'Bob Iger',
+		aliases: ['Iger', 'Disney CEO'],
+		role: 'tech',
+		titles: ['CEO']
+	},
+	// ============================================
+	// Additional Business/Finance Leaders
+	// ============================================
+	{
+		pattern: /\b(?:mary\s+)?barra\b|\bgm\s*ceo\b|\bgeneral\s*motors\s*ceo\b/gi,
+		name: 'Mary Barra',
+		aliases: ['Barra', 'GM CEO', 'General Motors CEO'],
+		role: 'finance',
+		titles: ['CEO']
+	},
+	{
+		pattern: /\b(?:jim\s+)?farley\b|\bford\s*ceo\b/gi,
+		name: 'Jim Farley',
+		aliases: ['Farley', 'Ford CEO'],
+		role: 'finance',
+		titles: ['CEO']
+	},
+	{
+		pattern: /\b(?:doug\s+)?mcmillon\b|\bwalmart\s*ceo\b/gi,
+		name: 'Doug McMillon',
+		aliases: ['McMillon', 'Walmart CEO'],
+		role: 'finance',
+		titles: ['CEO']
+	},
+	{
+		pattern: /\b(?:brian\s+)?niccol\b|\bstarbucks\s*ceo\b/gi,
+		name: 'Brian Niccol',
+		aliases: ['Niccol', 'Starbucks CEO'],
+		role: 'finance',
+		titles: ['CEO']
+	},
+	{
+		pattern: /\b(?:albert\s+)?bourla\b|\bpfizer\s*ceo\b/gi,
+		name: 'Albert Bourla',
+		aliases: ['Bourla', 'Pfizer CEO'],
+		role: 'finance',
+		titles: ['CEO']
 	}
 ];

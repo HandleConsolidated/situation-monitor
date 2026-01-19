@@ -1,10 +1,86 @@
 /**
  * Main Character analysis - tracks prominent figures in news
  * Enhanced with sentiment analysis, source tracking, and improved ranking algorithms
+ * Integrates WORLD_LEADERS from leaders.ts with PERSON_PATTERNS from analysis.ts
  */
 
 import type { NewsItem } from '$lib/types';
-import { PERSON_PATTERNS, SENTIMENT_INDICATORS, type PersonRole } from '$lib/config/analysis';
+import {
+	PERSON_PATTERNS,
+	SENTIMENT_INDICATORS,
+	type PersonRole,
+	type PersonPattern
+} from '$lib/config/analysis';
+import { WORLD_LEADERS } from '$lib/config/leaders';
+
+/**
+ * Convert WORLD_LEADERS keywords into PersonPattern format
+ * This allows seamless integration of world leaders into the main character detection
+ */
+function generateWorldLeaderPatterns(): PersonPattern[] {
+	return WORLD_LEADERS.map((leader) => {
+		// Build regex pattern from keywords
+		// Escape special regex characters in keywords and join with OR
+		const escapedKeywords = leader.keywords.map((kw) =>
+			kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+')
+		);
+
+		// Also add the full name as a pattern
+		const fullNamePattern = leader.name
+			.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+			.replace(/\s+/g, '\\s+');
+
+		const allPatterns = [fullNamePattern, ...escapedKeywords];
+		const patternString = `\\b(?:${allPatterns.join('|')})\\b`;
+
+		return {
+			pattern: new RegExp(patternString, 'gi'),
+			name: leader.name,
+			aliases: [leader.name, ...leader.keywords],
+			role: 'political' as PersonRole,
+			titles: [leader.title]
+		};
+	});
+}
+
+/**
+ * Get combined person patterns from both PERSON_PATTERNS and WORLD_LEADERS
+ * Deduplicates by name to avoid double-counting
+ */
+function getCombinedPatterns(): PersonPattern[] {
+	const worldLeaderPatterns = generateWorldLeaderPatterns();
+
+	// Get existing names in PERSON_PATTERNS to avoid duplicates
+	const existingNames = new Set(PERSON_PATTERNS.map((p) => p.name.toLowerCase()));
+
+	// Filter out world leader patterns that already exist in PERSON_PATTERNS
+	const newWorldLeaderPatterns = worldLeaderPatterns.filter(
+		(wlp) => !existingNames.has(wlp.name.toLowerCase())
+	);
+
+	// Combine both arrays - PERSON_PATTERNS takes priority (more refined patterns)
+	return [...PERSON_PATTERNS, ...newWorldLeaderPatterns];
+}
+
+// Cache the combined patterns for performance
+let _combinedPatterns: PersonPattern[] | null = null;
+
+/**
+ * Get cached combined patterns (or generate if not cached)
+ */
+function getPatterns(): PersonPattern[] {
+	if (!_combinedPatterns) {
+		_combinedPatterns = getCombinedPatterns();
+	}
+	return _combinedPatterns;
+}
+
+/**
+ * Clear the pattern cache (useful for testing)
+ */
+export function clearPatternCache(): void {
+	_combinedPatterns = null;
+}
 
 // Types for sentiment analysis
 export type Sentiment = 'positive' | 'negative' | 'neutral' | 'mixed';
@@ -142,7 +218,7 @@ function calculateMomentum(name: string, currentCount: number): 'rising' | 'stab
 function findCoMentions(
 	personName: string,
 	allNews: NewsItem[],
-	personPatterns: typeof PERSON_PATTERNS
+	personPatterns: PersonPattern[]
 ): string[] {
 	const coMentionCounts: Record<string, number> = {};
 
@@ -184,12 +260,24 @@ export function calculateMainCharacter(allNews: NewsItem[]): MainCharacterResult
 			characters: [],
 			topCharacter: null,
 			totalMentions: 0,
-			roleBreakdown: { political: 0, tech: 0, finance: 0, military: 0, media: 0, other: 0 },
+			roleBreakdown: {
+				political: 0,
+				tech: 0,
+				finance: 0,
+				military: 0,
+				media: 0,
+				central_bank: 0,
+				international: 0,
+				other: 0
+			},
 			overallSentiment: 'neutral'
 		};
 	}
 
 	const now = Date.now();
+
+	// Get combined patterns from PERSON_PATTERNS and WORLD_LEADERS
+	const patterns = getPatterns();
 
 	// Track data per person
 	const personData: Record<
@@ -209,7 +297,7 @@ export function calculateMainCharacter(allNews: NewsItem[]): MainCharacterResult
 		const text = (item.title || '').toLowerCase();
 		const source = item.source || 'Unknown';
 
-		for (const personPattern of PERSON_PATTERNS) {
+		for (const personPattern of patterns) {
 			// Reset lastIndex for global regex
 			personPattern.pattern.lastIndex = 0;
 			const matches = text.match(personPattern.pattern);
@@ -260,6 +348,8 @@ export function calculateMainCharacter(allNews: NewsItem[]): MainCharacterResult
 		finance: 0,
 		military: 0,
 		media: 0,
+		central_bank: 0,
+		international: 0,
 		other: 0
 	};
 
@@ -327,7 +417,7 @@ export function calculateMainCharacter(allNews: NewsItem[]): MainCharacterResult
 
 	// Populate co-mentions for top characters
 	for (const character of characters.slice(0, 5)) {
-		character.coMentions = findCoMentions(character.name, allNews, PERSON_PATTERNS);
+		character.coMentions = findCoMentions(character.name, allNews, patterns);
 	}
 
 	// Calculate overall sentiment across all mentions
