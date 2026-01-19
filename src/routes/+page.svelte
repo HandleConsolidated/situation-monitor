@@ -45,21 +45,7 @@
 		mainCharacterResults
 	} from '$lib/stores';
 	import { DropZone } from '$lib/components/common';
-	import {
-		fetchAllNewsWithErrors,
-		fetchAllMarkets,
-		fetchPolymarket,
-		fetchWhaleTransactions,
-		fetchGovContracts,
-		fetchLayoffs,
-		fetchWorldLeaders,
-		fetchAllGridStress,
-		fetchEarthquakes,
-		fetchRadiationData,
-		fetchDiseaseOutbreaks,
-		fetchOutageData,
-		fetchFedBalanceData
-	} from '$lib/api';
+	import { cachedApi } from '$lib/api';
 	import type { Prediction, WhaleTransaction, Contract, Layoff, GridStressData, RadiationReading, OutageData, FedBalanceData } from '$lib/api';
 	import type { EarthquakeData, DiseaseOutbreak } from '$lib/types';
 	import type { CustomMonitor, WorldLeader } from '$lib/types';
@@ -149,13 +135,16 @@
 		globeFlyToTarget = { lat, lon, zoom: 4, _ts: Date.now() };
 	}
 
-	// Data fetching
-	async function loadNews() {
+	// Force refresh flag - when true, bypasses cache
+	let forceRefresh = $state(false);
+
+	// Data fetching - all functions use cachedApi with forceRefresh support
+	async function loadNews(force = forceRefresh) {
 		const categories = ['politics', 'tech', 'finance', 'gov', 'ai', 'intel'] as const;
 		categories.forEach((cat) => news.setLoading(cat, true));
 
 		try {
-			const result = await fetchAllNewsWithErrors();
+			const result = await cachedApi.fetchAllNewsWithErrors(force);
 
 			// Set items for each category
 			Object.entries(result.data).forEach(([category, items]) => {
@@ -176,9 +165,9 @@
 		}
 	}
 
-	async function loadMarkets() {
+	async function loadMarkets(force = forceRefresh) {
 		try {
-			const data = await fetchAllMarkets();
+			const data = await cachedApi.fetchAllMarkets(force);
 			markets.setIndices(data.indices);
 			markets.setSectors(data.sectors);
 			markets.setCommodities(data.commodities);
@@ -190,13 +179,13 @@
 		}
 	}
 
-	async function loadMiscData() {
+	async function loadMiscData(force = forceRefresh) {
 		try {
 			const [predictionsData, whalesData, contractsData, layoffsData] = await Promise.all([
-				fetchPolymarket(),
-				fetchWhaleTransactions(),
-				fetchGovContracts(),
-				fetchLayoffs()
+				cachedApi.fetchPolymarket(force),
+				cachedApi.fetchWhaleTransactions(force),
+				cachedApi.fetchGovContracts(force),
+				cachedApi.fetchLayoffs(force)
 			]);
 			predictions = predictionsData;
 			whales = whalesData;
@@ -209,10 +198,10 @@
 		}
 	}
 
-	async function loadWorldLeaders() {
+	async function loadWorldLeaders(force = forceRefresh) {
 		leadersLoading = true;
 		try {
-			leaders = await fetchWorldLeaders();
+			leaders = await cachedApi.fetchWorldLeaders(force);
 		} catch (error) {
 			console.error('Failed to load world leaders:', error);
 		} finally {
@@ -220,10 +209,10 @@
 		}
 	}
 
-	async function loadGridStress() {
+	async function loadGridStress(force = forceRefresh) {
 		gridStressLoading = true;
 		try {
-			gridStress = await fetchAllGridStress();
+			gridStress = await cachedApi.fetchAllGridStress(force);
 			// Track freshness
 			dataFreshness = { ...dataFreshness, infrastructure: Date.now() };
 		} catch (error) {
@@ -233,10 +222,10 @@
 		}
 	}
 
-	async function loadEarthquakes() {
+	async function loadEarthquakes(force = forceRefresh) {
 		earthquakesLoading = true;
 		try {
-			earthquakes = await fetchEarthquakes(4.0);
+			earthquakes = await cachedApi.fetchEarthquakes(4.0, force);
 			// Track freshness
 			dataFreshness = { ...dataFreshness, environmental: Date.now() };
 		} catch (error) {
@@ -246,10 +235,10 @@
 		}
 	}
 
-	async function loadRadiation() {
+	async function loadRadiation(force = forceRefresh) {
 		radiationLoading = true;
 		try {
-			radiationReadings = await fetchRadiationData();
+			radiationReadings = await cachedApi.fetchRadiationData(force);
 		} catch (error) {
 			console.error('Failed to load radiation data:', error);
 		} finally {
@@ -257,10 +246,10 @@
 		}
 	}
 
-	async function loadDiseaseOutbreaks() {
+	async function loadDiseaseOutbreaks(force = forceRefresh) {
 		outbreaksLoading = true;
 		try {
-			diseaseOutbreaks = await fetchDiseaseOutbreaks();
+			diseaseOutbreaks = await cachedApi.fetchDiseaseOutbreaks(force);
 		} catch (error) {
 			console.error('Failed to load disease outbreak data:', error);
 		} finally {
@@ -268,10 +257,10 @@
 		}
 	}
 
-	async function loadOutages() {
+	async function loadOutages(force = forceRefresh) {
 		outagesLoading = true;
 		try {
-			outages = await fetchOutageData();
+			outages = await cachedApi.fetchOutageData(force);
 		} catch (error) {
 			console.error('Failed to load outage data:', error);
 		} finally {
@@ -279,10 +268,10 @@
 		}
 	}
 
-	async function loadFedData() {
+	async function loadFedData(force = forceRefresh) {
 		fedLoading = true;
 		try {
-			fedData = await fetchFedBalanceData();
+			fedData = await cachedApi.fetchFedBalanceData(force);
 		} catch (error) {
 			console.error('Failed to load Fed balance sheet data:', error);
 		} finally {
@@ -291,31 +280,31 @@
 	}
 
 	// Combined infrastructure data loading for AI actions
-	async function loadInfrastructureData() {
+	async function loadInfrastructureData(force = forceRefresh) {
 		await Promise.all([
-			loadGridStress(),
-			loadOutages()
+			loadGridStress(force),
+			loadOutages(force)
 		]);
 		dataFreshness = { ...dataFreshness, infrastructure: Date.now() };
 	}
 
 	// Combined environmental data loading for AI actions
-	async function loadEnvironmentalData() {
+	async function loadEnvironmentalData(force = forceRefresh) {
 		await Promise.all([
-			loadEarthquakes(),
-			loadRadiation(),
-			loadDiseaseOutbreaks()
+			loadEarthquakes(force),
+			loadRadiation(force),
+			loadDiseaseOutbreaks(force)
 		]);
 		dataFreshness = { ...dataFreshness, environmental: Date.now() };
 	}
 
 	// Combined crypto loading for AI actions
-	async function loadCryptoData() {
+	async function loadCryptoData(force = forceRefresh) {
 		try {
-			const data = await fetchAllMarkets();
+			const data = await cachedApi.fetchAllMarkets(force);
 			markets.setCrypto(data.crypto);
 			// Also refresh whales which is crypto-related
-			const whalesData = await fetchWhaleTransactions();
+			const whalesData = await cachedApi.fetchWhaleTransactions(force);
 			whales = whalesData;
 			dataFreshness = { ...dataFreshness, crypto: Date.now() };
 		} catch (error) {
@@ -332,32 +321,48 @@
 		}, 3000);
 	}
 
-	// Action handlers for AI tool execution
+	// Action handlers for AI tool execution - always force refresh for AI actions
 	const actionHandlers: ActionHandlers = {
-		refreshNews: loadNews,
-		refreshMarkets: loadMarkets,
-		refreshCrypto: loadCryptoData,
-		refreshGeopolitical: loadNews, // Geopolitical data comes from news feeds
-		refreshInfrastructure: loadGridStress,
-		refreshEnvironmental: loadEnvironmentalData,
-		refreshAlternative: loadMiscData,
+		refreshNews: () => loadNews(true),
+		refreshMarkets: () => loadMarkets(true),
+		refreshCrypto: () => loadCryptoData(true),
+		refreshGeopolitical: () => loadNews(true), // Geopolitical data comes from news feeds
+		refreshInfrastructure: () => loadInfrastructureData(true),
+		refreshEnvironmental: () => loadEnvironmentalData(true),
+		refreshAlternative: () => loadMiscData(true),
 		refreshAll: async () => {
 			await Promise.all([
-				loadNews(),
-				loadMarkets(),
-				loadMiscData(),
-				loadGridStress(),
-				loadEnvironmentalData()
+				loadNews(true),
+				loadMarkets(true),
+				loadMiscData(true),
+				loadInfrastructureData(true),
+				loadEnvironmentalData(true)
 			]);
 		},
 		highlightPanel,
 		getDataFreshness: () => dataFreshness
 	};
 
+	/**
+	 * Handle manual refresh - bypasses cache for fresh data
+	 * This is triggered by the refresh button in the header
+	 */
 	async function handleRefresh() {
 		refresh.startRefresh();
 		try {
-			await Promise.all([loadNews(), loadMarkets()]);
+			// Force refresh all data (bypass cache)
+			await Promise.all([
+				loadNews(true),
+				loadMarkets(true),
+				loadMiscData(true),
+				loadWorldLeaders(true),
+				loadGridStress(true),
+				loadEarthquakes(true),
+				loadRadiation(true),
+				loadDiseaseOutbreaks(true),
+				loadOutages(true),
+				loadFedData(true)
+			]);
 			refresh.endRefresh();
 		} catch (error) {
 			refresh.endRefresh([String(error)]);
@@ -434,7 +439,20 @@
 		async function initialLoad() {
 			refresh.startRefresh();
 			try {
-				await Promise.all([loadNews(), loadMarkets(), loadMiscData(), loadWorldLeaders(), loadGridStress(), loadEarthquakes(), loadRadiation(), loadDiseaseOutbreaks(), loadOutages(), loadFedData()]);
+				// Initial load uses cache (forceRefresh = false)
+				// This provides immediate data if cached, reducing API calls on page load
+				await Promise.all([
+					loadNews(false),
+					loadMarkets(false),
+					loadMiscData(false),
+					loadWorldLeaders(false),
+					loadGridStress(false),
+					loadEarthquakes(false),
+					loadRadiation(false),
+					loadDiseaseOutbreaks(false),
+					loadOutages(false),
+					loadFedData(false)
+				]);
 				refresh.endRefresh();
 				initialDataLoaded = true;
 			} catch (error) {

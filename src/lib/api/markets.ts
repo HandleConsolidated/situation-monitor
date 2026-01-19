@@ -94,6 +94,7 @@ const INDEX_ETF_MAP: Record<string, string> = {
 
 /**
  * Fetch a quote from Finnhub with rate limiting and caching
+ * Includes extended timeout (15s) and graceful fallback to cached data
  */
 async function fetchFinnhubQuote(symbol: string): Promise<FinnhubQuote | null> {
 	// Check cache first
@@ -109,7 +110,7 @@ async function fetchFinnhubQuote(symbol: string): Promise<FinnhubQuote | null> {
 
 		const url = `${FINNHUB_BASE_URL}/quote?symbol=${encodeURIComponent(symbol)}&token=${FINNHUB_API_KEY}`;
 		const response = await fetch(url, {
-			signal: AbortSignal.timeout(10000)
+			signal: AbortSignal.timeout(15000) // Extended to 15 seconds for reliability
 		});
 
 		if (!response.ok) {
@@ -133,9 +134,21 @@ async function fetchFinnhubQuote(symbol: string): Promise<FinnhubQuote | null> {
 
 		return data;
 	} catch (error) {
-		logger.error('Markets API', `Error fetching quote for ${symbol}:`, error);
-		// Return cached data on error if available
-		return cached?.data ?? null;
+		const errorMessage = error instanceof Error ? error.message : String(error);
+
+		// Log timeout errors at warn level (expected during high latency)
+		if (errorMessage.includes('timeout') || errorMessage.includes('TimeoutError') || errorMessage.includes('signal')) {
+			logger.warn('Markets API', `Timeout fetching quote for ${symbol}, using cached data if available`);
+		} else {
+			logger.error('Markets API', `Error fetching quote for ${symbol}:`, errorMessage);
+		}
+
+		// Return cached data on error if available (even if stale)
+		if (cached) {
+			logger.log('Markets API', `Returning stale cached data for ${symbol}`);
+			return cached.data;
+		}
+		return null;
 	}
 }
 
@@ -150,10 +163,14 @@ const COINGECKO_ID_MAP: Record<string, string> = {
 	solana: 'solana'
 };
 
+// CORS proxy URL for fallback
+const CORS_PROXY_URL = 'https://bitter-sea-8577.ahandle.workers.dev/?url=';
+
 /**
  * Fetch crypto prices from CoinGecko API
  * CoinGecko is free, no API key required, and supports CORS directly
  * Note: Previous CoinCap API had DNS issues (ERR_NAME_NOT_RESOLVED)
+ * Includes extended timeout (15s) and CORS proxy fallback for reliability
  */
 export async function fetchCryptoPrices(): Promise<CryptoItem[]> {
 	// Return cached data if fresh
@@ -169,14 +186,46 @@ export async function fetchCryptoPrices(): Promise<CryptoItem[]> {
 
 		logger.log('Markets API', 'Fetching crypto from CoinGecko');
 
-		// CoinGecko supports CORS directly - no proxy needed
-		const response = await fetch(coinGeckoUrl, {
-			headers: { Accept: 'application/json' },
-			signal: AbortSignal.timeout(10000)
-		});
+		// Try direct fetch first with extended timeout
+		let response: Response | null = null;
 
-		if (!response.ok) {
-			throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+		try {
+			response = await fetch(coinGeckoUrl, {
+				headers: { Accept: 'application/json' },
+				signal: AbortSignal.timeout(15000) // Extended to 15 seconds
+			});
+		} catch (directError) {
+			logger.warn('Markets API', 'Direct CoinGecko fetch failed, trying CORS proxy:', directError instanceof Error ? directError.message : directError);
+
+			// Try via CORS proxy as fallback
+			try {
+				response = await fetch(CORS_PROXY_URL + encodeURIComponent(coinGeckoUrl), {
+					headers: { Accept: 'application/json' },
+					signal: AbortSignal.timeout(15000)
+				});
+			} catch (proxyError) {
+				logger.warn('Markets API', 'CORS proxy also failed:', proxyError instanceof Error ? proxyError.message : proxyError);
+
+				// Return stale cache if available
+				if (cryptoCache) {
+					logger.log('Markets API', 'Returning stale cached crypto data due to API failure');
+					return cryptoCache.data;
+				}
+
+				// Return empty data structure as last resort
+				return CRYPTO.map((c) => ({
+					id: c.id,
+					symbol: c.symbol,
+					name: c.name,
+					current_price: 0,
+					price_change_24h: 0,
+					price_change_percentage_24h: 0
+				}));
+			}
+		}
+
+		if (!response || !response.ok) {
+			throw new Error(`HTTP ${response?.status || 'no response'}: ${response?.statusText || ''}`);
 		}
 
 		const data: CoinGeckoPriceResponse = await response.json();

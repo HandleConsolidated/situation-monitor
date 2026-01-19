@@ -3350,34 +3350,76 @@ interface USGSEarthquakeResponse {
 	features: USGSEarthquakeFeature[];
 }
 
+// Earthquake cache for fallback when USGS API times out
+let earthquakeCache: { data: EarthquakeData[]; timestamp: number } | null = null;
+const EARTHQUAKE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes (earthquakes data updates frequently)
+
 /**
  * Fetch earthquake data from USGS Earthquake API
  * Returns earthquakes above the specified minimum magnitude
+ * Includes timeout handling with caching for reliability
  * @param minMagnitude Minimum magnitude to fetch (default 4.0)
  */
 export async function fetchEarthquakes(minMagnitude: number = 4.0): Promise<EarthquakeData[]> {
+	// Return cached data if fresh
+	if (earthquakeCache && Date.now() - earthquakeCache.timestamp < EARTHQUAKE_CACHE_TTL) {
+		logger.log('USGS Earthquake API', 'Using cached earthquake data');
+		return earthquakeCache.data;
+	}
+
 	// Use the USGS FDSN Event Query API for more control over parameters
 	// Returns earthquakes from the past 24 hours sorted by time (most recent first)
 	const usgsUrl = `https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&minmagnitude=${minMagnitude}&limit=50&orderby=time`;
+	const CORS_PROXY_URL = 'https://bitter-sea-8577.ahandle.workers.dev/?url=';
 
 	try {
 		logger.log('USGS Earthquake API', `Fetching earthquakes with minMagnitude=${minMagnitude}...`);
 
-		const response = await fetch(usgsUrl, {
-			headers: {
-				'Accept': 'application/json'
-			},
-			signal: AbortSignal.timeout(10000)
-		});
+		// Try direct fetch first
+		let response: Response | null = null;
 
-		if (!response.ok) {
-			throw new Error(`USGS API returned status ${response.status}`);
+		try {
+			response = await fetch(usgsUrl, {
+				headers: {
+					'Accept': 'application/json'
+				},
+				signal: AbortSignal.timeout(12000) // 12 second timeout
+			});
+		} catch (directError) {
+			logger.warn('USGS Earthquake API', 'Direct fetch failed, trying CORS proxy:', directError instanceof Error ? directError.message : directError);
+
+			// Try via CORS proxy as fallback
+			try {
+				response = await fetch(CORS_PROXY_URL + encodeURIComponent(usgsUrl), {
+					headers: {
+						'Accept': 'application/json'
+					},
+					signal: AbortSignal.timeout(15000) // 15 second timeout for proxy
+				});
+			} catch (proxyError) {
+				logger.warn('USGS Earthquake API', 'CORS proxy also failed:', proxyError instanceof Error ? proxyError.message : proxyError);
+
+				// Return stale cache if available
+				if (earthquakeCache) {
+					logger.log('USGS Earthquake API', 'Returning stale cached data due to API failure');
+					return earthquakeCache.data;
+				}
+				return [];
+			}
+		}
+
+		if (!response || !response.ok) {
+			throw new Error(`USGS API returned status ${response?.status || 'no response'}`);
 		}
 
 		const data: USGSEarthquakeResponse = await response.json();
 
 		if (!data.features || !Array.isArray(data.features)) {
 			logger.warn('USGS Earthquake API', 'Invalid response format - no features array');
+			// Return stale cache if available on invalid response
+			if (earthquakeCache) {
+				return earthquakeCache.data;
+			}
 			return [];
 		}
 
@@ -3397,9 +3439,18 @@ export async function fetchEarthquakes(minMagnitude: number = 4.0): Promise<Eart
 				url: feature.properties.url
 			}));
 
+		// Cache successful results
+		earthquakeCache = { data: earthquakes, timestamp: Date.now() };
+
 		return earthquakes;
 	} catch (error) {
 		logger.error('USGS Earthquake API', 'Failed to fetch earthquakes:', error instanceof Error ? error.message : error);
+
+		// Return stale cache if available on error
+		if (earthquakeCache) {
+			logger.log('USGS Earthquake API', 'Returning stale cached data due to API failure');
+			return earthquakeCache.data;
+		}
 		return [];
 	}
 }
