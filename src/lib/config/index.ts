@@ -102,6 +102,7 @@ export {
 	PATTERN_PROMPTS,
 	REGIONAL_PROMPTS,
 	PROMPT_CATEGORIES,
+	FORMATTING_GUIDELINES,
 	getPromptsByCategory,
 	getAutoTriggerPrompts,
 	getPromptById,

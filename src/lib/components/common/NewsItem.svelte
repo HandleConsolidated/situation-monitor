@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { NewsItem } from '$lib/types';
 	import { timeAgo } from '$lib/utils';
+	import { seenItems } from '$lib/services/seen-items';
 
 	interface Props {
 		item: NewsItem;
@@ -20,12 +21,17 @@
 
 	const isAlertItem = $derived(showAlert && item.isAlert);
 
-	// Check if item is "new" (fetched within the last 60 seconds)
+	// Check if item should show as "new" using persistent seen tracker
+	// The isNew flag from the store is set based on the seenItems tracker
+	// We also check fetchedAt to provide a grace period for newly displayed items
 	const isNewItem = $derived(() => {
 		if (!item.isNew) return false;
 		if (!item.fetchedAt) return item.isNew;
-		// Item stays "new" for 60 seconds after fetch
-		return Date.now() - item.fetchedAt < 60000;
+		// Item stays visually "new" for 60 seconds after fetch
+		// This provides a smooth UX where new items are highlighted briefly
+		const withinGracePeriod = Date.now() - item.fetchedAt < 60000;
+		// Also check against the persistent tracker for the grace period
+		return withinGracePeriod && seenItems.isNew(item.category, item.id, item.fetchedAt);
 	});
 </script>
 

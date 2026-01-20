@@ -20,6 +20,69 @@
 import type { ContextCategory } from '$lib/types/llm';
 
 /**
+ * Shared formatting guidelines that are included in prompts
+ * These ensure consistent, visually beautiful output in both modal and PDF
+ */
+export const FORMATTING_GUIDELINES = `
+<formatting_requirements>
+CRITICAL: Your response MUST be formatted for professional display in a web modal and PDF export.
+Follow these rules EXACTLY to ensure beautiful, readable output with proper visual hierarchy.
+
+MARKDOWN STRUCTURE:
+- Use ## for major sections (Executive Summary, Key Developments, etc.)
+- Use ### for subsections within each major section
+- Use #### sparingly for sub-subsections only when needed
+- ALWAYS leave a blank line before AND after every header
+
+SPACING (CRITICAL FOR READABILITY):
+- Leave a blank line BETWEEN every paragraph
+- Leave a blank line BEFORE and AFTER every list
+- Leave a blank line BEFORE and AFTER every table
+- Leave a blank line BEFORE and AFTER every blockquote
+- Use --- with blank lines before/after to separate major sections
+- Never create walls of text - break into 2-4 sentence paragraphs
+
+BOLD TEXT RULES (**bold**):
+ALWAYS bold these elements:
+- Threat/risk levels: **CRITICAL**, **HIGH**, **ELEVATED**, **LOW**
+- Status indicators: **ACTIVE**, **RESOLVED**, **ONGOING**, **STABLE**, **VOLATILE**
+- Key findings labels: **Key Finding:**, **Assessment:**, **Conclusion:**
+- Important numbers: **$4.2 billion**, **+15%**, **3 casualties**, **72 hours**
+- Alert categories: **WARNING**, **URGENT**, **CRITICAL ALERT**
+- Probability statements: **Probability: 45%**, **Confidence: HIGH**
+- Actor names on first mention: **Russia**, **China**, **Iran**
+- Time-sensitive info: **within 24 hours**, **immediate action**
+
+DO NOT over-bold:
+- Don't bold entire sentences or paragraphs
+- Maximum 2-3 bold terms per paragraph
+- Don't bold common words or trivial info
+
+LISTS:
+- Use - for unordered bullet points
+- Use 1. 2. 3. for numbered/ordered lists
+- Keep list items concise (1-2 lines each)
+- Indent sub-items with 2 spaces
+
+TABLES:
+- Use | Column 1 | Column 2 | format
+- Include header separator row: |---|---|
+- Bold important values within cells
+- Limit to 4-5 columns for readability
+
+BLOCKQUOTES (use for critical callouts):
+- Use > for important warnings or key intelligence
+- Always include bold label: > **CRITICAL:** or > **KEY INTELLIGENCE:**
+- Reserve for genuinely important callouts - don't overuse
+
+INLINE CODE:
+- Use \`code\` for: percentages (\`75%\`), timestamps, coordinates
+- Use for technical values: \`$125.50\`, \`DEFCON 3\`, \`UTC 14:30\`
+- Use for references: \`REF-2026-0119\`
+</formatting_requirements>
+`;
+
+/**
  * Analysis prompt definition
  */
 export interface AnalysisPromptConfig {
@@ -142,75 +205,85 @@ Before writing each section, perform these reasoning steps:
 4. Formulate assessments with appropriate confidence levels
 </analysis_protocol>
 
-<output_structure>
+<output_format>
+FORMAT YOUR RESPONSE USING THIS EXACT MARKDOWN STRUCTURE:
 
-<executive_summary>
-Provide a 2-3 sentence strategic overview capturing:
-- The single most critical development requiring attention
-- Overall global risk posture: [STABLE | ELEVATED | VOLATILE | CRITICAL]
-- Primary domain of concern: [MILITARY | ECONOMIC | POLITICAL | CYBER | ENVIRONMENTAL]
+## Executive Summary
 
-Include confidence level: [HIGH: 85%+ | MODERATE: 60-84% | LOW: <60%]
-</executive_summary>
+[2-3 sentence strategic overview]
 
-<key_developments>
-Identify the TOP 5 developments ranked by strategic impact.
+**Global Risk Posture:** [STABLE | ELEVATED | VOLATILE | CRITICAL]
+**Primary Domain:** [MILITARY | ECONOMIC | POLITICAL | CYBER | ENVIRONMENTAL]
+**Confidence:** [HIGH | MODERATE | LOW]
 
-For each development:
-- HEADLINE: One-line summary
-- WHAT: Factual description (cite specific data points)
-- WHY IT MATTERS: Strategic implications for stakeholders
-- SECOND-ORDER EFFECTS: Potential cascade consequences
-- CONFIDENCE: [HIGH | MODERATE | LOW] with brief justification
-- TIME HORIZON: When impacts likely to materialize
-</key_developments>
+---
 
-<threat_indicators>
-Synthesize current threat landscape:
+## Key Developments
 
-Active Hotspots (list each with current status):
-- Location/Domain
-- Threat Level: [LOW | ELEVATED | HIGH | CRITICAL]
-- Trend: [IMPROVING | STABLE | DETERIORATING | RAPIDLY DETERIORATING]
-- Key indicator driving assessment
+### 1. [Headline]
 
-Escalation Risks:
-- Identify situations with >30% escalation probability in 72 hours
-- Specify trigger events to monitor
+- **What:** [Factual description with specific data points]
+- **Why It Matters:** [Strategic implications]
+- **Second-Order Effects:** [Cascade consequences]
+- **Confidence:** [HIGH | MODERATE | LOW] - [brief justification]
+- **Time Horizon:** [When impacts materialize]
 
-Infrastructure Concerns:
-- Grid, cyber, communications, supply chain status
-- Anomalies or stress indicators
-</threat_indicators>
+*(Repeat ### 2. through ### 5. for remaining developments)*
 
-<market_sentiment>
-Synthesize financial intelligence:
+---
 
-Overall Direction: [RISK-ON | RISK-OFF | MIXED | UNCERTAIN]
-Confidence: [HIGH | MODERATE | LOW]
+## Threat Indicators
 
-Key Movers:
-- Top 3 significant market movements with percentage changes
-- Causal attribution (geopolitical, economic, technical)
+### Active Hotspots
 
-Geopolitical-Market Correlation:
-- Identify connections between current events and market behavior
-- Note any divergences (markets not pricing in evident risks)
-</market_sentiment>
+| Location/Domain | Threat Level | Trend | Key Indicator |
+|-----------------|--------------|-------|---------------|
+| [Location] | **[CRITICAL/HIGH/ELEVATED/LOW]** | [arrow] | [indicator] |
 
-<watch_list>
-Priority monitoring items for next 24 hours:
+### Escalation Risks
 
-For each item (3-5 total):
-- WHAT to watch
-- WHY it matters (potential impact)
-- TRIGGER indicators that would require immediate attention
-- RECOMMENDED ACTION or monitoring approach
+> **WARNING:** Situations with >30% escalation probability in 72 hours
 
-Rank by: [CRITICAL | HIGH | MODERATE] priority
-</watch_list>
+- **[Situation]:** \`[X%]\` - Trigger: [event to monitor]
 
-</output_structure>
+### Infrastructure Concerns
+
+- **Grid:** [status]
+- **Cyber:** [status]
+- **Communications:** [status]
+- **Supply Chain:** [status]
+
+---
+
+## Market Sentiment
+
+**Overall Direction:** [RISK-ON | RISK-OFF | MIXED | UNCERTAIN]
+**Confidence:** [HIGH | MODERATE | LOW]
+
+### Key Movers
+
+| Asset | Change | Driver |
+|-------|--------|--------|
+| [asset] | [%] | [geopolitical/economic/technical] |
+
+### Geopolitical-Market Correlation
+
+- [Connection between events and market behavior]
+- **Divergence Alert:** [Markets not pricing in evident risks, if any]
+
+---
+
+## Watch List
+
+### [CRITICAL] Item 1
+
+- **What to Watch:** [specific indicator]
+- **Why It Matters:** [potential impact]
+- **Trigger:** [what requires immediate attention]
+- **Action:** [recommended approach]
+
+*(Repeat for 3-5 items using [CRITICAL], [HIGH], or [MODERATE] priority levels)*
+</output_format>
 
 <cove_verification_protocol>
 CRITICAL: Before finalizing, execute Chain of Verification to catch factual errors.
@@ -369,53 +442,63 @@ Focus on CHANGES and MOMENTUM:
 3. What requires overnight attention?
 </analysis_protocol>
 
-<output_structure>
+<output_format>
+FORMAT YOUR RESPONSE USING THIS EXACT MARKDOWN STRUCTURE:
 
-<todays_highlights>
-Significant Developments (max 5):
-For each:
-- HEADLINE: Brief description
-- OUTCOME: Resolved / Ongoing / Escalated
-- EXPECTATION DELTA: [As Expected | Better | Worse | Unexpected]
-- NET ASSESSMENT: Impact on overall risk picture
+## Today's Highlights
 
-Surprises (if any):
-- Events that were not anticipated
-- Why they matter
-- Assessment confidence: [HIGH | MODERATE | LOW]
-</todays_highlights>
+### Significant Developments
 
-<overnight_watch>
-Critical Monitoring Items:
+**1. [Headline]**
+- **Outcome:** Resolved / Ongoing / Escalated
+- **vs. Expectation:** [As Expected | Better | Worse | Unexpected]
+- **Net Assessment:** [Impact on overall risk picture]
 
-Time-Zone Sensitive (list by region and timing):
-- Asia Markets (opening times, key events)
-- European developments (morning hours)
-- Scheduled announcements or events
+*(Repeat for up to 5 developments)*
 
-Threshold Alerts:
-- Specific conditions that warrant immediate escalation
-- Contact/action protocols if triggered
+### Surprises
 
-Overnight Risk Assessment: [LOW | ELEVATED | HIGH]
-Rationale: [1-2 sentences]
-</overnight_watch>
+> **UNEXPECTED:** [Event description]
+> **Why It Matters:** [Significance]
+> **Confidence:** [HIGH | MODERATE | LOW]
 
-<tomorrow_outlook>
-Scheduled Events:
-- Calendar items with potential market/geopolitical impact
-- Time and expected significance
+---
 
-Developing Situations:
-- Ongoing situations likely to evolve
-- Key milestones or decision points
+## Overnight Watch
 
-Probability Assessments (if relevant):
-- Event: [Probability %]
-- Basis for assessment
-</tomorrow_outlook>
+**Overnight Risk Assessment:** [LOW | ELEVATED | HIGH]
 
-</output_structure>
+*[1-2 sentence rationale]*
+
+### Time-Zone Sensitive Monitoring
+
+| Region | Timing | What to Watch |
+|--------|--------|---------------|
+| Asia Markets | [time] | [key events] |
+| Europe | [time] | [developments] |
+
+### Threshold Alerts
+
+- **[Condition]:** Action: [protocol if triggered]
+
+---
+
+## Tomorrow Outlook
+
+### Scheduled Events
+
+| Time | Event | Expected Impact |
+|------|-------|-----------------|
+| [time] | [event] | [HIGH/MODERATE/LOW] |
+
+### Developing Situations
+
+- **[Situation]:** [Key milestone/decision point]
+
+### Probability Assessments
+
+- **[Event]:** \`[X%]\` - *[assessment rationale]*
+</output_format>
 
 <brevity_requirement>
 Total response should be 300-500 words. Prioritize actionability over comprehensiveness.
@@ -525,17 +608,26 @@ Deliver a flash intelligence update focusing EXCLUSIVELY on alert-level items. N
 </constraints>
 
 <output_format>
-For each alert item (use this exact structure):
+FORMAT YOUR RESPONSE IN CLEAN MARKDOWN.
 
-⚠️ [ALERT CATEGORY]: [Headline]
-- WHAT: [Single sentence—what happened]
-- IMPACT: [Immediate implications—1 sentence]
-- ACTION: [Recommended response or monitoring focus]
-- CONFIDENCE: [HIGH | MODERATE | LOW]
+If no alerts exist, respond only with:
+
+> **NO FLASH ITEMS** - All systems nominal
+
+Otherwise, for each alert item:
+
+### [ALERT CATEGORY]: [Headline]
+
+- **What:** [Single sentence - what happened]
+- **Impact:** [Immediate implications - 1 sentence]
+- **Action:** [Recommended response or monitoring focus]
+- **Confidence:** \`[HIGH | MODERATE | LOW]\`
 
 ---
 
-OVERALL FLASH ASSESSMENT: [ROUTINE | ELEVATED | URGENT]
+## Flash Assessment
+
+**Overall Status:** [ROUTINE | ELEVATED | URGENT]
 </output_format>
 
 <validation>
@@ -658,101 +750,122 @@ For each threat domain, execute this analysis sequence:
 5. CONFIDENCE CALIBRATION: What's the quality of available intelligence?
 </reasoning_protocol>
 
-<output_structure>
+<output_format>
+FORMAT YOUR RESPONSE USING THIS EXACT MARKDOWN STRUCTURE:
 
-<threat_matrix>
-Rate each domain using this calibrated scale:
-- LOW (0-25%): Baseline conditions, no unusual indicators
-- ELEVATED (26-50%): Anomalous indicators present, increased vigilance warranted
-- HIGH (51-75%): Multiple confirmed threat indicators, active monitoring required
-- CRITICAL (76-100%): Imminent or active threat, immediate response needed
+## Threat Matrix
+
+Rate each domain using this scale:
+- **LOW** (0-25%): Baseline conditions, no unusual indicators
+- **ELEVATED** (26-50%): Anomalous indicators, increased vigilance warranted
+- **HIGH** (51-75%): Multiple confirmed indicators, active monitoring required
+- **CRITICAL** (76-100%): Imminent or active threat, immediate response needed
 
 | Domain | Rating | Confidence | Trend | Key Indicator |
 |--------|--------|------------|-------|---------------|
-| Military/Kinetic | | | | |
-| Cyber/Digital | | | | |
-| Economic/Financial | | | | |
-| Political/Social | | | | |
-| Environmental/Natural | | | | |
-| Supply Chain/Logistics | | | | |
+| Military/Kinetic | **[RATING]** | [H/M/L] | [arrow] | [indicator] |
+| Cyber/Digital | **[RATING]** | [H/M/L] | [arrow] | [indicator] |
+| Economic/Financial | **[RATING]** | [H/M/L] | [arrow] | [indicator] |
+| Political/Social | **[RATING]** | [H/M/L] | [arrow] | [indicator] |
+| Environmental/Natural | **[RATING]** | [H/M/L] | [arrow] | [indicator] |
+| Supply Chain/Logistics | **[RATING]** | [H/M/L] | [arrow] | [indicator] |
 
-Confidence levels: [HIGH: Multiple corroborating sources | MODERATE: Single reliable source | LOW: Indirect indicators only]
-Trend: [↑ Increasing | → Stable | ↓ Decreasing]
-</threat_matrix>
+*Confidence: HIGH = Multiple sources | MODERATE = Single source | LOW = Indirect indicators*
 
-<active_threat_analysis>
-For each HIGH or CRITICAL rated domain:
+---
 
-<threat_profile>
-Domain: [Name]
-Current Status: [Detailed description of threat posture]
-Key Actors: [Who is involved, capabilities, intentions]
-Recent Developments: [What changed to elevate this threat]
-Attack Vectors: [How threat could materialize]
-Escalation Probability (72hr): [X%] — Rationale: [brief explanation]
-Escalation Probability (7-day): [X%] — Rationale: [brief explanation]
-Early Warning Indicators: [What to monitor for escalation]
-</threat_profile>
-</active_threat_analysis>
+## Active Threat Analysis
 
-<infrastructure_vulnerability_assessment>
-Power Grid:
-- Current stress level: [Normal | Elevated | Strained | Critical]
-- Geographic concerns: [Specific regions]
-- Correlation with threat actors: [Any | None]
+For each HIGH or CRITICAL domain:
 
-Communications/Internet:
-- Outage patterns: [Normal | Anomalous]
-- Suspected cause: [Technical | Weather | Adversarial | Unknown]
-- Critical nodes at risk: [Specific infrastructure]
+### [Domain Name] - **[RATING]**
 
-Financial Systems:
-- Transaction processing: [Normal | Degraded]
-- Liquidity indicators: [Healthy | Stressed]
-- Cyber threat indicators: [Present | Absent]
+**Current Status:** [Detailed description]
 
-Supply Chain:
-- Chokepoints under stress: [List]
-- Estimated impact timeline: [Immediate | Days | Weeks]
-</infrastructure_vulnerability_assessment>
+**Key Actors:**
+- [Actor]: [capabilities, intentions]
 
-<risk_correlations>
-Cross-Domain Analysis:
-Identify connections that amplify overall risk:
-- Correlation 1: [Domain A] + [Domain B] → [Amplified risk description]
-- Correlation 2: [Domain A] + [Domain C] → [Amplified risk description]
+**Recent Developments:** [What changed]
 
-Cascade Scenarios:
-Describe 1-2 plausible cascade sequences:
-- Trigger event → Second-order effect → Third-order effect
-- Probability of cascade: [X%]
+**Attack Vectors:**
+- [Vector 1]
+- [Vector 2]
+
+**Escalation Probability:**
+- 72-hour: \`[X%]\` - *[rationale]*
+- 7-day: \`[X%]\` - *[rationale]*
+
+**Early Warning Indicators:**
+- [Indicator to monitor]
+
+---
+
+## Infrastructure Vulnerability
+
+### Power Grid
+- **Stress Level:** [Normal | Elevated | Strained | Critical]
+- **Geographic Concerns:** [regions]
+- **Threat Actor Correlation:** [Any | None]
+
+### Communications/Internet
+- **Outage Patterns:** [Normal | Anomalous]
+- **Suspected Cause:** [Technical | Weather | Adversarial | Unknown]
+- **Critical Nodes at Risk:** [infrastructure]
+
+### Financial Systems
+- **Transaction Processing:** [Normal | Degraded]
+- **Liquidity:** [Healthy | Stressed]
+- **Cyber Indicators:** [Present | Absent]
+
+### Supply Chain
+- **Chokepoints Under Stress:** [list]
+- **Impact Timeline:** [Immediate | Days | Weeks]
+
+---
+
+## Risk Correlations
+
+### Cross-Domain Analysis
+
+> **Correlation 1:** [Domain A] + [Domain B] = [Amplified risk]
+
+> **Correlation 2:** [Domain A] + [Domain C] = [Amplified risk]
+
+### Cascade Scenarios
+
+**Scenario:** [Trigger] → [Second-order] → [Third-order]
+- Probability: \`[X%]\`
 - Time to cascade: [Hours | Days | Weeks]
 
-Second-Order Implications:
-- Effects that may not be immediately obvious
-- Who else would be affected
-</risk_correlations>
+### Second-Order Implications
+- [Non-obvious effects]
+- [Who else affected]
 
-<recommended_posture>
-OVERALL THREAT LEVEL: [LOW | ELEVATED | HIGH | CRITICAL]
-Confidence in Assessment: [HIGH | MODERATE | LOW]
+---
 
-Defensive Measures by Priority:
-1. [IMMEDIATE] — [Specific action]
-2. [SHORT-TERM: 24-72hr] — [Specific action]
-3. [ONGOING] — [Specific action]
+## Recommended Posture
 
-Monitoring Priorities:
-1. [Most critical indicator to watch]
+**OVERALL THREAT LEVEL:** **[LOW | ELEVATED | HIGH | CRITICAL]**
+
+**Confidence:** [HIGH | MODERATE | LOW]
+
+### Defensive Measures
+
+1. **[IMMEDIATE]** - [Specific action]
+2. **[SHORT-TERM: 24-72hr]** - [Specific action]
+3. **[ONGOING]** - [Specific action]
+
+### Monitoring Priorities
+
+1. [Most critical indicator]
 2. [Second priority]
 3. [Third priority]
 
-Intelligence Gaps:
-- What information would improve this assessment
-- Recommended collection priorities
-</recommended_posture>
+### Intelligence Gaps
 
-</output_structure>
+- [What information would improve assessment]
+- [Recommended collection priorities]
+</output_format>
 
 <cove_verification_protocol>
 CRITICAL: Execute Factored Chain of Verification before finalizing.

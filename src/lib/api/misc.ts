@@ -3009,12 +3009,29 @@ export async function fetchElevatedVolcanoes(): Promise<VolcanoData[]> {
 		const data: USGSVolcanoResponse[] = await response.json();
 		logger.log('Volcano API', `Received ${data.length} elevated volcanoes`);
 
-		// Transform and filter the data
+		// Transform the data - trust USGS's getElevatedVolcanoes endpoint
+		// The API already filters for elevated status, we just transform the data
+		// Accept volcanoes if they have:
+		// 1. Alert level of ADVISORY, WATCH, or WARNING, OR
+		// 2. Color code of YELLOW, ORANGE, or RED (indicating elevated activity)
+		// This ensures we don't miss volcanoes where USGS uses color code over alert level
 		const volcanoes: VolcanoData[] = data
 			.filter((v) => {
-				// Only include ADVISORY, WATCH, and WARNING levels
 				const level = v.currentAlertLevel?.toUpperCase();
-				return level === 'ADVISORY' || level === 'WATCH' || level === 'WARNING';
+				const color = v.currentColorCode?.toUpperCase();
+				const hasElevatedAlert = level === 'ADVISORY' || level === 'WATCH' || level === 'WARNING';
+				const hasElevatedColor = color === 'YELLOW' || color === 'ORANGE' || color === 'RED';
+
+				// Accept if either alert level or color code indicates elevated status
+				// This is more permissive since USGS already decided these are "elevated"
+				const shouldInclude = hasElevatedAlert || hasElevatedColor;
+
+				// Debug logging for troubleshooting
+				if (!shouldInclude) {
+					logger.warn('Volcano API', `Filtering out ${v.volcanoName}: alertLevel=${v.currentAlertLevel}, colorCode=${v.currentColorCode}`);
+				}
+
+				return shouldInclude;
 			})
 			.map((v) => ({
 				id: `usgs-volcano-${v.volcanoId}`,

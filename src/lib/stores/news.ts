@@ -5,6 +5,7 @@
 import { writable, derived, get } from 'svelte/store';
 import type { NewsItem, NewsCategory } from '$lib/types';
 import { containsAlertKeyword, detectRegion, detectTopics } from '$lib/config';
+import { seenItems } from '$lib/services/seen-items';
 
 export interface CategoryState {
 	items: NewsItem[];
@@ -104,25 +105,30 @@ function createNewsStore() {
 
 		/**
 		 * Set items for a category
-		 * Marks items as "new" if they weren't in the previous set
+		 * Marks items as "new" if user hasn't seen them before (using persistent seen tracker)
 		 */
 		setItems(category: NewsCategory, items: NewsItem[]) {
 			const now = Date.now();
 
 			update((state) => {
-				// Get existing item IDs to detect new items
-				const existingIds = new Set(state.categories[category].items.map((i) => i.id));
-
-				// Enrich items and mark new ones
+				// Enrich items and mark new ones based on persistent seen tracker
 				const enrichedItems = items.map((item) => {
 					const enriched = enrichNewsItem(item);
-					const isNewItem = !existingIds.has(item.id);
+					// Use the persistent seen items tracker instead of in-memory comparison
+					const isNewItem = !seenItems.hasSeen(category, item.id);
 					return {
 						...enriched,
 						isNew: isNewItem,
 						fetchedAt: now
 					};
 				});
+
+				// Mark all items as seen after a short delay
+				// This ensures the "NEW" badge is visible briefly before items are marked seen
+				setTimeout(() => {
+					const itemIds = items.map((i) => i.id);
+					seenItems.markManySeen(category, itemIds);
+				}, 2000); // 2 second delay before marking as seen
 
 				return {
 					...state,

@@ -193,68 +193,116 @@
 	.modal-content {
 		flex: 1;
 		overflow-y: auto;
-		padding: 1.5rem;
+		padding: 2rem 2.5rem;
 	}
 
 	.markdown-content {
 		color: var(--text);
-		line-height: 1.7;
-		font-size: 0.875rem;
+		line-height: 1.8;
+		font-size: 0.9375rem;
+		max-width: 100%;
 	}
 
+	/* First element shouldn't have top margin */
+	.markdown-content :global(> :first-child) {
+		margin-top: 0;
+	}
+
+	/* === HEADERS === */
 	.markdown-content :global(h1) {
-		font-size: 1.5rem;
+		font-size: 1.625rem;
 		font-weight: 700;
 		color: var(--accent);
-		margin: 0 0 1rem;
-		padding-bottom: 0.5rem;
-		border-bottom: 1px solid var(--border);
+		margin: 2.5rem 0 1.25rem 0;
+		padding-bottom: 0.75rem;
+		border-bottom: 2px solid var(--accent);
+		letter-spacing: 0.02em;
+	}
+
+	.markdown-content :global(h1:first-child) {
+		margin-top: 0;
 	}
 
 	.markdown-content :global(h2) {
-		font-size: 1.25rem;
+		font-size: 1.375rem;
 		font-weight: 700;
 		color: var(--text-primary);
-		margin: 1.5rem 0 0.75rem;
+		margin: 2.25rem 0 1rem 0;
+		padding-bottom: 0.5rem;
+		border-bottom: 1px solid var(--border);
+		letter-spacing: 0.01em;
+	}
+
+	.markdown-content :global(h2:first-child) {
+		margin-top: 0;
 	}
 
 	.markdown-content :global(h3) {
-		font-size: 1rem;
+		font-size: 1.125rem;
 		font-weight: 600;
 		color: var(--text-secondary);
-		margin: 1.25rem 0 0.5rem;
+		margin: 1.75rem 0 0.875rem 0;
+		padding-left: 0.75rem;
+		border-left: 3px solid var(--accent);
 	}
 
 	.markdown-content :global(h4) {
-		font-size: 0.875rem;
+		font-size: 0.9375rem;
 		font-weight: 600;
 		color: var(--text);
-		margin: 1rem 0 0.5rem;
+		margin: 1.5rem 0 0.75rem 0;
 		text-transform: uppercase;
-		letter-spacing: 0.05em;
+		letter-spacing: 0.08em;
 	}
 
+	.markdown-content :global(h5) {
+		font-size: 0.875rem;
+		font-weight: 600;
+		color: var(--text-dim);
+		margin: 1.25rem 0 0.625rem 0;
+	}
+
+	/* === PARAGRAPHS === */
 	.markdown-content :global(p) {
-		margin: 0 0 1rem;
+		margin: 0 0 1.25rem 0;
+		line-height: 1.8;
 	}
 
+	/* Paragraphs after headers should have slightly less top margin */
+	.markdown-content :global(h2 + p),
+	.markdown-content :global(h3 + p),
+	.markdown-content :global(h4 + p) {
+		margin-top: 0;
+	}
+
+	/* === LISTS === */
 	.markdown-content :global(ul),
 	.markdown-content :global(ol) {
-		margin: 0 0 1rem;
-		padding-left: 1.5rem;
+		margin: 1.25rem 0 1.5rem 0;
+		padding-left: 1.75rem;
 	}
 
 	.markdown-content :global(li) {
-		margin: 0.25rem 0;
+		margin: 0.5rem 0;
+		padding-left: 0.375rem;
+		line-height: 1.7;
 	}
 
 	.markdown-content :global(li::marker) {
 		color: var(--accent);
+		font-weight: 600;
 	}
 
+	/* Nested lists */
+	.markdown-content :global(li > ul),
+	.markdown-content :global(li > ol) {
+		margin: 0.5rem 0 0.5rem 0;
+	}
+
+	/* === EMPHASIS === */
 	.markdown-content :global(strong) {
 		color: var(--text-primary);
-		font-weight: 600;
+		font-weight: 700;
 	}
 
 	.markdown-content :global(em) {
@@ -262,83 +310,123 @@
 		font-style: italic;
 	}
 
+	/* === INLINE CODE === */
 	.markdown-content :global(code) {
-		background: var(--card-bg);
-		padding: 0.15rem 0.4rem;
-		border-radius: 2px;
-		font-family: 'SF Mono', Monaco, monospace;
-		font-size: 0.8em;
+		background: rgba(6, 182, 212, 0.12);
+		padding: 0.2rem 0.5rem;
+		border-radius: 3px;
+		font-family: 'SF Mono', Monaco, 'Fira Code', monospace;
+		font-size: 0.85em;
 		color: var(--accent);
+		border: 1px solid rgba(6, 182, 212, 0.2);
+		white-space: nowrap;
 	}
 
+	/* === CODE BLOCKS === */
 	.markdown-content :global(pre) {
 		background: var(--card-bg);
-		padding: 1rem;
-		border-radius: 4px;
+		padding: 1.25rem 1.5rem;
+		border-radius: 6px;
 		overflow-x: auto;
-		margin: 1rem 0;
+		margin: 1.5rem 0;
 		border: 1px solid var(--border);
+		border-left: 3px solid var(--accent);
 	}
 
 	.markdown-content :global(pre code) {
 		background: none;
 		padding: 0;
+		border: none;
+		font-size: 0.8125rem;
+		white-space: pre;
 	}
 
+	/* === BLOCKQUOTES (Critical Callouts) === */
 	.markdown-content :global(blockquote) {
 		border-left: 4px solid var(--accent);
-		margin: 1.25rem 0;
-		padding: 1rem 1.25rem;
-		background: linear-gradient(90deg, rgba(6, 182, 212, 0.08) 0%, var(--card-bg) 100%);
+		margin: 1.75rem 0;
+		padding: 1.25rem 1.5rem;
+		background: linear-gradient(90deg, rgba(6, 182, 212, 0.1) 0%, rgba(6, 182, 212, 0.03) 50%, var(--card-bg) 100%);
 		color: var(--text);
-		border-radius: 0 4px 4px 0;
+		border-radius: 0 6px 6px 0;
 		font-weight: 500;
+		position: relative;
+	}
+
+	.markdown-content :global(blockquote)::before {
+		content: '';
+		position: absolute;
+		top: 0;
+		left: 0;
+		width: 100%;
+		height: 100%;
+		background: linear-gradient(180deg, rgba(6, 182, 212, 0.05) 0%, transparent 100%);
+		pointer-events: none;
+		border-radius: 0 6px 6px 0;
 	}
 
 	.markdown-content :global(blockquote p) {
 		margin-bottom: 0;
+		position: relative;
+	}
+
+	.markdown-content :global(blockquote p:not(:last-child)) {
+		margin-bottom: 0.75rem;
 	}
 
 	.markdown-content :global(blockquote strong) {
 		color: var(--accent);
+		font-weight: 700;
 	}
 
+	/* Nested blockquotes */
+	.markdown-content :global(blockquote blockquote) {
+		margin: 1rem 0 0 0;
+		border-left-color: var(--text-muted);
+		background: rgba(255, 255, 255, 0.02);
+	}
+
+	/* === HORIZONTAL RULES === */
 	.markdown-content :global(hr) {
 		border: none;
 		height: 2px;
-		background: linear-gradient(to right, transparent, var(--accent), transparent);
-		margin: 2rem 0;
+		background: linear-gradient(to right, transparent 0%, var(--accent) 20%, var(--accent) 80%, transparent 100%);
+		margin: 2.5rem 0;
+		opacity: 0.5;
 	}
 
+	/* === TABLES === */
 	.markdown-content :global(table) {
 		width: 100%;
 		border-collapse: collapse;
-		margin: 1.25rem 0;
-		font-size: 0.8125rem;
-		border-radius: 4px;
+		margin: 1.75rem 0;
+		font-size: 0.875rem;
+		border-radius: 6px;
 		overflow: hidden;
+		border: 1px solid var(--border);
 	}
 
 	.markdown-content :global(thead) {
-		background: linear-gradient(180deg, var(--surface) 0%, var(--card-bg) 100%);
+		background: linear-gradient(180deg, var(--surface) 0%, rgba(6, 182, 212, 0.08) 100%);
 	}
 
 	.markdown-content :global(th) {
-		padding: 0.625rem 0.75rem;
+		padding: 0.875rem 1rem;
 		border: 1px solid var(--border);
 		text-align: left;
 		font-weight: 700;
 		color: var(--accent);
 		text-transform: uppercase;
-		font-size: 0.6875rem;
-		letter-spacing: 0.05em;
+		font-size: 0.75rem;
+		letter-spacing: 0.06em;
 	}
 
 	.markdown-content :global(td) {
-		padding: 0.5rem 0.75rem;
+		padding: 0.75rem 1rem;
 		border: 1px solid var(--border);
 		text-align: left;
 		vertical-align: top;
+		line-height: 1.6;
 	}
 
 	.markdown-content :global(tbody tr:nth-child(odd)) {
@@ -350,7 +438,33 @@
 	}
 
 	.markdown-content :global(tbody tr:hover) {
-		background: rgba(6, 182, 212, 0.05);
+		background: rgba(6, 182, 212, 0.06);
+	}
+
+	/* Bold text inside table cells */
+	.markdown-content :global(td strong) {
+		color: var(--accent);
+	}
+
+	/* === LINKS === */
+	.markdown-content :global(a) {
+		color: var(--accent);
+		text-decoration: none;
+		border-bottom: 1px dashed var(--accent);
+		transition: all 0.15s ease;
+	}
+
+	.markdown-content :global(a:hover) {
+		color: var(--text-primary);
+		border-bottom-style: solid;
+	}
+
+	/* === IMAGES === */
+	.markdown-content :global(img) {
+		max-width: 100%;
+		height: auto;
+		border-radius: 6px;
+		margin: 1.5rem 0;
 	}
 
 	/* Footer */

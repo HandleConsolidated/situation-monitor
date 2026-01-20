@@ -44,6 +44,7 @@
 		narrativeResults,
 		mainCharacterResults
 	} from '$lib/stores';
+	import { seenItems } from '$lib/services/seen-items';
 	import { DropZone } from '$lib/components/common';
 	import { cachedApi } from '$lib/api';
 	import type { Prediction, WhaleTransaction, Contract, Layoff, GridStressData, RadiationReading, OutageData, FedBalanceData } from '$lib/api';
@@ -433,6 +434,9 @@
 	});
 
 	onMount(() => {
+		// Initialize the seen items tracker for persistent NEW indicator state
+		seenItems.init();
+
 		if (!settings.isOnboardingComplete()) {
 			onboardingOpen = true;
 		}

@@ -55,6 +55,58 @@ const TOKEN_LIMITS: Record<AnalysisDepth, number> = {
 };
 
 /**
+ * Markdown formatting instructions to ensure consistent output for modal and PDF display
+ */
+const MARKDOWN_FORMAT_INSTRUCTIONS = `
+
+**MARKDOWN FORMATTING REQUIREMENTS:**
+Your response will be displayed in both a web modal AND exported to professional PDF. Use proper Markdown for beautiful, readable output.
+
+1. STRUCTURE & SPACING (CRITICAL):
+   - Use ## for major sections (Executive Summary, Threat Assessment, etc.)
+   - Use ### for subsections within major sections
+   - Use --- on its own line between major sections
+   - ALWAYS add blank lines before AND after every header
+   - ALWAYS add blank lines between paragraphs
+   - Keep paragraphs to 2-4 sentences maximum - never create walls of text
+
+2. BOLD TEXT (**bold**) - Use strategically:
+   - ALWAYS bold threat levels: **CRITICAL**, **HIGH**, **ELEVATED**, **LOW**
+   - ALWAYS bold status indicators: **ACTIVE**, **RESOLVED**, **ONGOING**, **STABLE**, **VOLATILE**
+   - Bold key findings: **Key Finding:**, **Assessment:**, **Conclusion:**
+   - Bold important numbers: **$4.2 billion**, **+15%**, **72 hours**
+   - Bold alert categories: **WARNING**, **URGENT**, **CRITICAL ALERT**
+   - Bold probability statements: **Probability: 45%**, **Confidence: HIGH**
+   - DO NOT over-bold: max 2-3 bold terms per paragraph
+
+3. INLINE CODE (\`code\`):
+   - Use for percentages: \`45%\`, \`+12.5%\`
+   - Use for specific values: \`$125.50\`, \`DEFCON 3\`, \`UTC 14:30\`
+   - Use for references: \`REF-2026-0119\`
+
+4. LISTS:
+   - Use - for bullet points, 1. 2. 3. for numbered lists
+   - Add blank line before starting a list
+   - Keep list items concise (1-2 lines each)
+
+5. TABLES:
+   - Format: | Column | Header | and |---|---| separator
+   - Add blank lines before and after tables
+   - Bold important values in cells
+   - Limit to 4-5 columns
+
+6. BLOCKQUOTES (use for critical callouts):
+   - Use > for important warnings or key intelligence
+   - Include bold label: > **CRITICAL:** or > **KEY INTELLIGENCE:**
+   - Reserve for genuinely important callouts - don't overuse
+
+7. AVOID:
+   - Running sections together without blank lines
+   - Walls of text without paragraph breaks
+   - XML-style tags (use markdown headers instead)
+   - Excessive bolding or under-bolding`;
+
+/**
  * System prompts for intelligence analysis
  */
 const SYSTEM_PROMPTS = {
@@ -73,6 +125,7 @@ Provide concise, actionable intelligence analysis. Focus on:
 2. Assessing threats and risk levels
 3. Noting correlations between disparate data points
 4. Highlighting items requiring attention
+${MARKDOWN_FORMAT_INSTRUCTIONS}
 
 **CITATION REQUIREMENTS:**
 - When referencing specific news articles, include the source name and article link in markdown format: [Article Title](url)
@@ -82,6 +135,7 @@ Provide concise, actionable intelligence analysis. Focus on:
 Use professional intelligence briefing style. Be direct and avoid unnecessary caveats.`,
 
 	brief: `You are an intelligence analyst. Provide brief, bullet-point analysis. Focus only on the most critical items. Keep responses under 300 words.
+${MARKDOWN_FORMAT_INSTRUCTIONS}
 
 **CITATION REQUIREMENTS:**
 - Include source attribution for key claims (e.g., "via Reuters", "per CoinGecko")
@@ -96,6 +150,7 @@ Use professional intelligence briefing style. Be direct and avoid unnecessary ca
 - Confidence levels for key assessments
 
 Support conclusions with specific data points from the provided context.
+${MARKDOWN_FORMAT_INSTRUCTIONS}
 
 **CITATION REQUIREMENTS:**
 - When referencing news articles, use markdown links: [Article Title](url)

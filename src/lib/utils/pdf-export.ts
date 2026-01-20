@@ -579,7 +579,7 @@ function generatePDFHTML(content: string, options: PDFExportOptions = {}): strin
 
 		/* Main Content */
 		.content {
-			padding: 30px 40px 40px;
+			padding: 35px 45px 50px;
 			min-height: 500px;
 		}
 
@@ -613,14 +613,14 @@ function generatePDFHTML(content: string, options: PDFExportOptions = {}): strin
 			margin-top: 5px !important;
 		}
 
-		/* Typography */
+		/* Typography - Enhanced for readability */
 		.content h1 {
 			font-family: 'Playfair Display', serif;
 			font-size: 20pt;
 			font-weight: 700;
 			color: var(--color-dark);
-			margin: 0 0 20px;
-			padding-bottom: 12px;
+			margin: 0 0 24px;
+			padding-bottom: 14px;
 			border-bottom: 2px solid var(--color-primary);
 			letter-spacing: 0.02em;
 		}
@@ -629,35 +629,30 @@ function generatePDFHTML(content: string, options: PDFExportOptions = {}): strin
 			font-size: 14pt;
 			font-weight: 700;
 			color: var(--color-dark);
-			margin: 30px 0 15px;
-			padding-bottom: 8px;
+			margin: 36px 0 18px;
+			padding-bottom: 10px;
 			border-bottom: 1px solid var(--color-border);
 			letter-spacing: 0.01em;
+		}
+
+		.content h2:first-child {
+			margin-top: 0;
 		}
 
 		.content h3 {
 			font-size: 12pt;
 			font-weight: 600;
 			color: var(--color-text);
-			margin: 25px 0 12px;
-			display: flex;
-			align-items: center;
-			gap: 8px;
-		}
-
-		.content h3::before {
-			content: "";
-			width: 4px;
-			height: 16px;
-			background: var(--color-primary);
-			border-radius: 2px;
+			margin: 28px 0 14px;
+			padding-left: 12px;
+			border-left: 4px solid var(--color-primary);
 		}
 
 		.content h4 {
 			font-size: 10.5pt;
 			font-weight: 700;
 			color: var(--color-text-light);
-			margin: 20px 0 10px;
+			margin: 22px 0 12px;
 			text-transform: uppercase;
 			letter-spacing: 0.08em;
 		}
@@ -666,17 +661,27 @@ function generatePDFHTML(content: string, options: PDFExportOptions = {}): strin
 			font-size: 10pt;
 			font-weight: 600;
 			color: var(--color-text);
-			margin: 15px 0 8px;
+			margin: 18px 0 10px;
 		}
 
+		/* Paragraphs with better spacing */
 		.content p {
-			margin: 0 0 14px;
+			margin: 0 0 16px;
 			text-align: justify;
 			hyphens: auto;
+			line-height: 1.75;
 		}
 
+		/* Reduce top margin when paragraph follows header */
+		.content h2 + p,
+		.content h3 + p,
+		.content h4 + p {
+			margin-top: 0;
+		}
+
+		/* Lists with improved spacing */
 		.content ul, .content ol {
-			margin: 0 0 18px;
+			margin: 18px 0 22px;
 			padding-left: 28px;
 		}
 
@@ -686,34 +691,59 @@ function generatePDFHTML(content: string, options: PDFExportOptions = {}): strin
 
 		.content ul li {
 			position: relative;
-			margin: 8px 0;
-			padding-left: 8px;
+			margin: 10px 0;
+			padding-left: 10px;
+			line-height: 1.65;
 		}
 
 		.content ul li::before {
 			content: "";
 			position: absolute;
 			left: -18px;
-			top: 8px;
-			width: 6px;
-			height: 6px;
+			top: 9px;
+			width: 7px;
+			height: 7px;
 			background: var(--color-primary);
 			border-radius: 50%;
 		}
 
 		.content ol li {
-			margin: 8px 0;
-			padding-left: 5px;
+			margin: 10px 0;
+			padding-left: 6px;
+			line-height: 1.65;
 		}
 
 		.content ol li::marker {
 			color: var(--color-primary);
-			font-weight: 600;
+			font-weight: 700;
 		}
 
+		/* Nested lists */
+		.content li > ul,
+		.content li > ol {
+			margin: 8px 0 8px 0;
+		}
+
+		/* Bold text - Enhanced for emphasis */
 		.content strong {
 			color: var(--color-dark);
-			font-weight: 600;
+			font-weight: 700;
+		}
+
+		/* Special styling for threat levels and key indicators */
+		.content p strong,
+		.content li strong {
+			background: linear-gradient(180deg, transparent 60%, rgba(6, 182, 212, 0.15) 60%);
+			padding: 0 2px;
+		}
+
+		/* Bold in headers shouldn't have the underline effect */
+		.content h1 strong,
+		.content h2 strong,
+		.content h3 strong,
+		.content h4 strong {
+			background: none;
+			padding: 0;
 		}
 
 		.content em {
@@ -784,40 +814,49 @@ function generatePDFHTML(content: string, options: PDFExportOptions = {}): strin
 			font-weight: 500;
 		}
 
-		/* Horizontal Rule */
+		/* Horizontal Rule - Visual section separator */
 		.content hr {
 			border: none;
 			height: 2px;
-			background: linear-gradient(to right, transparent, var(--color-primary), transparent);
-			margin: 35px 0;
+			background: linear-gradient(to right, transparent 0%, var(--color-primary) 20%, var(--color-primary) 80%, transparent 100%);
+			margin: 40px 0;
+			opacity: 0.6;
 		}
 
-		/* Tables */
+		/* Tables - Enhanced with better spacing */
 		.content table {
 			width: 100%;
 			border-collapse: collapse;
-			margin: 22px 0;
+			margin: 26px 0;
 			font-size: 9.5pt;
 			border-radius: 6px;
 			overflow: hidden;
 			box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+			border: 1px solid var(--color-border);
 		}
 
 		.content th {
 			background: linear-gradient(180deg, var(--color-dark) 0%, #1e293b 100%);
 			color: white;
-			padding: 12px 16px;
+			padding: 14px 18px;
 			text-align: left;
-			font-weight: 600;
+			font-weight: 700;
 			font-size: 8.5pt;
 			text-transform: uppercase;
-			letter-spacing: 0.05em;
+			letter-spacing: 0.06em;
 		}
 
 		.content td {
-			padding: 11px 16px;
+			padding: 13px 18px;
 			border-bottom: 1px solid var(--color-border);
 			vertical-align: top;
+			line-height: 1.55;
+		}
+
+		/* Bold text in table cells */
+		.content td strong {
+			color: var(--color-primary-dark);
+			background: none;
 		}
 
 		.alternating-rows tr:nth-child(odd) {

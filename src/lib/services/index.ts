@@ -140,3 +140,6 @@ export {
 	type TTSState,
 	type TTSPreferences
 } from './tts';
+
+// Seen Items Tracker (for NEW indicator persistence)
+export { seenItems } from './seen-items';
