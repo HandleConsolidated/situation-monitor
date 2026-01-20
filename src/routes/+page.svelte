@@ -166,6 +166,7 @@
 
 	// Handler for aircraft selection from AircraftPanel
 	function handleAircraftSelect(aircraft: Aircraft, trackHistory: AircraftTrackPoint[]) {
+		console.log('[+page] Aircraft selected:', aircraft.callsign, 'lat:', aircraft.latitude, 'lon:', aircraft.longitude, 'track points:', trackHistory.length);
 		selectedAircraftTrack = { aircraft, track: trackHistory };
 	}
 

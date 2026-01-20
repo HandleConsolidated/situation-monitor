@@ -2922,6 +2922,14 @@ function parseAircraftState(state: unknown[]): Aircraft | null {
  * @param bounds Optional bounding box [minLon, minLat, maxLon, maxLat] to limit results
  * @returns Array of Aircraft objects
  */
+// Custom error class for rate limiting detection
+export class OpenSkyRateLimitError extends Error {
+	constructor() {
+		super('OpenSky API rate limited (429)');
+		this.name = 'OpenSkyRateLimitError';
+	}
+}
+
 export async function fetchAircraftPositions(bounds?: [number, number, number, number]): Promise<Aircraft[]> {
 	try {
 		// Build URL with optional bounding box
@@ -2944,7 +2952,7 @@ export async function fetchAircraftPositions(bounds?: [number, number, number, n
 		if (!response.ok) {
 			if (response.status === 429) {
 				logger.warn('OpenSky API', 'Rate limited - too many requests');
-				return [];
+				throw new OpenSkyRateLimitError();
 			}
 			throw new Error(`OpenSky API returned ${response.status}`);
 		}

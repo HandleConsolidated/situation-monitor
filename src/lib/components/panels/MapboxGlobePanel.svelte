@@ -11,7 +11,7 @@
 		THREAT_COLORS,
 		HOTSPOT_KEYWORDS
 	} from '$lib/config/map';
-	import { fetchOutageData, fetchUCDPConflicts, fetchAircraftPositions, getAltitudeColor, formatAltitude, formatVelocity, formatHeading, fetchElevatedVolcanoes, VOLCANO_ALERT_COLORS, VOLCANO_ALERT_DESCRIPTIONS, getLatestRadarTileUrl, getShipTypeColor, formatVesselSpeed, formatVesselCourse, getFlagEmoji, fetchAirQualityData, AIR_QUALITY_COLORS, AIR_QUALITY_DESCRIPTIONS, RADIATION_LEVEL_COLORS } from '$lib/api';
+	import { fetchOutageData, fetchUCDPConflicts, fetchAircraftPositions, OpenSkyRateLimitError, getAltitudeColor, formatAltitude, formatVelocity, formatHeading, fetchElevatedVolcanoes, VOLCANO_ALERT_COLORS, VOLCANO_ALERT_DESCRIPTIONS, getLatestRadarTileUrl, getShipTypeColor, formatVesselSpeed, formatVesselCourse, getFlagEmoji, fetchAirQualityData, AIR_QUALITY_COLORS, AIR_QUALITY_DESCRIPTIONS, RADIATION_LEVEL_COLORS } from '$lib/api';
 	import { vesselStore, vesselConnectionStatus, connectVesselStream, disconnectVesselStream } from '$lib/services/vessel-stream';
 	import type { OutageData, VIEWSConflictData, Vessel, RadiationReading } from '$lib/api';
 	import type { CustomMonitor, NewsItem, NewsCategory, Aircraft, VolcanoData, AirQualityReading, DiseaseOutbreak, EarthquakeData } from '$lib/types';
@@ -204,9 +204,14 @@
 	let aircraftData = $state<Aircraft[]>([]);
 	let aircraftDataLoading = $state(false);
 	let aircraftRefreshInterval: ReturnType<typeof setInterval> | null = null;
-	let lastAircraftFetch = 0; // Timestamp of last fetch for debouncing
-	const AIRCRAFT_REFRESH_INTERVAL = 45000; // 45 seconds (respecting OpenSky rate limits)
-	const AIRCRAFT_DEBOUNCE_MS = 5000; // Minimum 5 seconds between fetches
+	// Use localStorage to persist last fetch time across page refreshes to avoid rate limiting
+	let lastAircraftFetch = typeof window !== 'undefined'
+		? parseInt(localStorage.getItem('adsb-last-fetch') || '0', 10)
+		: 0;
+	let isRateLimited = $state(false); // Track if we got a 429 recently
+	const AIRCRAFT_REFRESH_INTERVAL = 60000; // 60 seconds (respecting OpenSky rate limits for anonymous users)
+	const AIRCRAFT_DEBOUNCE_MS = 10000; // Minimum 10 seconds between fetches (OpenSky recommends at least 10s)
+	const RATE_LIMIT_BACKOFF_MS = 60000; // Wait 60 seconds after a 429 before trying again
 	const MAX_AIRCRAFT_DISPLAY = 2500; // Limit displayed aircraft for performance
 	const MAX_AIRCRAFT_HISTORY = 5; // Number of historical snapshots to keep
 
@@ -4728,21 +4733,50 @@
 
 	// Load ADS-B aircraft data from OpenSky Network for selected regions
 	async function loadAircraftData(force = false) {
-		if (aircraftDataLoading || !dataLayers.aircraft.visible) return;
+		// Use adsbEnabled prop directly instead of dataLayers.aircraft.visible
+		// to avoid timing issues when called immediately after enabling
+		if (aircraftDataLoading) {
+			console.log('[ADS-B] Skipping fetch - already loading');
+			return;
+		}
+		if (!adsbEnabled) {
+			console.log('[ADS-B] Skipping fetch - ADS-B not enabled');
+			return;
+		}
+
+		const now = Date.now();
+
+		// Check if we're in rate-limit backoff period
+		if (isRateLimited && now - lastAircraftFetch < RATE_LIMIT_BACKOFF_MS) {
+			const waitTime = Math.ceil((RATE_LIMIT_BACKOFF_MS - (now - lastAircraftFetch)) / 1000);
+			console.log(`[ADS-B] Skipping fetch - rate limited, waiting ${waitTime}s`);
+			return;
+		}
+		// Clear rate limit flag if backoff period has passed
+		if (isRateLimited) {
+			isRateLimited = false;
+			console.log('[ADS-B] Rate limit backoff period ended');
+		}
 
 		// Debounce: don't fetch if we fetched recently (unless forced)
-		const now = Date.now();
 		if (!force && now - lastAircraftFetch < AIRCRAFT_DEBOUNCE_MS) {
+			console.log('[ADS-B] Skipping fetch - debounced');
 			return;
 		}
 
 		if (selectedAircraftRegions.size === 0) {
+			console.log('[ADS-B] No regions selected, clearing data');
 			aircraftData = [];
 			if (map && isInitialized) updateMapLayers();
 			return;
 		}
 
+		console.log('[ADS-B] Starting fetch for regions:', Array.from(selectedAircraftRegions));
 		lastAircraftFetch = now;
+		// Persist to localStorage for cross-refresh rate limiting
+		if (typeof window !== 'undefined') {
+			localStorage.setItem('adsb-last-fetch', now.toString());
+		}
 		aircraftDataLoading = true;
 		try {
 			// Collect all aircraft from selected regions
@@ -4764,10 +4798,13 @@
 								mapBounds.getEast(),
 								mapBounds.getNorth()
 							];
+							console.log('[ADS-B] Viewport bounds:', bounds);
 						} else {
+							console.log('[ADS-B] No map bounds available for viewport');
 							continue; // Skip if no bounds available
 						}
 					} else {
+						console.log('[ADS-B] Map not ready for viewport region');
 						continue;
 					}
 				} else {
@@ -4778,6 +4815,7 @@
 
 				try {
 					const data = await fetchAircraftPositions(bounds);
+					console.log(`[ADS-B] Fetched ${data.length} aircraft for region ${regionId}`);
 
 					// Add unique aircraft to the list
 					for (const aircraft of data) {
@@ -4798,9 +4836,18 @@
 					// Add to history (maintaining max size)
 					aircraftHistory = [snapshot, ...aircraftHistory].slice(0, MAX_AIRCRAFT_HISTORY);
 				} catch (regionError) {
+					// Check if this is a rate limit error
+					if (regionError instanceof OpenSkyRateLimitError) {
+						console.warn(`[ADS-B] Rate limited by OpenSky API - waiting ${RATE_LIMIT_BACKOFF_MS / 1000}s before retrying`);
+						isRateLimited = true;
+						// Break out of the region loop since all subsequent calls will also fail
+						break;
+					}
 					console.warn(`Failed to fetch aircraft for region ${regionId}:`, regionError);
 				}
 			}
+
+			console.log(`[ADS-B] Total unique aircraft loaded: ${allAircraft.length}`);
 
 			// Limit displayed aircraft for performance, prioritizing by altitude (higher = more visible)
 			if (allAircraft.length > MAX_AIRCRAFT_DISPLAY) {
@@ -4811,6 +4858,7 @@
 					return altB - altA;
 				});
 				aircraftData = allAircraft.slice(0, MAX_AIRCRAFT_DISPLAY);
+				console.log(`[ADS-B] Limited to ${MAX_AIRCRAFT_DISPLAY} aircraft for display`);
 			} else {
 				aircraftData = allAircraft;
 			}
@@ -4839,16 +4887,30 @@
 	}
 
 	// Sync ADS-B enabled state with dataLayers (controlled from AircraftPanel)
+	// Track both adsbEnabled and isInitialized to ensure we start polling only when map is ready
 	$effect(() => {
+		// Track isInitialized as a dependency so this effect re-runs when map is ready
+		const mapReady = isInitialized;
+
 		if (dataLayers.aircraft.visible !== adsbEnabled) {
 			dataLayers.aircraft.visible = adsbEnabled;
 			if (adsbEnabled) {
-				startAircraftPolling();
+				// Only start polling if map is initialized
+				if (mapReady) {
+					console.log('[ADS-B] Starting aircraft polling - map ready');
+					startAircraftPolling();
+				} else {
+					console.log('[ADS-B] ADS-B enabled but map not ready yet, waiting...');
+				}
 			} else {
 				stopAircraftPolling();
 				aircraftData = [];
-				if (map && isInitialized) updateMapLayers();
+				if (map && mapReady) updateMapLayers();
 			}
+		} else if (adsbEnabled && mapReady && !aircraftRefreshInterval) {
+			// Map just became ready and ADS-B is already enabled - start polling now
+			console.log('[ADS-B] Map ready, starting deferred aircraft polling');
+			startAircraftPolling();
 		}
 	});
 
@@ -4888,12 +4950,18 @@
 
 	// Handle selected aircraft track visualization
 	$effect(() => {
+		// Access selectedAircraftTrack first to ensure we track it as a dependency
+		const track = selectedAircraftTrack;
+		const hasTrack = track && track.aircraft && track.aircraft.latitude !== null && track.aircraft.longitude !== null;
+
+		// Then check if map is ready
 		if (!map || !isInitialized) return;
 
-		if (selectedAircraftTrack && selectedAircraftTrack.aircraft.latitude && selectedAircraftTrack.aircraft.longitude) {
+		if (hasTrack && track) {
+			console.log('[GlobePanel] Flying to selected aircraft:', track.aircraft.callsign, track.aircraft.latitude, track.aircraft.longitude);
 			// Fly to the selected aircraft
 			map.flyTo({
-				center: [selectedAircraftTrack.aircraft.longitude, selectedAircraftTrack.aircraft.latitude],
+				center: [track.aircraft.longitude!, track.aircraft.latitude!],
 				zoom: 6,
 				duration: 2000
 			});
