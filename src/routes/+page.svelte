@@ -26,7 +26,8 @@
 		EarthquakePanel,
 		RadiationPanel,
 		DiseaseOutbreakPanel,
-		AnalysisChatPanel
+		AnalysisChatPanel,
+		AircraftPanel
 	} from '$lib/components/panels';
 	import {
 		news,
@@ -48,7 +49,7 @@
 	import { DropZone } from '$lib/components/common';
 	import { cachedApi } from '$lib/api';
 	import type { Prediction, WhaleTransaction, Contract, Layoff, GridStressData, RadiationReading, OutageData, FedBalanceData } from '$lib/api';
-	import type { EarthquakeData, DiseaseOutbreak } from '$lib/types';
+	import type { EarthquakeData, DiseaseOutbreak, Aircraft } from '$lib/types';
 	import type { CustomMonitor, WorldLeader } from '$lib/types';
 	import type { PanelId } from '$lib/config';
 	import { HOTSPOTS } from '$lib/config/map';
@@ -93,6 +94,26 @@
 	let fedData = $state<FedBalanceData | null>(null);
 	let fedLoading = $state(false);
 
+	// Aircraft tracker state (data comes from GlobePanel)
+	interface AircraftSnapshot {
+		timestamp: number;
+		aircraft: Aircraft[];
+		region: string;
+	}
+	interface AircraftTrackPoint {
+		lat: number;
+		lon: number;
+		timestamp: number;
+		altitude: number | null;
+	}
+	let aircraftData = $state<Aircraft[]>([]);
+	let aircraftHistory = $state<AircraftSnapshot[]>([]);
+	let selectedAircraftTrack = $state<{ aircraft: Aircraft; track: AircraftTrackPoint[] } | null>(null);
+
+	// ADS-B control state (controlled from AircraftPanel)
+	let adsbEnabled = $state(false);
+	let selectedAircraftRegions = $state<Set<string>>(new Set(['viewport']));
+
 	// Track when initial data load is complete for AI panel
 	let initialDataLoaded = $state(false);
 
@@ -135,6 +156,31 @@
 	// Handler for disease outbreak clicks - navigates globe to the outbreak location
 	function handleOutbreakClick(lat: number, lon: number, _disease: string) {
 		globeFlyToTarget = { lat, lon, zoom: 4, _ts: Date.now() };
+	}
+
+	// Handler for aircraft data changes from GlobePanel
+	function handleAircraftDataChange(aircraft: Aircraft[], history: AircraftSnapshot[]) {
+		aircraftData = aircraft;
+		aircraftHistory = history;
+	}
+
+	// Handler for aircraft selection from AircraftPanel
+	function handleAircraftSelect(aircraft: Aircraft, trackHistory: AircraftTrackPoint[]) {
+		selectedAircraftTrack = { aircraft, track: trackHistory };
+	}
+
+	// Handler for ADS-B toggle from AircraftPanel - also enables aircraft panel when ADS-B is enabled
+	function handleAdsbToggle(enabled: boolean) {
+		adsbEnabled = enabled;
+		// Auto-enable aircraft panel when ADS-B is enabled
+		if (enabled && !settings.isPanelEnabled('aircraft')) {
+			settings.enablePanel('aircraft');
+		}
+	}
+
+	// Handler for ADS-B region changes from AircraftPanel
+	function handleAircraftRegionsChange(regions: Set<string>) {
+		selectedAircraftRegions = regions;
 	}
 
 	// Force refresh flag - when true, bypasses cache
@@ -601,6 +647,16 @@
 						<RadiationPanel readings={radiationReadings} loading={radiationLoading} onReadingClick={handleRadiationClick} />
 					{:else if panelId === 'outbreaks'}
 						<DiseaseOutbreakPanel outbreaks={diseaseOutbreaks} loading={outbreaksLoading} onOutbreakClick={handleOutbreakClick} />
+					{:else if panelId === 'aircraft'}
+						<AircraftPanel
+							aircraft={aircraftData}
+							history={aircraftHistory}
+							{adsbEnabled}
+							selectedRegions={selectedAircraftRegions}
+							onSelectAircraft={handleAircraftSelect}
+							onRegionsChange={handleAircraftRegionsChange}
+							onAdsbToggle={handleAdsbToggle}
+						/>
 					{:else if panelId === 'analysis'}
 						<AnalysisChatPanel
 							externalData={{
@@ -636,7 +692,20 @@
 					<div class="corner-bl"></div>
 					<div class="corner-br"></div>
 
-					<GlobePanel monitors={$monitors.monitors} news={$allNewsItems} categorizedNews={$categorizedNewsItems} flyToTarget={globeFlyToTarget} radiationReadings={radiationReadings} diseaseOutbreaks={diseaseOutbreaks} earthquakes={earthquakes} />
+					<GlobePanel
+						monitors={$monitors.monitors}
+						news={$allNewsItems}
+						categorizedNews={$categorizedNewsItems}
+						flyToTarget={globeFlyToTarget}
+						radiationReadings={radiationReadings}
+						diseaseOutbreaks={diseaseOutbreaks}
+						earthquakes={earthquakes}
+						onAircraftDataChange={handleAircraftDataChange}
+						selectedAircraftTrack={selectedAircraftTrack}
+						{adsbEnabled}
+						{selectedAircraftRegions}
+						onAdsbToggle={handleAdsbToggle}
+					/>
 
 					<!-- Globe overlay controls and info -->
 					<div class="globe-info-overlay">
@@ -781,6 +850,16 @@
 						<RadiationPanel readings={radiationReadings} loading={radiationLoading} onReadingClick={handleRadiationClick} />
 					{:else if panelId === 'outbreaks'}
 						<DiseaseOutbreakPanel outbreaks={diseaseOutbreaks} loading={outbreaksLoading} onOutbreakClick={handleOutbreakClick} />
+					{:else if panelId === 'aircraft'}
+						<AircraftPanel
+							aircraft={aircraftData}
+							history={aircraftHistory}
+							{adsbEnabled}
+							selectedRegions={selectedAircraftRegions}
+							onSelectAircraft={handleAircraftSelect}
+							onRegionsChange={handleAircraftRegionsChange}
+							onAdsbToggle={handleAdsbToggle}
+						/>
 					{:else if panelId === 'analysis'}
 						<AnalysisChatPanel
 							externalData={{
@@ -919,6 +998,16 @@
 				<RadiationPanel readings={radiationReadings} loading={radiationLoading} onReadingClick={handleRadiationClick} />
 			{:else if panelId === 'outbreaks'}
 				<DiseaseOutbreakPanel outbreaks={diseaseOutbreaks} loading={outbreaksLoading} onOutbreakClick={handleOutbreakClick} />
+			{:else if panelId === 'aircraft'}
+				<AircraftPanel
+					aircraft={aircraftData}
+					history={aircraftHistory}
+					{adsbEnabled}
+					selectedRegions={selectedAircraftRegions}
+					onSelectAircraft={handleAircraftSelect}
+					onRegionsChange={handleAircraftRegionsChange}
+					onAdsbToggle={handleAdsbToggle}
+				/>
 			{:else if panelId === 'analysis'}
 				<AnalysisChatPanel
 					externalData={{

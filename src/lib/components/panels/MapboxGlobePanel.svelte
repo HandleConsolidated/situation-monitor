@@ -16,6 +16,19 @@
 	import type { OutageData, VIEWSConflictData, Vessel, RadiationReading } from '$lib/api';
 	import type { CustomMonitor, NewsItem, NewsCategory, Aircraft, VolcanoData, AirQualityReading, DiseaseOutbreak, EarthquakeData } from '$lib/types';
 
+	// Predefined ADS-B regions for filtering (matching AircraftPanel)
+	const AIRCRAFT_REGIONS: Record<string, { name: string; bounds: [number, number, number, number] }> = {
+		'north-america': { name: 'North America', bounds: [-170, 15, -50, 72] },
+		'europe': { name: 'Europe', bounds: [-25, 35, 45, 72] },
+		'middle-east': { name: 'Middle East', bounds: [25, 12, 65, 45] },
+		'east-asia': { name: 'East Asia', bounds: [95, 15, 150, 55] },
+		'southeast-asia': { name: 'SE Asia', bounds: [90, -15, 155, 28] },
+		'australia': { name: 'Oceania', bounds: [110, -50, 180, 0] },
+		'south-america': { name: 'S. America', bounds: [-85, -60, -30, 15] },
+		'africa': { name: 'Africa', bounds: [-20, -40, 55, 40] },
+		'viewport': { name: 'Viewport', bounds: [0, 0, 0, 0] } // Dynamic - uses map bounds
+	};
+
 	// Feed category colors for map visualization
 	const FEED_COLORS: Record<NewsCategory, string> = {
 		politics: '#ef4444', // Red - geopolitical importance
@@ -51,6 +64,13 @@
 		_ts?: number; // Timestamp to force reactivity
 	}
 
+	interface AircraftTrackPoint {
+		lat: number;
+		lon: number;
+		timestamp: number;
+		altitude: number | null;
+	}
+
 	interface Props {
 		monitors?: CustomMonitor[];
 		news?: NewsItem[];
@@ -59,9 +79,30 @@
 		radiationReadings?: RadiationReading[];
 		diseaseOutbreaks?: DiseaseOutbreak[];
 		earthquakes?: EarthquakeData[];
+		// Aircraft data export callbacks
+		onAircraftDataChange?: (aircraft: Aircraft[], history: AircraftSnapshot[]) => void;
+		// Selected aircraft to highlight and show track
+		selectedAircraftTrack?: { aircraft: Aircraft; track: AircraftTrackPoint[] } | null;
+		// ADS-B control from AircraftPanel
+		adsbEnabled?: boolean;
+		selectedAircraftRegions?: Set<string>;
+		onAdsbToggle?: (enabled: boolean) => void;
 	}
 
-	let { monitors = [], news = [], categorizedNews, flyToTarget = null, radiationReadings = [], diseaseOutbreaks = [], earthquakes = [] }: Props = $props();
+	let {
+		monitors = [],
+		news = [],
+		categorizedNews,
+		flyToTarget = null,
+		radiationReadings = [],
+		diseaseOutbreaks = [],
+		earthquakes = [],
+		onAircraftDataChange,
+		selectedAircraftTrack = null,
+		adsbEnabled = false,
+		selectedAircraftRegions = new Set<string>(['viewport']),
+		onAdsbToggle
+	}: Props = $props();
 
 	// Create derived value to explicitly track flyToTarget changes for reactivity
 	const currentFlyTarget = $derived(flyToTarget ? { ...flyToTarget } : null);
@@ -166,22 +207,6 @@
 	const AIRCRAFT_REFRESH_INTERVAL = 45000; // 45 seconds (respecting OpenSky rate limits)
 	const MAX_AIRCRAFT_DISPLAY = 2500; // Limit displayed aircraft for performance
 	const MAX_AIRCRAFT_HISTORY = 5; // Number of historical snapshots to keep
-
-	// Predefined ADS-B regions for filtering
-	const AIRCRAFT_REGIONS: Record<string, { name: string; bounds: [number, number, number, number] }> = {
-		'north-america': { name: 'North America', bounds: [-170, 15, -50, 72] },
-		'europe': { name: 'Europe', bounds: [-25, 35, 45, 72] },
-		'middle-east': { name: 'Middle East', bounds: [25, 12, 65, 45] },
-		'east-asia': { name: 'East Asia', bounds: [95, 15, 150, 55] },
-		'southeast-asia': { name: 'Southeast Asia', bounds: [90, -15, 155, 28] },
-		'australia': { name: 'Australia/Oceania', bounds: [110, -50, 180, 0] },
-		'south-america': { name: 'South America', bounds: [-85, -60, -30, 15] },
-		'africa': { name: 'Africa', bounds: [-20, -40, 55, 40] },
-		'viewport': { name: 'Current Viewport', bounds: [0, 0, 0, 0] } // Dynamic - uses map bounds
-	};
-
-	// Selected ADS-B regions (multiple can be selected)
-	let selectedAircraftRegions = $state<Set<string>>(new Set(['north-america', 'europe']));
 
 	// Aircraft position history for tracking (stores last N snapshots)
 	interface AircraftSnapshot {
@@ -1184,6 +1209,7 @@
 	}
 
 	// Generate GeoJSON for aircraft positions (ADS-B tracking)
+	// Enhanced with tactical styling properties for next-gen visualization
 	function getAircraftGeoJSON(): GeoJSON.FeatureCollection {
 		if (!dataLayers.aircraft.visible || aircraftData.length === 0) {
 			return { type: 'FeatureCollection', features: [] };
@@ -1192,6 +1218,23 @@
 		const features: GeoJSON.Feature[] = aircraftData.map((aircraft) => {
 			const altitude = aircraft.geoAltitude ?? aircraft.baroAltitude;
 			const color = getAltitudeColor(altitude, aircraft.onGround);
+			const velocity = aircraft.velocity ?? 0;
+
+			// Calculate marker size based on velocity (faster = slightly larger for visual prominence)
+			// Base size 4, max boost of 2 for aircraft at 300+ m/s (~580 knots)
+			const velocityFactor = Math.min(velocity / 300, 1);
+			const markerSize = 4 + velocityFactor * 2;
+
+			// Calculate glow intensity based on altitude and velocity
+			// Higher/faster aircraft have more prominent glow
+			const altitudeFeet = altitude ? altitude * 3.28084 : 0;
+			const altitudeFactor = Math.min(altitudeFeet / 40000, 1);
+			const glowIntensity = 0.15 + altitudeFactor * 0.25 + velocityFactor * 0.1;
+
+			// Determine if aircraft is climbing, descending, or level
+			const verticalRate = aircraft.verticalRate ?? 0;
+			const isClimbing = verticalRate > 100; // ft/min threshold
+			const isDescending = verticalRate < -100;
 
 			return {
 				type: 'Feature',
@@ -1215,7 +1258,16 @@
 					color,
 					type: 'aircraft',
 					// Icon rotation based on heading (default 0 = north)
-					rotation: aircraft.trueTrack ?? 0
+					rotation: aircraft.trueTrack ?? 0,
+					// Enhanced tactical properties
+					markerSize,
+					glowIntensity,
+					isClimbing,
+					isDescending,
+					// Glow color with alpha for outer rings
+					glowColor: `${color}40`,
+					// Secondary glow for altitude bands
+					secondaryGlow: `${color}20`
 				}
 			};
 		});
@@ -3196,62 +3248,170 @@
 					}
 				});
 
-				// ========== ADS-B AIRCRAFT LAYERS ==========
-				// Outer glow - tactical radar sweep effect
+				// ========== ADS-B AIRCRAFT LAYERS - Enhanced Tactical Visualization ==========
+				// Layer 1: Outermost ambient glow - creates depth and radar-like presence
+				// Dynamic radius based on velocity/altitude for visual hierarchy
 				map.addLayer({
 					id: 'aircraft-glow-outer',
 					type: 'circle',
 					source: 'aircraft',
 					paint: {
-						'circle-radius': 18,
+						'circle-radius': [
+							'interpolate',
+							['linear'],
+							['get', 'markerSize'],
+							4,
+							14, // Slow aircraft: smaller glow
+							6,
+							20 // Fast aircraft: larger glow
+						],
 						'circle-color': ['get', 'color'],
-						'circle-opacity': 0.15,
-						'circle-blur': 1.2
+						'circle-opacity': ['get', 'glowIntensity'],
+						'circle-blur': 1.5
 					}
 				});
-				// Inner glow - altitude-coded color
+
+				// Layer 2: Inner glow ring - altitude-coded pulse effect
+				// Creates the signature tactical "ping" appearance
 				map.addLayer({
 					id: 'aircraft-glow',
 					type: 'circle',
 					source: 'aircraft',
 					paint: {
-						'circle-radius': 10,
+						'circle-radius': [
+							'interpolate',
+							['linear'],
+							['get', 'markerSize'],
+							4,
+							8,
+							6,
+							12
+						],
 						'circle-color': ['get', 'color'],
-						'circle-opacity': 0.35,
-						'circle-blur': 0.6
+						'circle-opacity': ['+', ['get', 'glowIntensity'], 0.15],
+						'circle-blur': 0.5
 					}
 				});
-				// Main marker - tactical diamond-style base
+
+				// Layer 3: Core marker ring - tactical reticle style
+				// Hollow circle with altitude-colored stroke for precision look
 				map.addLayer({
 					id: 'aircraft-layer',
 					type: 'circle',
 					source: 'aircraft',
 					paint: {
-						'circle-radius': 5,
-						'circle-color': 'rgba(6, 182, 212, 0.2)', // Cyan semi-transparent fill
+						'circle-radius': ['get', 'markerSize'],
+						'circle-color': 'rgba(0, 0, 0, 0.4)', // Dark center for contrast
 						'circle-stroke-color': ['get', 'color'],
-						'circle-stroke-width': 2,
-						'circle-stroke-opacity': 1
+						'circle-stroke-width': [
+							'case',
+							['get', 'onGround'],
+							1.5, // Thinner stroke for ground aircraft
+							2 // Standard stroke for airborne
+						],
+						'circle-stroke-opacity': 0.95
 					}
 				});
-				// Aircraft directional icon - uses airplane symbol with heading rotation
+
+				// Layer 4: Inner tactical dot - precision center indicator
+				// Small bright dot at center for accurate position reference
 				map.addLayer({
-					id: 'aircraft-icon',
+					id: 'aircraft-center',
+					type: 'circle',
+					source: 'aircraft',
+					paint: {
+						'circle-radius': 1.5,
+						'circle-color': ['get', 'color'],
+						'circle-opacity': 1
+					}
+				});
+
+				// Layer 5: Directional chevron indicator - heading visualization
+				// Uses a small arrow/chevron character that rotates with heading
+				// More tactical than airplane emoji, better performance
+				map.addLayer({
+					id: 'aircraft-heading',
 					type: 'symbol',
 					source: 'aircraft',
 					layout: {
-						'text-field': '\u2708', // Airplane unicode
-						'text-size': 16,
+						'text-field': '\u25B2', // Triangle/chevron pointing up
+						'text-size': [
+							'interpolate',
+							['linear'],
+							['get', 'markerSize'],
+							4,
+							10,
+							6,
+							14
+						],
 						'text-rotation-alignment': 'map',
 						'text-rotate': ['get', 'rotation'],
 						'text-allow-overlap': true,
 						'text-ignore-placement': true,
-						'text-anchor': 'center'
+						'text-anchor': 'center',
+						'text-offset': [0, -0.6] // Offset slightly forward of center
 					},
 					paint: {
-						'text-color': '#ffffff',
+						'text-color': [
+							'case',
+							['get', 'onGround'],
+							'#ffffff', // White for ground
+							['get', 'color'] // Altitude color for airborne
+						],
+						'text-halo-color': 'rgba(0, 0, 0, 0.9)',
+						'text-halo-width': 1,
+						'text-opacity': 0.9
+					}
+				});
+
+				// Layer 6: Vertical rate indicator - climb/descend status
+				// Shows small up/down arrow for climbing or descending aircraft
+				map.addLayer({
+					id: 'aircraft-vertical',
+					type: 'symbol',
+					source: 'aircraft',
+					filter: [
+						'any',
+						['get', 'isClimbing'],
+						['get', 'isDescending']
+					],
+					layout: {
+						'text-field': [
+							'case',
+							['get', 'isClimbing'],
+							'\u2191', // Up arrow for climbing
+							'\u2193' // Down arrow for descending
+						],
+						'text-size': 9,
+						'text-allow-overlap': true,
+						'text-ignore-placement': true,
+						'text-anchor': 'center',
+						'text-offset': [0.8, 0] // Offset to the right of marker
+					},
+					paint: {
+						'text-color': [
+							'case',
+							['get', 'isClimbing'],
+							'#22c55e', // Green for climbing
+							'#f97316' // Orange for descending
+						],
 						'text-halo-color': 'rgba(0, 0, 0, 0.8)',
-						'text-halo-width': 1.5
+						'text-halo-width': 0.5,
+						'text-opacity': 0.85
+					}
+				});
+
+				// Layer 7: Aircraft icon layer (for interactive events)
+				// Invisible layer that matches clickable area for hover/click events
+				map.addLayer({
+					id: 'aircraft-icon',
+					type: 'circle',
+					source: 'aircraft',
+					paint: {
+						'circle-radius': ['*', ['get', 'markerSize'], 2],
+						'circle-color': 'transparent',
+						'circle-stroke-color': 'transparent',
+						'circle-stroke-width': 0
 					}
 				});
 
@@ -4810,41 +4970,6 @@
 		}
 	}
 
-	// Toggle ADS-B region selection
-	function toggleAircraftRegion(regionId: string) {
-		const newSet = new Set(selectedAircraftRegions);
-		if (newSet.has(regionId)) {
-			newSet.delete(regionId);
-		} else {
-			newSet.add(regionId);
-		}
-		selectedAircraftRegions = newSet;
-
-		// Reload aircraft data with new regions
-		if (dataLayers.aircraft.visible) {
-			loadAircraftData();
-		}
-	}
-
-	// Get aircraft history for a specific ICAO24
-	function getAircraftTrackHistory(icao24: string): Array<{ lat: number; lon: number; timestamp: number; altitude: number | null }> {
-		const positions: Array<{ lat: number; lon: number; timestamp: number; altitude: number | null }> = [];
-
-		for (const snapshot of aircraftHistory) {
-			const aircraft = snapshot.aircraft.find(a => a.icao24 === icao24);
-			if (aircraft && aircraft.latitude !== null && aircraft.longitude !== null) {
-				positions.push({
-					lat: aircraft.latitude,
-					lon: aircraft.longitude,
-					timestamp: snapshot.timestamp,
-					altitude: aircraft.geoAltitude ?? aircraft.baroAltitude
-				});
-			}
-		}
-
-		return positions;
-	}
-
 	function startAircraftPolling() {
 		if (aircraftRefreshInterval) return;
 		loadAircraftData();
@@ -4858,6 +4983,168 @@
 		}
 		aircraftData = [];
 		if (map && isInitialized) updateMapLayers();
+	}
+
+	// Sync ADS-B enabled state with dataLayers (controlled from AircraftPanel)
+	$effect(() => {
+		if (dataLayers.aircraft.visible !== adsbEnabled) {
+			dataLayers.aircraft.visible = adsbEnabled;
+			if (adsbEnabled) {
+				startAircraftPolling();
+			} else {
+				stopAircraftPolling();
+				aircraftData = [];
+				if (map && isInitialized) updateMapLayers();
+			}
+		}
+	});
+
+	// Reload aircraft data when selected regions change
+	$effect(() => {
+		// Track the size and contents of selectedAircraftRegions for reactivity
+		const regionCount = selectedAircraftRegions.size;
+		// Capture regions to ensure effect triggers on changes
+		void Array.from(selectedAircraftRegions);
+
+		// Only reload if ADS-B is enabled
+		if (adsbEnabled && regionCount > 0) {
+			loadAircraftData();
+		} else if (adsbEnabled && regionCount === 0) {
+			aircraftData = [];
+			if (map && isInitialized) updateMapLayers();
+		}
+	});
+
+	// Notify parent component when aircraft data changes
+	$effect(() => {
+		if (onAircraftDataChange && (aircraftData.length > 0 || aircraftHistory.length > 0)) {
+			onAircraftDataChange(aircraftData, aircraftHistory);
+		}
+	});
+
+	// Handle selected aircraft track visualization
+	$effect(() => {
+		if (!map || !isInitialized) return;
+
+		if (selectedAircraftTrack && selectedAircraftTrack.aircraft.latitude && selectedAircraftTrack.aircraft.longitude) {
+			// Fly to the selected aircraft
+			map.flyTo({
+				center: [selectedAircraftTrack.aircraft.longitude, selectedAircraftTrack.aircraft.latitude],
+				zoom: 6,
+				duration: 2000
+			});
+
+			// Update the track line layer
+			updateAircraftTrackLayer();
+		} else {
+			// Clear the track line
+			clearAircraftTrackLayer();
+		}
+	});
+
+	// Generate GeoJSON for aircraft track history line
+	function getAircraftTrackGeoJSON(): GeoJSON.FeatureCollection {
+		if (!selectedAircraftTrack || selectedAircraftTrack.track.length < 2) {
+			return { type: 'FeatureCollection', features: [] };
+		}
+
+		// Create line from track points (ordered oldest to newest for proper line direction)
+		const sortedTrack = [...selectedAircraftTrack.track].sort((a, b) => a.timestamp - b.timestamp);
+		const coordinates = sortedTrack.map(p => [p.lon, p.lat]);
+
+		// Add current position at the end
+		if (selectedAircraftTrack.aircraft.longitude && selectedAircraftTrack.aircraft.latitude) {
+			coordinates.push([selectedAircraftTrack.aircraft.longitude, selectedAircraftTrack.aircraft.latitude]);
+		}
+
+		const features: GeoJSON.Feature[] = [
+			// Track line
+			{
+				type: 'Feature',
+				geometry: {
+					type: 'LineString',
+					coordinates
+				},
+				properties: {
+					icao24: selectedAircraftTrack.aircraft.icao24,
+					callsign: selectedAircraftTrack.aircraft.callsign
+				}
+			},
+			// Track points
+			...sortedTrack.map((point, index) => ({
+				type: 'Feature' as const,
+				geometry: {
+					type: 'Point' as const,
+					coordinates: [point.lon, point.lat]
+				},
+				properties: {
+					index,
+					timestamp: point.timestamp,
+					altitude: point.altitude,
+					isHistorical: true
+				}
+			}))
+		];
+
+		return { type: 'FeatureCollection', features };
+	}
+
+	// Update aircraft track layer on map
+	function updateAircraftTrackLayer() {
+		if (!map) return;
+
+		const trackData = getAircraftTrackGeoJSON();
+
+		// Update or create the track source
+		const trackSource = map.getSource('aircraft-track') as mapboxgl.GeoJSONSource;
+		if (trackSource) {
+			trackSource.setData(trackData);
+		} else {
+			// Add source and layers if they don't exist
+			map.addSource('aircraft-track', {
+				type: 'geojson',
+				data: trackData
+			});
+
+			// Track line layer
+			map.addLayer({
+				id: 'aircraft-track-line',
+				type: 'line',
+				source: 'aircraft-track',
+				filter: ['==', '$type', 'LineString'],
+				paint: {
+					'line-color': '#a855f7', // Purple
+					'line-width': 3,
+					'line-opacity': 0.8,
+					'line-dasharray': [2, 1]
+				}
+			});
+
+			// Track points layer
+			map.addLayer({
+				id: 'aircraft-track-points',
+				type: 'circle',
+				source: 'aircraft-track',
+				filter: ['==', '$type', 'Point'],
+				paint: {
+					'circle-radius': 5,
+					'circle-color': '#a855f7',
+					'circle-stroke-color': '#ffffff',
+					'circle-stroke-width': 1,
+					'circle-opacity': 0.9
+				}
+			});
+		}
+	}
+
+	// Clear aircraft track layer
+	function clearAircraftTrackLayer() {
+		if (!map) return;
+
+		const trackSource = map.getSource('aircraft-track') as mapboxgl.GeoJSONSource;
+		if (trackSource) {
+			trackSource.setData({ type: 'FeatureCollection', features: [] });
+		}
 	}
 
 	// Start AIS vessel WebSocket stream
@@ -5115,35 +5402,34 @@
 					<span class="layer-section-title">VISIBILITY</span>
 					{#each Object.entries(dataLayers) as [layer, state]}
 						<label class="layer-toggle" class:smart-hotspots={layer === 'smartHotspots'}>
-							<input type="checkbox" bind:checked={state.visible} onchange={() => {
-								updateMapLayers();
-								// Load UCDP conflict data when Smart Hotspots is enabled
-								if (layer === 'smartHotspots' && state.visible && !conflictData && !conflictDataLoading) {
-									loadConflictData();
-								}
-								// Start/stop aircraft polling based on visibility
-								if (layer === 'aircraft') {
-									if (state.visible) {
-										startAircraftPolling();
-									} else {
-										stopAircraftPolling();
+							{#if layer === 'aircraft'}
+								<!-- Aircraft layer is controlled via AircraftPanel props -->
+								<input type="checkbox" checked={adsbEnabled} onchange={() => {
+									onAdsbToggle?.(!adsbEnabled);
+								}} />
+							{:else}
+								<input type="checkbox" bind:checked={state.visible} onchange={() => {
+									updateMapLayers();
+									// Load UCDP conflict data when Smart Hotspots is enabled
+									if (layer === 'smartHotspots' && state.visible && !conflictData && !conflictDataLoading) {
+										loadConflictData();
 									}
-								}
-								// Start/stop vessel WebSocket stream based on visibility
-								if (layer === 'vessels') {
-									if (state.visible) {
-										startVesselStream();
-									} else {
-										stopVesselStream();
+									// Start/stop vessel WebSocket stream based on visibility
+									if (layer === 'vessels') {
+										if (state.visible) {
+											startVesselStream();
+										} else {
+											stopVesselStream();
+										}
 									}
-								}
-								// Load air quality data when enabled
-								if (layer === 'airQuality') {
-									if (state.visible && airQualityData.length === 0 && !airQualityDataLoading) {
-										loadAirQualityData();
+									// Load air quality data when enabled
+									if (layer === 'airQuality') {
+										if (state.visible && airQualityData.length === 0 && !airQualityDataLoading) {
+											loadAirQualityData();
+										}
 									}
-								}
-							}} />
+								}} />
+							{/if}
 							<span class="layer-name">
 								{#if layer === 'smartHotspots'}
 									Smart Hotspots (UCDP)
@@ -5192,31 +5478,6 @@
 						</label>
 					{/each}
 				</div>
-
-				<!-- ADS-B Region Selection (only shown when aircraft layer is enabled) -->
-				{#if dataLayers.aircraft.visible}
-					<div class="layer-section adsb-regions">
-						<span class="layer-section-title">ADS-B REGIONS</span>
-						<div class="region-grid">
-							{#each Object.entries(AIRCRAFT_REGIONS) as [regionId, region]}
-								<button
-									class="region-btn"
-									class:active={selectedAircraftRegions.has(regionId)}
-									onclick={() => toggleAircraftRegion(regionId)}
-									title={region.name}
-								>
-									{region.name.split(' ')[0]}
-								</button>
-							{/each}
-						</div>
-						{#if aircraftHistory.length > 0}
-							<div class="history-info">
-								<span class="history-label">History:</span>
-								<span class="history-count">{aircraftHistory.length} snapshots</span>
-							</div>
-						{/if}
-					</div>
-				{/if}
 
 				<!-- Feed category toggles -->
 				{#if categorizedNews}
@@ -5827,72 +6088,6 @@
 		color: rgb(34 211 238);
 		background: rgb(34 211 238 / 0.1);
 		padding: 0.125rem 0.25rem;
-		border-radius: 2px;
-	}
-
-	/* ADS-B Region Selection */
-	.adsb-regions {
-		border-top: 1px solid rgb(51 65 85 / 0.5);
-		padding-top: 0.5rem;
-	}
-
-	.region-grid {
-		display: grid;
-		grid-template-columns: repeat(3, 1fr);
-		gap: 0.25rem;
-		margin-top: 0.25rem;
-	}
-
-	.region-btn {
-		font-size: 0.5rem;
-		font-family: 'SF Mono', Monaco, monospace;
-		font-weight: 600;
-		padding: 0.25rem 0.125rem;
-		border: 1px solid rgb(51 65 85);
-		border-radius: 2px;
-		background: transparent;
-		color: rgb(148 163 184);
-		cursor: pointer;
-		transition: all 0.15s ease;
-		text-transform: uppercase;
-		letter-spacing: 0.02em;
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-
-	.region-btn:hover {
-		border-color: rgb(34 211 238 / 0.5);
-		color: rgb(34 211 238);
-	}
-
-	.region-btn.active {
-		background: rgb(34 211 238 / 0.15);
-		border-color: rgb(34 211 238 / 0.5);
-		color: rgb(34 211 238);
-	}
-
-	.history-info {
-		display: flex;
-		align-items: center;
-		gap: 0.375rem;
-		margin-top: 0.375rem;
-		padding-top: 0.25rem;
-		border-top: 1px solid rgb(51 65 85 / 0.3);
-	}
-
-	.history-label {
-		font-size: 0.5rem;
-		font-family: 'SF Mono', Monaco, monospace;
-		color: rgb(100 116 139);
-	}
-
-	.history-count {
-		font-size: 0.5rem;
-		font-family: 'SF Mono', Monaco, monospace;
-		color: rgb(251 191 36);
-		background: rgb(251 191 36 / 0.1);
-		padding: 0.0625rem 0.25rem;
 		border-radius: 2px;
 	}
 
