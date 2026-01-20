@@ -116,33 +116,62 @@ export interface OutageData {
 	gridStressLevel?: 'normal' | 'elevated' | 'high' | 'critical';
 }
 
-// Keywords for categorizing prediction markets
-const CATEGORY_KEYWORDS: Record<PredictionCategory, string[]> = {
-	politics: [
-		'president', 'election', 'trump', 'biden', 'congress', 'senate', 'house',
-		'democrat', 'republican', 'vote', 'ballot', 'governor', 'mayor', 'nominee',
-		'primary', 'cabinet', 'impeach', 'legislation', 'bill pass', 'veto',
-		'war', 'conflict', 'military', 'nato', 'ukraine', 'russia', 'china', 'taiwan',
-		'israel', 'gaza', 'iran', 'korea', 'sanctions', 'treaty', 'diplomacy',
-		'tariff', 'border', 'immigration', 'supreme court', 'scotus'
-	],
-	finance: [
-		'fed', 'interest rate', 'inflation', 'gdp', 'recession', 'stock', 'market',
-		's&p', 'dow', 'nasdaq', 'ipo', 'merger', 'acquisition', 'earnings',
-		'unemployment', 'jobs report', 'treasury', 'bond', 'yield', 'dollar',
-		'oil price', 'gold price', 'commodity'
-	],
-	ai: [
-		'ai ', 'artificial intelligence', 'gpt', 'openai', 'anthropic', 'google ai',
-		'deepmind', 'llm', 'chatgpt', 'claude', 'gemini', 'machine learning',
-		'agi', 'superintelligence', 'ai safety', 'ai regulation'
-	],
-	crypto: [
-		'bitcoin', 'btc', 'ethereum', 'eth', 'crypto', 'blockchain', 'defi',
-		'nft', 'solana', 'binance', 'coinbase', 'sec crypto', 'etf bitcoin'
-	],
-	other: []
+// Map Polymarket API tags to our categories
+const TAG_TO_CATEGORY: Record<string, PredictionCategory> = {
+	// Crypto tags
+	'crypto': 'crypto',
+	'cryptocurrency': 'crypto',
+	'bitcoin': 'crypto',
+	'ethereum': 'crypto',
+	'defi': 'crypto',
+	'nft': 'crypto',
+	'web3': 'crypto',
+	// AI tags
+	'ai': 'ai',
+	'artificial intelligence': 'ai',
+	'technology': 'ai',
+	'tech': 'ai',
+	'openai': 'ai',
+	'machine learning': 'ai',
+	// Finance tags
+	'finance': 'finance',
+	'economy': 'finance',
+	'business': 'finance',
+	'stocks': 'finance',
+	'markets': 'finance',
+	'fed': 'finance',
+	'interest rates': 'finance',
+	// Politics tags
+	'politics': 'politics',
+	'elections': 'politics',
+	'government': 'politics',
+	'geopolitics': 'politics',
+	'world': 'politics',
+	'us politics': 'politics',
+	'international': 'politics',
+	'war': 'politics',
+	'conflict': 'politics'
 };
+
+// Fallback keywords for when tags don't match (checked in order: most specific first)
+const FALLBACK_KEYWORDS: { category: PredictionCategory; keywords: string[] }[] = [
+	{
+		category: 'crypto',
+		keywords: ['bitcoin', 'btc', 'ethereum', 'eth', 'crypto', 'blockchain', 'defi', 'nft', 'solana', 'binance', 'coinbase', 'stablecoin', 'dogecoin', 'ripple', 'xrp']
+	},
+	{
+		category: 'ai',
+		keywords: ['ai ', 'artificial intelligence', 'gpt', 'openai', 'anthropic', 'deepmind', 'llm', 'chatgpt', 'claude', 'gemini', 'machine learning', 'agi', 'copilot', 'midjourney']
+	},
+	{
+		category: 'finance',
+		keywords: ['fed', 'interest rate', 'inflation', 'gdp', 'recession', 'stock', 's&p', 'dow', 'nasdaq', 'ipo', 'merger', 'earnings', 'unemployment', 'treasury', 'bond', 'oil price', 'gold price']
+	},
+	{
+		category: 'politics',
+		keywords: ['president', 'election', 'trump', 'biden', 'congress', 'senate', 'democrat', 'republican', 'vote', 'war', 'military', 'nato', 'ukraine', 'russia', 'china', 'taiwan', 'israel', 'gaza', 'iran', 'tariff', 'immigration']
+	}
+];
 
 // Exclusion patterns for sports/entertainment
 const EXCLUSION_PATTERNS = [
@@ -180,9 +209,9 @@ const EXCLUSION_PATTERNS = [
 ];
 
 /**
- * Categorize a prediction market based on its question
+ * Categorize a prediction market using API tags first, then fallback to keywords
  */
-function categorizePrediction(question: string, slug: string): PredictionCategory | null {
+function categorizePrediction(question: string, slug: string, tags: string[] = []): PredictionCategory | null {
 	const text = `${question} ${slug}`.toLowerCase();
 
 	// First check exclusions - return null if it's sports/entertainment
@@ -192,9 +221,21 @@ function categorizePrediction(question: string, slug: string): PredictionCategor
 		}
 	}
 
-	// Check each category's keywords
-	for (const [category, keywords] of Object.entries(CATEGORY_KEYWORDS) as [PredictionCategory, string[]][]) {
-		if (category === 'other') continue;
+	// Priority 1: Use API tags (most reliable)
+	// Check tags in priority order: crypto > ai > finance > politics
+	const tagPriority: PredictionCategory[] = ['crypto', 'ai', 'finance', 'politics'];
+	for (const priorityCategory of tagPriority) {
+		for (const tag of tags) {
+			const normalizedTag = tag.toLowerCase();
+			const mappedCategory = TAG_TO_CATEGORY[normalizedTag];
+			if (mappedCategory === priorityCategory) {
+				return mappedCategory;
+			}
+		}
+	}
+
+	// Priority 2: Fallback to keyword matching (in order: crypto > ai > finance > politics)
+	for (const { category, keywords } of FALLBACK_KEYWORDS) {
 		for (const keyword of keywords) {
 			if (text.includes(keyword.toLowerCase())) {
 				return category;
@@ -207,9 +248,8 @@ function categorizePrediction(question: string, slug: string): PredictionCategor
 }
 
 // Minimum thresholds for meaningful markets
-const MIN_VOLUME_USD = 10000; // $10K minimum trading volume
-const MIN_PROBABILITY = 3; // Filter out <3% (effectively dead markets)
-const MAX_PROBABILITY = 97; // Filter out >97% (already decided)
+const MIN_VOLUME_USD = 5000; // $5K minimum trading volume (lowered to get more results)
+// Note: Probability filtering now happens during market selection (1-99% range)
 
 /**
  * Calculate how "interesting" a prediction is based on uncertainty
@@ -233,49 +273,113 @@ export async function fetchPolymarket(): Promise<Prediction[]> {
 	// Helper to process Polymarket events response
 	const processEventsResponse = (events: unknown[]): Prediction[] => {
 		const predictions: Prediction[] = [];
+		let skippedNoMarkets = 0;
+		let skippedExcluded = 0;
+		let skippedLowVolume = 0;
+		let skippedProbability = 0;
 
 		for (const event of events as Record<string, unknown>[]) {
 			const title = (event.title as string) || '';
 			const slug = (event.slug as string) || '';
 			const markets = event.markets as Record<string, unknown>[] | undefined;
 
-			// Skip if no markets
-			if (!markets || !Array.isArray(markets) || markets.length === 0) continue;
-
-			// Use the first market for the event
-			const market = markets[0];
-			const question = (market.question as string) || title;
-
-			// Categorize and filter
-			const category = categorizePrediction(question, slug);
-			if (category === null) continue; // Excluded (sports/entertainment)
-
-			// Parse outcome prices to get "Yes" probability
-			// outcomePrices is a JSON string like "[\"0.65\", \"0.35\"]"
-			let yesPrice = 50;
-			try {
-				const outcomePrices = market.outcomePrices;
-				if (outcomePrices) {
-					const prices = typeof outcomePrices === 'string'
-						? JSON.parse(outcomePrices)
-						: outcomePrices;
-					if (Array.isArray(prices) && prices.length > 0) {
-						yesPrice = Math.round(parseFloat(prices[0]) * 100);
+			// Extract tags from the event (Polymarket provides these as objects with label field)
+			const rawTags = event.tags as Array<{ label?: string; slug?: string }> | string[] | undefined;
+			const tags: string[] = [];
+			if (Array.isArray(rawTags)) {
+				for (const tag of rawTags) {
+					if (typeof tag === 'string') {
+						tags.push(tag);
+					} else if (tag && typeof tag === 'object') {
+						// Tags are objects with label and slug fields
+						if (tag.label) tags.push(tag.label);
+						if (tag.slug) tags.push(tag.slug);
 					}
 				}
-			} catch {
-				yesPrice = 50;
 			}
 
-			// Get volume from market or event
-			const volumeNum = (market.volumeNum as number) || (market.volume as number) ||
-				(event.volumeNum as number) || (event.volume as number) || 0;
+			// Skip if no markets
+			if (!markets || !Array.isArray(markets) || markets.length === 0) {
+				skippedNoMarkets++;
+				continue;
+			}
+
+			// Find the best market: prefer active markets with reasonable prices
+			let bestMarket: Record<string, unknown> | null = null;
+			let bestPrice = -1;
+
+			for (const m of markets) {
+				// Skip explicitly closed markets - handle both boolean and string values
+				const isClosed = m.closed === true || m.closed === 'true';
+				if (isClosed) continue;
+
+				// Try to get price from multiple sources
+				let price = -1;
+
+				// Try outcomePrices first (JSON string array like '["0.23", "0.77"]')
+				const prices = m.outcomePrices;
+				if (prices) {
+					try {
+						const parsed = typeof prices === 'string' ? JSON.parse(prices as string) : prices;
+						if (Array.isArray(parsed) && parsed.length > 0) {
+							price = parseFloat(parsed[0]);
+						}
+					} catch { /* ignore parse errors */ }
+				}
+
+				// Fallback to lastTradePrice
+				if (price <= 0 || price >= 1) {
+					const lastTrade = m.lastTradePrice;
+					if (lastTrade !== undefined && lastTrade !== null) {
+						price = typeof lastTrade === 'string' ? parseFloat(lastTrade) : (lastTrade as number);
+					}
+				}
+
+				// Fallback to bestBid
+				if (price <= 0 || price >= 1) {
+					const bestBid = m.bestBid;
+					if (bestBid !== undefined && bestBid !== null) {
+						price = typeof bestBid === 'string' ? parseFloat(bestBid) : (bestBid as number);
+					}
+				}
+
+				// If this market has a valid price (between 1% and 99%), it's a candidate
+				if (price > 0.01 && price < 0.99) {
+					// Prefer prices closer to 50% (more uncertain/interesting)
+					const uncertainty = 50 - Math.abs(price * 100 - 50);
+					if (bestMarket === null || uncertainty > (50 - Math.abs(bestPrice * 100 - 50))) {
+						bestMarket = m;
+						bestPrice = price;
+					}
+				}
+			}
+
+			// If no good market found, skip this event entirely
+			if (!bestMarket || bestPrice <= 0) {
+				skippedProbability++;
+				continue;
+			}
+
+			const market = bestMarket;
+			const question = (market.question as string) || title;
+			const yesPrice = Math.round(bestPrice * 100);
+
+			// Categorize using tags first, then fallback to keywords
+			const category = categorizePrediction(question, slug, tags);
+			if (category === null) {
+				skippedExcluded++;
+				continue; // Excluded (sports/entertainment)
+			}
+
+			// Get volume from event (more reliable than individual market)
+			const volumeNum = (event.volumeNum as number) || (event.volume as number) ||
+				(market.volumeNum as number) || (market.volume as number) || 0;
 
 			// Filter out low-volume markets (not enough liquidity/interest)
-			if (volumeNum < MIN_VOLUME_USD) continue;
-
-			// Filter out near-certain markets (not interesting)
-			if (yesPrice < MIN_PROBABILITY || yesPrice > MAX_PROBABILITY) continue;
+			if (volumeNum < MIN_VOLUME_USD) {
+				skippedLowVolume++;
+				continue;
+			}
 
 			const uncertainty = calculateUncertainty(yesPrice);
 
@@ -299,8 +403,18 @@ export async function fetchPolymarket(): Promise<Prediction[]> {
 			return scoreB - scoreA; // Descending order
 		});
 
-		// Return top 30 predictions
-		return predictions.slice(0, 30);
+		// Log filtering stats for debugging
+		logger.log('Polymarket API', `Filtering: noMarkets=${skippedNoMarkets}, excluded=${skippedExcluded}, lowVolume=${skippedLowVolume}, probability=${skippedProbability}, passed=${predictions.length}`);
+
+		// Log category distribution for debugging
+		const categoryCount = predictions.reduce((acc, p) => {
+			acc[p.category] = (acc[p.category] || 0) + 1;
+			return acc;
+		}, {} as Record<string, number>);
+		logger.log('Polymarket API', `Category distribution: ${JSON.stringify(categoryCount)}`);
+
+		// Return top 50 predictions (increased from 30 to ensure more variety)
+		return predictions.slice(0, 50);
 	};
 
 	// CORS proxy URL (Cloudflare Worker expects URL to be encoded)
@@ -712,8 +826,10 @@ function getFallbackContracts(): Contract[] {
  * Fetch internet/power outage data
  * Uses multiple real-time APIs: IODA, OONI, Internet Society Pulse, and EIA
  * Returns only real detected outages - no hardcoded fallback data
+ *
+ * @param preloadedGridStress - Optional pre-fetched grid stress data to avoid duplicate WattTime API calls
  */
-export async function fetchOutageData(): Promise<OutageData[]> {
+export async function fetchOutageData(preloadedGridStress?: GridStressData[]): Promise<OutageData[]> {
 	const allOutages: OutageData[] = [];
 	const existingIds = new Set<string>();
 
@@ -764,13 +880,21 @@ export async function fetchOutageData(): Promise<OutageData[]> {
 		logger.warn('Outage API', 'Global Power fetch failed:', error);
 	}
 
-	// Fetch WattTime grid stress data (converts high emissions to potential outage indicators)
+	// Use WattTime grid stress data (converts high emissions to potential outage indicators)
+	// If preloaded data is provided, filter it to only elevated+ regions; otherwise fetch fresh
 	try {
-		const gridStressData = await fetchGridStress();
+		let gridStressData: GridStressData[];
+		if (preloadedGridStress) {
+			// Filter preloaded data to only include elevated+ stress levels (same as fetchGridStress)
+			gridStressData = preloadedGridStress.filter(g => g.stressLevel !== 'normal');
+			logger.log('Outage API', `Using preloaded grid stress data: ${gridStressData.length} elevated regions`);
+		} else {
+			gridStressData = await fetchGridStress();
+		}
 		const gridStressOutages = gridStressToOutages(gridStressData);
 		gridStressOutages.forEach(addOutage);
 	} catch (error) {
-		logger.warn('Outage API', 'WattTime grid stress fetch failed:', error);
+		logger.warn('Outage API', 'WattTime grid stress processing failed:', error);
 	}
 
 	// NO hardcoded fallback - only show real detected outages
@@ -2377,8 +2501,6 @@ export async function fetchGridStress(): Promise<GridStressData[]> {
 					areaKm2: region.areaKm2
 				});
 			}
-
-			logger.log('WattTime API', `${region.name}: ${percent}% (${stressLevel})`);
 		} catch (error) {
 			logger.warn('WattTime API', `Error fetching ${region.name}:`, error instanceof Error ? error.message : error);
 		}
@@ -2388,7 +2510,7 @@ export async function fetchGridStress(): Promise<GridStressData[]> {
 	const intensityOrder = { critical: 0, high: 1, elevated: 2, normal: 3 };
 	stressData.sort((a, b) => intensityOrder[a.stressLevel] - intensityOrder[b.stressLevel]);
 
-	logger.log('WattTime API', `Found ${stressData.length} regions with elevated carbon intensity`);
+	logger.log('WattTime API', `Fetched ${GRID_REGIONS.length} regions, ${stressData.length} with elevated carbon intensity`);
 	return stressData;
 }
 
@@ -2468,8 +2590,6 @@ export async function fetchAllGridStress(): Promise<GridStressData[]> {
 				boundaryCoords: region.boundaryCoords,
 				areaKm2: region.areaKm2
 			});
-
-			logger.log('WattTime API', `${region.name}: ${percent}% (${stressLevel})`);
 		} catch (error) {
 			logger.warn('WattTime API', `Error fetching ${region.name}:`, error instanceof Error ? error.message : error);
 		}
@@ -2483,7 +2603,7 @@ export async function fetchAllGridStress(): Promise<GridStressData[]> {
 		return b.percent - a.percent; // Higher percent first within same level
 	});
 
-	logger.log('WattTime API', `Fetched carbon intensity for ${stressData.length} regions`);
+	logger.log('WattTime API', `Fetched ${stressData.length} regions`);
 	return stressData;
 }
 
@@ -3571,13 +3691,78 @@ let airQualityCache: { data: AirQualityReading[]; timestamp: number } | null = n
 const AIR_QUALITY_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 
 /**
- * Fetch air quality data from OpenAQ API
+ * Fetch air quality data from OpenAQ API v3
  * Returns PM2.5 readings from monitoring stations worldwide
- * Uses the /v2/latest endpoint for most recent measurements
+ * Uses the /v3/parameters/2/latest endpoint for most recent PM2.5 measurements
  *
- * API: https://api.openaq.org/v2/latest
+ * Note: OpenAQ v1 and v2 APIs were retired on January 31, 2025 (return 410 Gone)
+ *
+ * API: https://api.openaq.org/v3/parameters/2/latest
  * Docs: https://docs.openaq.org/
  */
+// OpenAQ API key (get free key at https://openaq.org/)
+const OPENAQ_API_KEY = typeof import.meta !== 'undefined'
+	? (import.meta.env?.VITE_OPENAQ_API_KEY ?? '')
+	: (process.env.VITE_OPENAQ_API_KEY ?? '');
+
+// CORS proxy for OpenAQ (has CORS issues in browser)
+const OPENAQ_CORS_PROXY = 'https://bitter-sea-8577.ahandle.workers.dev/?url=';
+
+/**
+ * OpenAQ v3 API response types
+ */
+interface OpenAQV3LatestResult {
+	datetime: {
+		utc: string;
+		local: string;
+	};
+	value: number;
+	coordinates: {
+		latitude: number;
+		longitude: number;
+	};
+	sensorsId: number;
+	locationsId: number;
+}
+
+interface OpenAQV3LatestResponse {
+	meta: {
+		name: string;
+		page: number;
+		limit: number;
+		found: number;
+	};
+	results: OpenAQV3LatestResult[];
+}
+
+/**
+ * OpenAQ v3 Location details response
+ */
+interface OpenAQV3Location {
+	id: number;
+	name: string;
+	locality?: string;
+	country?: {
+		id: number;
+		code: string;
+		name: string;
+	};
+	coordinates: {
+		latitude: number;
+		longitude: number;
+	};
+}
+
+interface OpenAQV3LocationsResponse {
+	meta: {
+		name: string;
+		page: number;
+		limit: number;
+		found: number;
+	};
+	results: OpenAQV3Location[];
+}
+
 export async function fetchAirQualityData(): Promise<AirQualityReading[]> {
 	// Check cache first
 	if (airQualityCache && Date.now() - airQualityCache.timestamp < AIR_QUALITY_CACHE_TTL) {
@@ -3585,16 +3770,26 @@ export async function fetchAirQualityData(): Promise<AirQualityReading[]> {
 		return airQualityCache.data;
 	}
 
+	// Check if API key is configured
+	if (!OPENAQ_API_KEY) {
+		logger.warn('OpenAQ API', 'No API key configured. Set VITE_OPENAQ_API_KEY in .env');
+		return airQualityCache?.data || [];
+	}
+
 	try {
-		// OpenAQ v2 API - fetch latest PM2.5 measurements
-		// limit=1000 gets a good global sample
-		const openaqUrl = 'https://api.openaq.org/v2/latest?limit=1000&parameter=pm25';
+		// OpenAQ v3 API - fetch latest PM2.5 measurements
+		// Parameter ID 2 = PM2.5, limit=1000 gets a good global sample
+		const openaqUrl = 'https://api.openaq.org/v3/parameters/2/latest?limit=1000';
 
-		logger.log('OpenAQ API', 'Fetching latest PM2.5 measurements...');
+		logger.log('OpenAQ API', 'Fetching latest PM2.5 measurements via CORS proxy (v3 API)...');
 
-		const response = await fetch(openaqUrl, {
+		// Use CORS proxy since OpenAQ doesn't have proper CORS headers
+		const proxyUrl = `${OPENAQ_CORS_PROXY}${encodeURIComponent(openaqUrl)}`;
+
+		const response = await fetch(proxyUrl, {
 			headers: {
-				'Accept': 'application/json'
+				'Accept': 'application/json',
+				'X-API-Key': OPENAQ_API_KEY
 			},
 			signal: AbortSignal.timeout(15000)
 		});
@@ -3603,49 +3798,88 @@ export async function fetchAirQualityData(): Promise<AirQualityReading[]> {
 			throw new Error(`OpenAQ API returned status ${response.status}`);
 		}
 
-		const data = await response.json();
+		const data: OpenAQV3LatestResponse = await response.json();
 
 		if (!data.results || !Array.isArray(data.results)) {
 			logger.warn('OpenAQ API', 'Invalid response format - no results array');
 			return airQualityCache?.data || [];
 		}
 
-		logger.log('OpenAQ API', `Received ${data.results.length} locations`);
+		logger.log('OpenAQ API', `Received ${data.results.length} sensor readings`);
 
-		// Transform OpenAQ response to our AirQualityReading format
+		// Collect unique location IDs to fetch location details
+		const locationIds = [...new Set(data.results.map(r => r.locationsId))];
+
+		// Fetch location details for names (batch in groups of 100)
+		const locationMap = new Map<number, OpenAQV3Location>();
+
+		// Only fetch location details if we have a reasonable number
+		if (locationIds.length <= 500) {
+			const batchSize = 100;
+			for (let i = 0; i < locationIds.length; i += batchSize) {
+				const batch = locationIds.slice(i, i + batchSize);
+				const idsParam = batch.join(',');
+				const locationsUrl = `https://api.openaq.org/v3/locations?locations_id=${idsParam}&limit=${batchSize}`;
+
+				try {
+					const locProxyUrl = `${OPENAQ_CORS_PROXY}${encodeURIComponent(locationsUrl)}`;
+					const locResponse = await fetch(locProxyUrl, {
+						headers: {
+							'Accept': 'application/json',
+							'X-API-Key': OPENAQ_API_KEY
+						},
+						signal: AbortSignal.timeout(10000)
+					});
+
+					if (locResponse.ok) {
+						const locData: OpenAQV3LocationsResponse = await locResponse.json();
+						for (const loc of locData.results) {
+							locationMap.set(loc.id, loc);
+						}
+					}
+				} catch {
+					// Continue without location details for this batch
+					logger.warn('OpenAQ API', `Failed to fetch location details for batch ${i / batchSize + 1}`);
+				}
+			}
+		}
+
+		// Transform OpenAQ v3 response to our AirQualityReading format
 		const readings: AirQualityReading[] = [];
 
-		for (const location of data.results) {
-			// Skip locations without coordinates
-			if (!location.coordinates?.latitude || !location.coordinates?.longitude) {
+		for (const reading of data.results) {
+			// Skip readings without valid coordinates
+			if (!reading.coordinates?.latitude || !reading.coordinates?.longitude) {
 				continue;
 			}
 
-			// Find PM2.5 measurement
-			const pm25Measurement = location.measurements?.find(
-				(m: { parameter: string }) => m.parameter === 'pm25'
-			);
-
-			if (!pm25Measurement || pm25Measurement.value === null || pm25Measurement.value < 0) {
+			// Skip invalid values
+			if (reading.value === null || reading.value === undefined || reading.value < 0) {
 				continue;
 			}
 
-			const pm25Value = pm25Measurement.value;
+			const pm25Value = reading.value;
 			const level = getAirQualityLevel(pm25Value);
 			const aqi = calculateAQI(pm25Value);
 
+			// Get location details if available
+			const location = locationMap.get(reading.locationsId);
+			const locationName = location?.name || `Station ${reading.locationsId}`;
+			const city = location?.locality;
+			const country = location?.country?.name || 'Unknown';
+
 			readings.push({
-				id: `openaq-${location.location}-${location.coordinates.latitude}-${location.coordinates.longitude}`,
-				locationId: location.locationId || 0,
-				location: location.location || 'Unknown Station',
-				city: location.city || undefined,
-				country: location.country || 'Unknown',
-				lat: location.coordinates.latitude,
-				lon: location.coordinates.longitude,
+				id: `openaq-${reading.sensorsId}-${reading.coordinates.latitude}-${reading.coordinates.longitude}`,
+				locationId: reading.locationsId,
+				location: locationName,
+				city: city,
+				country: country,
+				lat: reading.coordinates.latitude,
+				lon: reading.coordinates.longitude,
 				parameter: 'pm25',
 				value: pm25Value,
-				unit: pm25Measurement.unit || 'ug/m3',
-				lastUpdated: pm25Measurement.lastUpdated || new Date().toISOString(),
+				unit: 'ug/m3', // v3 API uses µg/m³ for PM2.5
+				lastUpdated: reading.datetime?.utc || new Date().toISOString(),
 				aqi,
 				level
 			});
@@ -4085,15 +4319,18 @@ function determineOutbreakStatus(lastUpdate: string, _isOngoing?: boolean): Dise
 }
 
 /**
- * Get fallback disease outbreak data when APIs fail
- * Based on current WHO Disease Outbreak News and PAHO Health Alerts
- * Data source: https://www.who.int/emergencies/disease-outbreak-news
- * Updated periodically to reflect major ongoing outbreaks
+ * Get minimal fallback disease outbreak data when APIs fail
+ *
+ * Provides a small set of significant international outbreaks when live API data is unavailable.
+ * Kept minimal to encourage reliance on real-time data sources.
+ * Excludes US-based outbreaks - fallback focuses on international monitoring.
+ *
+ * Source: WHO Disease Outbreak News
  */
 function getFallbackDiseaseOutbreaks(): DiseaseOutbreak[] {
-	// Current major ongoing disease outbreaks as of early 2025
-	// These are real outbreaks tracked by WHO and health authorities
+	// Minimal fallback - only most significant international outbreaks
 	return [
+		// Mpox Clade I - DR Congo (major ongoing outbreak)
 		{
 			id: 'fallback-mpox-drc',
 			disease: 'Mpox (Clade I)',
@@ -4102,102 +4339,44 @@ function getFallbackDiseaseOutbreaks(): DiseaseOutbreak[] {
 			lon: 21.76,
 			status: 'active',
 			severity: 'critical',
-			cases: 35000,
-			deaths: 1100,
+			cases: 90713,
+			deaths: 1633,
 			startDate: '2023-01-01',
-			lastUpdate: '2025-01-15',
-			source: 'WHO PHEIC',
-			url: 'https://www.who.int/emergencies/disease-outbreak-news'
+			lastUpdate: '2025-03-26',
+			source: 'WHO (fallback data)',
+			url: 'https://www.who.int/emergencies/situations/mpox-outbreak'
 		},
+		// Cholera - Haiti (significant ongoing crisis)
 		{
-			id: 'fallback-cholera-multi',
+			id: 'fallback-cholera-haiti',
 			disease: 'Cholera',
 			country: 'Haiti',
 			lat: 18.97,
 			lon: -72.29,
 			status: 'active',
 			severity: 'high',
-			cases: 85000,
-			deaths: 1200,
+			cases: 82885,
+			deaths: 1270,
 			startDate: '2022-10-01',
-			lastUpdate: '2025-01-10',
-			source: 'PAHO',
-			url: 'https://www.paho.org/en/topics/cholera'
+			lastUpdate: '2024-04-11',
+			source: 'PAHO (fallback data)',
+			url: 'https://www.paho.org/en/cholera-outbreak-haiti-2022-situation-report'
 		},
+		// Marburg Virus - Tanzania (high-fatality outbreak)
 		{
-			id: 'fallback-dengue-brazil',
-			disease: 'Dengue Fever',
-			country: 'Brazil',
-			lat: -14.24,
-			lon: -51.93,
-			status: 'active',
-			severity: 'high',
-			cases: 6500000,
-			deaths: 5500,
-			startDate: '2024-01-01',
-			lastUpdate: '2025-01-12',
-			source: 'WHO Americas',
-			url: 'https://www.who.int/emergencies/disease-outbreak-news'
-		},
-		{
-			id: 'fallback-h5n1-global',
-			disease: 'H5N1 Avian Influenza',
-			country: 'United States',
-			lat: 37.09,
-			lon: -95.71,
-			status: 'monitoring',
-			severity: 'moderate',
-			cases: 67,
-			deaths: 1,
-			startDate: '2024-03-01',
-			lastUpdate: '2025-01-14',
-			source: 'CDC',
-			url: 'https://www.cdc.gov/bird-flu/'
-		},
-		{
-			id: 'fallback-marburg-rw',
+			id: 'fallback-marburg-tanzania',
 			disease: 'Marburg Virus',
-			country: 'Rwanda',
-			lat: -1.94,
-			lon: 29.87,
+			country: 'Tanzania',
+			lat: -2.5,
+			lon: 32.9,
 			status: 'contained',
-			severity: 'moderate',
-			cases: 66,
-			deaths: 15,
-			startDate: '2024-09-27',
-			lastUpdate: '2024-12-20',
-			source: 'WHO AFRO',
-			url: 'https://www.who.int/emergencies/disease-outbreak-news'
-		},
-		{
-			id: 'fallback-cholera-zam',
-			disease: 'Cholera',
-			country: 'Zambia',
-			lat: -13.13,
-			lon: 27.85,
-			status: 'active',
-			severity: 'high',
-			cases: 23000,
-			deaths: 700,
-			startDate: '2023-10-01',
-			lastUpdate: '2025-01-08',
-			source: 'WHO AFRO',
-			url: 'https://www.who.int/emergencies/disease-outbreak-news'
-		},
-		{
-			id: 'fallback-measles-yemen',
-			disease: 'Measles',
-			country: 'Yemen',
-			lat: 15.55,
-			lon: 48.52,
-			status: 'active',
-			severity: 'high',
-			cases: 45000,
-			deaths: 350,
-			startDate: '2024-01-01',
-			lastUpdate: '2025-01-05',
-			source: 'WHO EMRO',
-			url: 'https://www.who.int/emergencies/disease-outbreak-news'
+			severity: 'critical',
+			cases: 10,
+			deaths: 10,
+			startDate: '2024-12-09',
+			lastUpdate: '2025-03-13',
+			source: 'WHO AFRO (fallback data)',
+			url: 'https://www.who.int/emergencies/disease-outbreak-news/item/2025-DON559'
 		}
 	];
 }

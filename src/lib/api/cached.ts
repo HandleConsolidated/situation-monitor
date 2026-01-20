@@ -78,6 +78,7 @@ const CACHE_KEYS = {
 
 /**
  * Helper to wrap an API call with caching
+ * Won't cache empty arrays to prevent caching failed/empty responses
  */
 async function withCache<T>(
 	key: string,
@@ -89,15 +90,23 @@ async function withCache<T>(
 	if (!forceRefresh) {
 		const cached = apiCache.get<T>(key);
 		if (cached !== null) {
-			return cached;
+			// Don't return cached empty arrays - try to fetch fresh
+			if (Array.isArray(cached) && cached.length === 0) {
+				// Skip empty cache, will fetch fresh below
+			} else {
+				return cached;
+			}
 		}
 	}
 
 	// Fetch fresh data
 	const data = await fetcher();
 
-	// Cache the result
-	apiCache.set(key, data, ttl);
+	// Only cache non-empty results (don't cache failures/empty responses)
+	const shouldCache = !Array.isArray(data) || data.length > 0;
+	if (shouldCache) {
+		apiCache.set(key, data, ttl);
+	}
 
 	return data;
 }
@@ -278,11 +287,16 @@ export const cachedApi = {
 	/**
 	 * Fetch outage data with caching
 	 * TTL: 5 minutes
+	 * Reuses cached grid stress data to avoid duplicate WattTime API calls
 	 */
 	async fetchOutageData(forceRefresh = false): Promise<OutageData[]> {
 		return withCache(
 			CACHE_KEYS.outages,
-			_fetchOutageData,
+			async () => {
+				// Get cached grid stress data (or fetch if not cached) to avoid duplicate WattTime calls
+				const gridStress = await this.fetchAllGridStress(forceRefresh);
+				return _fetchOutageData(gridStress);
+			},
 			API_CACHE_TTL.outages,
 			forceRefresh
 		);

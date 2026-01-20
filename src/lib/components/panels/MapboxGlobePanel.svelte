@@ -3175,9 +3175,63 @@
 				});
 
 				// ========== ADS-B AIRCRAFT LAYERS ==========
-				map.addLayer({ id: 'aircraft-glow', type: 'circle', source: 'aircraft', paint: { 'circle-radius': 12, 'circle-color': ['get', 'color'], 'circle-opacity': 0.25, 'circle-blur': 1 } });
-				map.addLayer({ id: 'aircraft-layer', type: 'circle', source: 'aircraft', paint: { 'circle-radius': 6, 'circle-color': ['get', 'color'], 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 1.5, 'circle-stroke-opacity': 0.9 } });
-				map.addLayer({ id: 'aircraft-icon', type: 'symbol', source: 'aircraft', layout: { 'text-field': '\u2708', 'text-size': 14, 'text-rotation-alignment': 'map', 'text-rotate': ['get', 'rotation'], 'text-allow-overlap': true, 'text-ignore-placement': true, 'text-anchor': 'center' }, paint: { 'text-color': '#ffffff', 'text-halo-color': ['get', 'color'], 'text-halo-width': 2 } });
+				// Outer glow - tactical radar sweep effect
+				map.addLayer({
+					id: 'aircraft-glow-outer',
+					type: 'circle',
+					source: 'aircraft',
+					paint: {
+						'circle-radius': 18,
+						'circle-color': ['get', 'color'],
+						'circle-opacity': 0.15,
+						'circle-blur': 1.2
+					}
+				});
+				// Inner glow - altitude-coded color
+				map.addLayer({
+					id: 'aircraft-glow',
+					type: 'circle',
+					source: 'aircraft',
+					paint: {
+						'circle-radius': 10,
+						'circle-color': ['get', 'color'],
+						'circle-opacity': 0.35,
+						'circle-blur': 0.6
+					}
+				});
+				// Main marker - tactical diamond-style base
+				map.addLayer({
+					id: 'aircraft-layer',
+					type: 'circle',
+					source: 'aircraft',
+					paint: {
+						'circle-radius': 5,
+						'circle-color': 'rgba(6, 182, 212, 0.2)', // Cyan semi-transparent fill
+						'circle-stroke-color': ['get', 'color'],
+						'circle-stroke-width': 2,
+						'circle-stroke-opacity': 1
+					}
+				});
+				// Aircraft directional icon - uses airplane symbol with heading rotation
+				map.addLayer({
+					id: 'aircraft-icon',
+					type: 'symbol',
+					source: 'aircraft',
+					layout: {
+						'text-field': '\u2708', // Airplane unicode
+						'text-size': 16,
+						'text-rotation-alignment': 'map',
+						'text-rotate': ['get', 'rotation'],
+						'text-allow-overlap': true,
+						'text-ignore-placement': true,
+						'text-anchor': 'center'
+					},
+					paint: {
+						'text-color': '#ffffff',
+						'text-halo-color': 'rgba(0, 0, 0, 0.8)',
+						'text-halo-width': 1.5
+					}
+				});
 
 				// ========== AIR QUALITY LAYERS - OpenAQ PM2.5 monitoring ==========
 				// Air quality outer glow
