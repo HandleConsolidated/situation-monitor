@@ -191,9 +191,6 @@
 	}
 	let aircraftHistory = $state<AircraftSnapshot[]>([]);
 
-	// Default high-traffic region for global view (computed from selected regions)
-	const DEFAULT_AIRCRAFT_BOUNDS: [number, number, number, number] = [-130, 20, 40, 70];
-
 	// USGS Volcano data
 	let volcanoData = $state<VolcanoData[]>([]);
 	let volcanoDataLoading = $state(false);
@@ -4724,45 +4721,85 @@
 		}
 	}
 
-	// Load ADS-B aircraft data from OpenSky Network
+	// Load ADS-B aircraft data from OpenSky Network for selected regions
 	async function loadAircraftData() {
 		if (aircraftDataLoading || !dataLayers.aircraft.visible) return;
+		if (selectedAircraftRegions.size === 0) {
+			aircraftData = [];
+			if (map && isInitialized) updateMapLayers();
+			return;
+		}
+
 		aircraftDataLoading = true;
 		try {
-			// Get current map bounds for viewport-based filtering
-			let bounds: [number, number, number, number];
-			if (map) {
-				const mapBounds = map.getBounds();
-				const zoom = map.getZoom();
-				// Use viewport bounds if zoomed in, otherwise use default high-traffic region
-				if (zoom > 2 && mapBounds) {
-					bounds = [
-						mapBounds.getWest(),
-						mapBounds.getSouth(),
-						mapBounds.getEast(),
-						mapBounds.getNorth()
-					];
+			// Collect all aircraft from selected regions
+			const allAircraft: Aircraft[] = [];
+			const seenIcao = new Set<string>(); // Deduplicate by ICAO24
+
+			// Fetch aircraft from each selected region
+			for (const regionId of selectedAircraftRegions) {
+				let bounds: [number, number, number, number];
+
+				if (regionId === 'viewport') {
+					// Use current viewport bounds
+					if (map) {
+						const mapBounds = map.getBounds();
+						if (mapBounds) {
+							bounds = [
+								mapBounds.getWest(),
+								mapBounds.getSouth(),
+								mapBounds.getEast(),
+								mapBounds.getNorth()
+							];
+						} else {
+							continue; // Skip if no bounds available
+						}
+					} else {
+						continue;
+					}
 				} else {
-					// At global view, use default region to avoid fetching all aircraft worldwide
-					bounds = DEFAULT_AIRCRAFT_BOUNDS;
+					const region = AIRCRAFT_REGIONS[regionId];
+					if (!region) continue;
+					bounds = region.bounds;
 				}
-			} else {
-				bounds = DEFAULT_AIRCRAFT_BOUNDS;
+
+				try {
+					const data = await fetchAircraftPositions(bounds);
+
+					// Add unique aircraft to the list
+					for (const aircraft of data) {
+						if (!seenIcao.has(aircraft.icao24)) {
+							seenIcao.add(aircraft.icao24);
+							allAircraft.push(aircraft);
+						}
+					}
+
+					// Store snapshot in history (per region)
+					const regionName = regionId === 'viewport' ? 'Viewport' : AIRCRAFT_REGIONS[regionId]?.name || regionId;
+					const snapshot: AircraftSnapshot = {
+						timestamp: Date.now(),
+						aircraft: data,
+						region: regionName
+					};
+
+					// Add to history (maintaining max size)
+					aircraftHistory = [snapshot, ...aircraftHistory].slice(0, MAX_AIRCRAFT_HISTORY);
+				} catch (regionError) {
+					console.warn(`Failed to fetch aircraft for region ${regionId}:`, regionError);
+				}
 			}
 
-			const data = await fetchAircraftPositions(bounds);
-
 			// Limit displayed aircraft for performance, prioritizing by altitude (higher = more visible)
-			if (data.length > MAX_AIRCRAFT_DISPLAY) {
+			if (allAircraft.length > MAX_AIRCRAFT_DISPLAY) {
 				// Sort by altitude descending (higher altitude aircraft are more significant)
-				data.sort((a, b) => {
+				allAircraft.sort((a, b) => {
 					const altA = a.geoAltitude ?? a.baroAltitude ?? 0;
 					const altB = b.geoAltitude ?? b.baroAltitude ?? 0;
 					return altB - altA;
 				});
-				aircraftData = data.slice(0, MAX_AIRCRAFT_DISPLAY);
+				aircraftData = allAircraft.slice(0, MAX_AIRCRAFT_DISPLAY);
 			} else {
-				aircraftData = data;
+				aircraftData = allAircraft;
 			}
 
 			if (map && isInitialized) updateMapLayers();
@@ -4771,6 +4808,41 @@
 		} finally {
 			aircraftDataLoading = false;
 		}
+	}
+
+	// Toggle ADS-B region selection
+	function toggleAircraftRegion(regionId: string) {
+		const newSet = new Set(selectedAircraftRegions);
+		if (newSet.has(regionId)) {
+			newSet.delete(regionId);
+		} else {
+			newSet.add(regionId);
+		}
+		selectedAircraftRegions = newSet;
+
+		// Reload aircraft data with new regions
+		if (dataLayers.aircraft.visible) {
+			loadAircraftData();
+		}
+	}
+
+	// Get aircraft history for a specific ICAO24
+	function getAircraftTrackHistory(icao24: string): Array<{ lat: number; lon: number; timestamp: number; altitude: number | null }> {
+		const positions: Array<{ lat: number; lon: number; timestamp: number; altitude: number | null }> = [];
+
+		for (const snapshot of aircraftHistory) {
+			const aircraft = snapshot.aircraft.find(a => a.icao24 === icao24);
+			if (aircraft && aircraft.latitude !== null && aircraft.longitude !== null) {
+				positions.push({
+					lat: aircraft.latitude,
+					lon: aircraft.longitude,
+					timestamp: snapshot.timestamp,
+					altitude: aircraft.geoAltitude ?? aircraft.baroAltitude
+				});
+			}
+		}
+
+		return positions;
 	}
 
 	function startAircraftPolling() {
@@ -5120,6 +5192,31 @@
 						</label>
 					{/each}
 				</div>
+
+				<!-- ADS-B Region Selection (only shown when aircraft layer is enabled) -->
+				{#if dataLayers.aircraft.visible}
+					<div class="layer-section adsb-regions">
+						<span class="layer-section-title">ADS-B REGIONS</span>
+						<div class="region-grid">
+							{#each Object.entries(AIRCRAFT_REGIONS) as [regionId, region]}
+								<button
+									class="region-btn"
+									class:active={selectedAircraftRegions.has(regionId)}
+									onclick={() => toggleAircraftRegion(regionId)}
+									title={region.name}
+								>
+									{region.name.split(' ')[0]}
+								</button>
+							{/each}
+						</div>
+						{#if aircraftHistory.length > 0}
+							<div class="history-info">
+								<span class="history-label">History:</span>
+								<span class="history-count">{aircraftHistory.length} snapshots</span>
+							</div>
+						{/if}
+					</div>
+				{/if}
 
 				<!-- Feed category toggles -->
 				{#if categorizedNews}
@@ -5730,6 +5827,72 @@
 		color: rgb(34 211 238);
 		background: rgb(34 211 238 / 0.1);
 		padding: 0.125rem 0.25rem;
+		border-radius: 2px;
+	}
+
+	/* ADS-B Region Selection */
+	.adsb-regions {
+		border-top: 1px solid rgb(51 65 85 / 0.5);
+		padding-top: 0.5rem;
+	}
+
+	.region-grid {
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
+		gap: 0.25rem;
+		margin-top: 0.25rem;
+	}
+
+	.region-btn {
+		font-size: 0.5rem;
+		font-family: 'SF Mono', Monaco, monospace;
+		font-weight: 600;
+		padding: 0.25rem 0.125rem;
+		border: 1px solid rgb(51 65 85);
+		border-radius: 2px;
+		background: transparent;
+		color: rgb(148 163 184);
+		cursor: pointer;
+		transition: all 0.15s ease;
+		text-transform: uppercase;
+		letter-spacing: 0.02em;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.region-btn:hover {
+		border-color: rgb(34 211 238 / 0.5);
+		color: rgb(34 211 238);
+	}
+
+	.region-btn.active {
+		background: rgb(34 211 238 / 0.15);
+		border-color: rgb(34 211 238 / 0.5);
+		color: rgb(34 211 238);
+	}
+
+	.history-info {
+		display: flex;
+		align-items: center;
+		gap: 0.375rem;
+		margin-top: 0.375rem;
+		padding-top: 0.25rem;
+		border-top: 1px solid rgb(51 65 85 / 0.3);
+	}
+
+	.history-label {
+		font-size: 0.5rem;
+		font-family: 'SF Mono', Monaco, monospace;
+		color: rgb(100 116 139);
+	}
+
+	.history-count {
+		font-size: 0.5rem;
+		font-family: 'SF Mono', Monaco, monospace;
+		color: rgb(251 191 36);
+		background: rgb(251 191 36 / 0.1);
+		padding: 0.0625rem 0.25rem;
 		border-radius: 2px;
 	}
 
