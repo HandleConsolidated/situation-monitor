@@ -204,7 +204,9 @@
 	let aircraftData = $state<Aircraft[]>([]);
 	let aircraftDataLoading = $state(false);
 	let aircraftRefreshInterval: ReturnType<typeof setInterval> | null = null;
+	let lastAircraftFetch = 0; // Timestamp of last fetch for debouncing
 	const AIRCRAFT_REFRESH_INTERVAL = 45000; // 45 seconds (respecting OpenSky rate limits)
+	const AIRCRAFT_DEBOUNCE_MS = 5000; // Minimum 5 seconds between fetches
 	const MAX_AIRCRAFT_DISPLAY = 2500; // Limit displayed aircraft for performance
 	const MAX_AIRCRAFT_HISTORY = 5; // Number of historical snapshots to keep
 
@@ -1209,7 +1211,6 @@
 	}
 
 	// Generate GeoJSON for aircraft positions (ADS-B tracking)
-	// Enhanced with tactical styling properties for next-gen visualization
 	function getAircraftGeoJSON(): GeoJSON.FeatureCollection {
 		if (!dataLayers.aircraft.visible || aircraftData.length === 0) {
 			return { type: 'FeatureCollection', features: [] };
@@ -1218,23 +1219,6 @@
 		const features: GeoJSON.Feature[] = aircraftData.map((aircraft) => {
 			const altitude = aircraft.geoAltitude ?? aircraft.baroAltitude;
 			const color = getAltitudeColor(altitude, aircraft.onGround);
-			const velocity = aircraft.velocity ?? 0;
-
-			// Calculate marker size based on velocity (faster = slightly larger for visual prominence)
-			// Base size 4, max boost of 2 for aircraft at 300+ m/s (~580 knots)
-			const velocityFactor = Math.min(velocity / 300, 1);
-			const markerSize = 4 + velocityFactor * 2;
-
-			// Calculate glow intensity based on altitude and velocity
-			// Higher/faster aircraft have more prominent glow
-			const altitudeFeet = altitude ? altitude * 3.28084 : 0;
-			const altitudeFactor = Math.min(altitudeFeet / 40000, 1);
-			const glowIntensity = 0.15 + altitudeFactor * 0.25 + velocityFactor * 0.1;
-
-			// Determine if aircraft is climbing, descending, or level
-			const verticalRate = aircraft.verticalRate ?? 0;
-			const isClimbing = verticalRate > 100; // ft/min threshold
-			const isDescending = verticalRate < -100;
 
 			return {
 				type: 'Feature',
@@ -1258,16 +1242,7 @@
 					color,
 					type: 'aircraft',
 					// Icon rotation based on heading (default 0 = north)
-					rotation: aircraft.trueTrack ?? 0,
-					// Enhanced tactical properties
-					markerSize,
-					glowIntensity,
-					isClimbing,
-					isDescending,
-					// Glow color with alpha for outer rings
-					glowColor: `${color}40`,
-					// Secondary glow for altitude bands
-					secondaryGlow: `${color}20`
+					rotation: aircraft.trueTrack ?? 0
 				}
 			};
 		});
@@ -3248,170 +3223,40 @@
 					}
 				});
 
-				// ========== ADS-B AIRCRAFT LAYERS - Enhanced Tactical Visualization ==========
-				// Layer 1: Outermost ambient glow - creates depth and radar-like presence
-				// Dynamic radius based on velocity/altitude for visual hierarchy
-				map.addLayer({
-					id: 'aircraft-glow-outer',
-					type: 'circle',
-					source: 'aircraft',
-					paint: {
-						'circle-radius': [
-							'interpolate',
-							['linear'],
-							['get', 'markerSize'],
-							4,
-							14, // Slow aircraft: smaller glow
-							6,
-							20 // Fast aircraft: larger glow
-						],
-						'circle-color': ['get', 'color'],
-						'circle-opacity': ['get', 'glowIntensity'],
-						'circle-blur': 1.5
-					}
-				});
+				// ========== ADS-B AIRCRAFT LAYERS ==========
+				// Simple, performant airplane icons with altitude-based coloring
 
-				// Layer 2: Inner glow ring - altitude-coded pulse effect
-				// Creates the signature tactical "ping" appearance
+				// Subtle glow layer for visibility
 				map.addLayer({
 					id: 'aircraft-glow',
 					type: 'circle',
 					source: 'aircraft',
 					paint: {
-						'circle-radius': [
-							'interpolate',
-							['linear'],
-							['get', 'markerSize'],
-							4,
-							8,
-							6,
-							12
-						],
+						'circle-radius': 8,
 						'circle-color': ['get', 'color'],
-						'circle-opacity': ['+', ['get', 'glowIntensity'], 0.15],
-						'circle-blur': 0.5
+						'circle-opacity': 0.25,
+						'circle-blur': 1
 					}
 				});
 
-				// Layer 3: Core marker ring - tactical reticle style
-				// Hollow circle with altitude-colored stroke for precision look
+				// Main aircraft icon layer - airplane symbol with rotation
 				map.addLayer({
 					id: 'aircraft-layer',
-					type: 'circle',
-					source: 'aircraft',
-					paint: {
-						'circle-radius': ['get', 'markerSize'],
-						'circle-color': 'rgba(0, 0, 0, 0.4)', // Dark center for contrast
-						'circle-stroke-color': ['get', 'color'],
-						'circle-stroke-width': [
-							'case',
-							['get', 'onGround'],
-							1.5, // Thinner stroke for ground aircraft
-							2 // Standard stroke for airborne
-						],
-						'circle-stroke-opacity': 0.95
-					}
-				});
-
-				// Layer 4: Inner tactical dot - precision center indicator
-				// Small bright dot at center for accurate position reference
-				map.addLayer({
-					id: 'aircraft-center',
-					type: 'circle',
-					source: 'aircraft',
-					paint: {
-						'circle-radius': 1.5,
-						'circle-color': ['get', 'color'],
-						'circle-opacity': 1
-					}
-				});
-
-				// Layer 5: Directional chevron indicator - heading visualization
-				// Uses a small arrow/chevron character that rotates with heading
-				// More tactical than airplane emoji, better performance
-				map.addLayer({
-					id: 'aircraft-heading',
 					type: 'symbol',
 					source: 'aircraft',
 					layout: {
-						'text-field': '\u25B2', // Triangle/chevron pointing up
-						'text-size': [
-							'interpolate',
-							['linear'],
-							['get', 'markerSize'],
-							4,
-							10,
-							6,
-							14
-						],
+						'text-field': '✈',
+						'text-size': 16,
 						'text-rotation-alignment': 'map',
 						'text-rotate': ['get', 'rotation'],
 						'text-allow-overlap': true,
 						'text-ignore-placement': true,
-						'text-anchor': 'center',
-						'text-offset': [0, -0.6] // Offset slightly forward of center
+						'text-anchor': 'center'
 					},
 					paint: {
-						'text-color': [
-							'case',
-							['get', 'onGround'],
-							'#ffffff', // White for ground
-							['get', 'color'] // Altitude color for airborne
-						],
-						'text-halo-color': 'rgba(0, 0, 0, 0.9)',
-						'text-halo-width': 1,
-						'text-opacity': 0.9
-					}
-				});
-
-				// Layer 6: Vertical rate indicator - climb/descend status
-				// Shows small up/down arrow for climbing or descending aircraft
-				map.addLayer({
-					id: 'aircraft-vertical',
-					type: 'symbol',
-					source: 'aircraft',
-					filter: [
-						'any',
-						['get', 'isClimbing'],
-						['get', 'isDescending']
-					],
-					layout: {
-						'text-field': [
-							'case',
-							['get', 'isClimbing'],
-							'\u2191', // Up arrow for climbing
-							'\u2193' // Down arrow for descending
-						],
-						'text-size': 9,
-						'text-allow-overlap': true,
-						'text-ignore-placement': true,
-						'text-anchor': 'center',
-						'text-offset': [0.8, 0] // Offset to the right of marker
-					},
-					paint: {
-						'text-color': [
-							'case',
-							['get', 'isClimbing'],
-							'#22c55e', // Green for climbing
-							'#f97316' // Orange for descending
-						],
+						'text-color': ['get', 'color'],
 						'text-halo-color': 'rgba(0, 0, 0, 0.8)',
-						'text-halo-width': 0.5,
-						'text-opacity': 0.85
-					}
-				});
-
-				// Layer 7: Aircraft icon layer (for interactive events)
-				// Invisible layer that matches clickable area for hover/click events
-				map.addLayer({
-					id: 'aircraft-icon',
-					type: 'circle',
-					source: 'aircraft',
-					paint: {
-						'circle-radius': ['*', ['get', 'markerSize'], 2],
-						'circle-color': 'transparent',
-						'circle-stroke-color': 'transparent',
-						'circle-stroke-width': 0
+						'text-halo-width': 1.5
 					}
 				});
 
@@ -4882,14 +4727,22 @@
 	}
 
 	// Load ADS-B aircraft data from OpenSky Network for selected regions
-	async function loadAircraftData() {
+	async function loadAircraftData(force = false) {
 		if (aircraftDataLoading || !dataLayers.aircraft.visible) return;
+
+		// Debounce: don't fetch if we fetched recently (unless forced)
+		const now = Date.now();
+		if (!force && now - lastAircraftFetch < AIRCRAFT_DEBOUNCE_MS) {
+			return;
+		}
+
 		if (selectedAircraftRegions.size === 0) {
 			aircraftData = [];
 			if (map && isInitialized) updateMapLayers();
 			return;
 		}
 
+		lastAircraftFetch = now;
 		aircraftDataLoading = true;
 		try {
 			// Collect all aircraft from selected regions
@@ -4972,8 +4825,8 @@
 
 	function startAircraftPolling() {
 		if (aircraftRefreshInterval) return;
-		loadAircraftData();
-		aircraftRefreshInterval = setInterval(loadAircraftData, AIRCRAFT_REFRESH_INTERVAL);
+		loadAircraftData(true); // Force initial fetch
+		aircraftRefreshInterval = setInterval(() => loadAircraftData(true), AIRCRAFT_REFRESH_INTERVAL);
 	}
 
 	function stopAircraftPolling() {
@@ -4999,19 +4852,30 @@
 		}
 	});
 
-	// Reload aircraft data when selected regions change
-	$effect(() => {
-		// Track the size and contents of selectedAircraftRegions for reactivity
-		const regionCount = selectedAircraftRegions.size;
-		// Capture regions to ensure effect triggers on changes
-		void Array.from(selectedAircraftRegions);
+	// Track previous regions to detect actual changes
+	let lastRegionKey = '';
 
-		// Only reload if ADS-B is enabled
-		if (adsbEnabled && regionCount > 0) {
+	// Reload aircraft data only when regions actually change
+	$effect(() => {
+		const regionCount = selectedAircraftRegions.size;
+		const currentRegionKey = Array.from(selectedAircraftRegions).sort().join(',');
+
+		// Only proceed if regions actually changed
+		if (currentRegionKey === lastRegionKey) return;
+		lastRegionKey = currentRegionKey;
+
+		// Clear data if no regions selected
+		if (regionCount === 0) {
+			if (adsbEnabled) {
+				aircraftData = [];
+				if (map && isInitialized) updateMapLayers();
+			}
+			return;
+		}
+
+		// Reload data if ADS-B is enabled and regions changed
+		if (adsbEnabled) {
 			loadAircraftData();
-		} else if (adsbEnabled && regionCount === 0) {
-			aircraftData = [];
-			if (map && isInitialized) updateMapLayers();
 		}
 	});
 
