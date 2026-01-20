@@ -164,9 +164,34 @@
 	let aircraftDataLoading = $state(false);
 	let aircraftRefreshInterval: ReturnType<typeof setInterval> | null = null;
 	const AIRCRAFT_REFRESH_INTERVAL = 45000; // 45 seconds (respecting OpenSky rate limits)
-	const MAX_AIRCRAFT_DISPLAY = 1000; // Limit displayed aircraft for performance
-	// Default high-traffic region for global view (US + Atlantic + Europe)
-	// Fetching all worldwide aircraft is too slow (~20MB payload)
+	const MAX_AIRCRAFT_DISPLAY = 2500; // Limit displayed aircraft for performance
+	const MAX_AIRCRAFT_HISTORY = 5; // Number of historical snapshots to keep
+
+	// Predefined ADS-B regions for filtering
+	const AIRCRAFT_REGIONS: Record<string, { name: string; bounds: [number, number, number, number] }> = {
+		'north-america': { name: 'North America', bounds: [-170, 15, -50, 72] },
+		'europe': { name: 'Europe', bounds: [-25, 35, 45, 72] },
+		'middle-east': { name: 'Middle East', bounds: [25, 12, 65, 45] },
+		'east-asia': { name: 'East Asia', bounds: [95, 15, 150, 55] },
+		'southeast-asia': { name: 'Southeast Asia', bounds: [90, -15, 155, 28] },
+		'australia': { name: 'Australia/Oceania', bounds: [110, -50, 180, 0] },
+		'south-america': { name: 'South America', bounds: [-85, -60, -30, 15] },
+		'africa': { name: 'Africa', bounds: [-20, -40, 55, 40] },
+		'viewport': { name: 'Current Viewport', bounds: [0, 0, 0, 0] } // Dynamic - uses map bounds
+	};
+
+	// Selected ADS-B regions (multiple can be selected)
+	let selectedAircraftRegions = $state<Set<string>>(new Set(['north-america', 'europe']));
+
+	// Aircraft position history for tracking (stores last N snapshots)
+	interface AircraftSnapshot {
+		timestamp: number;
+		aircraft: Aircraft[];
+		region: string;
+	}
+	let aircraftHistory = $state<AircraftSnapshot[]>([]);
+
+	// Default high-traffic region for global view (computed from selected regions)
 	const DEFAULT_AIRCRAFT_BOUNDS: [number, number, number, number] = [-130, 20, 40, 70];
 
 	// USGS Volcano data
