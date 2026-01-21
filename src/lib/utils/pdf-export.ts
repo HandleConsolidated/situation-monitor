@@ -1075,20 +1075,29 @@ function generatePDFHTML(content: string, options: PDFExportOptions = {}): strin
 
 			.document {
 				max-width: none;
+				margin-top: 0;
 			}
 
 			.classification-banner,
 			.classification-banner-bottom {
-				display: none; /* Handled by @page rules in print */
+				display: none !important;
+				position: static !important;
+				height: 0 !important;
+				width: 0 !important;
+				margin: 0 !important;
+				padding: 0 !important;
+				border: none !important;
+				overflow: hidden !important;
 			}
 
 			.header {
 				margin-top: 0;
+				padding-top: 20px;
 				break-after: avoid;
 			}
 
 			.content {
-				padding: 25px 0;
+				padding: 20px 0 25px 0;
 			}
 
 			.footer {
