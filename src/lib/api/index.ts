@@ -17,3 +17,17 @@ export { fetchWorldLeaders } from './leaders';
 
 // Cached API exports - use these for automatic caching
 export { cachedApi, clearAllCaches, getCacheStats, invalidateCache } from './cached';
+
+// Weather API
+export {
+	fetchAlertsByState,
+	fetchAlertsByZone,
+	fetchAllActiveAlerts,
+	fetchAlertsForStates,
+	fetchGridPoint,
+	fetchForecast,
+	fetchZoneInfo,
+	extractForecastHighlights,
+	generateBriefingText,
+	generateBriefingMarkdown
+} from './weather';
