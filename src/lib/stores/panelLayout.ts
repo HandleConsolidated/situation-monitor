@@ -65,7 +65,8 @@ const DEFAULT_POSITIONS: Record<PanelId, PanelPosition> = {
 	mainchar: { zone: 'left', index: -1 },
 
 	// AI Analysis panel - right column
-	analysis: { zone: 'right', index: 11 }
+	analysis: { zone: 'right', index: 11 },
+	weather: { zone: 'right', index: 12 }
 };
 
 // Load from localStorage

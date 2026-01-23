@@ -37,7 +37,8 @@ export type PanelId =
 	| 'radiation'
 	| 'outbreaks'
 	| 'analysis'
-	| 'aircraft';
+	| 'aircraft'
+	| 'weather';
 
 export const PANELS: Record<PanelId, PanelConfig> = {
 	map: { name: 'Global Map', priority: 1 },
@@ -69,7 +70,8 @@ export const PANELS: Record<PanelId, PanelConfig> = {
 	radiation: { name: 'Radiation Monitor', priority: 3 },
 	outbreaks: { name: 'Disease Outbreaks', priority: 2 },
 	analysis: { name: 'AI Analysis', priority: 1 },
-	aircraft: { name: 'Aircraft Tracker', priority: 2 }
+	aircraft: { name: 'Aircraft Tracker', priority: 2 },
+	weather: { name: 'Weather Alerts', priority: 1 }
 };
 
 export const NON_DRAGGABLE_PANELS: PanelId[] = ['map'];

@@ -24,3 +24,4 @@ export { default as RadiationPanel } from './RadiationPanel.svelte';
 export { default as DiseaseOutbreakPanel } from './DiseaseOutbreakPanel.svelte';
 export { default as AnalysisChatPanel } from './AnalysisChatPanel.svelte';
 export { default as AircraftPanel } from './AircraftPanel.svelte';
+export { default as WeatherPanel } from './WeatherPanel.svelte';
