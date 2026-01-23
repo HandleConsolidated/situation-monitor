@@ -486,3 +486,17 @@ export interface AirQualityReading {
 	aqi?: number; // Calculated AQI if PM2.5
 	level: AirQualityLevel;
 }
+
+// Weather command center types
+export type {
+	AlertSeverity,
+	AlertUrgency,
+	AlertCertainty,
+	AlertCategory,
+	WeatherAlert,
+	ForecastPeriod,
+	WeatherZone,
+	ForecastHighlight,
+	WeatherBriefing,
+	WeatherState
+} from './weather';

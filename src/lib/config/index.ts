@@ -108,3 +108,18 @@ export {
 	getPromptById,
 	type AnalysisPromptConfig
 } from './prompts';
+
+// Weather command center configuration
+export {
+	US_STATES,
+	PREDEFINED_REGIONS,
+	ALERT_SEVERITY_COLORS,
+	WINTER_WEATHER_EVENTS,
+	SEVERE_WEATHER_EVENTS,
+	NWS_API,
+	ALERT_MAP_COLORS,
+	WEATHER_EVENT_ICONS,
+	type USState,
+	type PredefinedRegion,
+	type WeatherConfig
+} from './weather';
