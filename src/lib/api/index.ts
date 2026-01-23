@@ -27,6 +27,7 @@ export {
 	fetchGridPoint,
 	fetchForecast,
 	fetchZoneInfo,
+	fetchZoneGeometryForAlert,
 	extractForecastHighlights,
 	generateBriefingText,
 	generateBriefingMarkdown

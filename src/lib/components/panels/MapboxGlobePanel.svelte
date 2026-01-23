@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
-	import { get } from 'svelte/store';
 	import mapboxgl from 'mapbox-gl';
 	import 'mapbox-gl/dist/mapbox-gl.css';
 	import {
@@ -12,10 +11,10 @@
 		THREAT_COLORS,
 		HOTSPOT_KEYWORDS
 	} from '$lib/config/map';
-	import { weather, selectedAlert } from '$lib/stores';
+	import { selectedAlert, weather } from '$lib/stores';
 	import { ALERT_MAP_COLORS } from '$lib/config/weather';
 	import type { WeatherAlert } from '$lib/types';
-	import { fetchOutageData, fetchUCDPConflicts, fetchAircraftPositions, OpenSkyRateLimitError, getAltitudeColor, formatAltitude, formatVelocity, formatHeading, fetchElevatedVolcanoes, VOLCANO_ALERT_COLORS, VOLCANO_ALERT_DESCRIPTIONS, getLatestRadarTileUrl, getShipTypeColor, formatVesselSpeed, formatVesselCourse, getFlagEmoji, fetchAirQualityData, AIR_QUALITY_COLORS, AIR_QUALITY_DESCRIPTIONS, RADIATION_LEVEL_COLORS } from '$lib/api';
+	import { fetchOutageData, fetchUCDPConflicts, fetchAircraftPositions, OpenSkyRateLimitError, getAltitudeColor, formatAltitude, formatVelocity, formatHeading, fetchElevatedVolcanoes, VOLCANO_ALERT_COLORS, VOLCANO_ALERT_DESCRIPTIONS, getLatestRadarTileUrl, getShipTypeColor, formatVesselSpeed, formatVesselCourse, getFlagEmoji, fetchAirQualityData, AIR_QUALITY_COLORS, AIR_QUALITY_DESCRIPTIONS, RADIATION_LEVEL_COLORS, fetchAllActiveAlerts, fetchZoneGeometryForAlert } from '$lib/api';
 	import { vesselStore, vesselConnectionStatus, connectVesselStream, disconnectVesselStream } from '$lib/services/vessel-stream';
 	import type { OutageData, VIEWSConflictData, Vessel, RadiationReading } from '$lib/api';
 	import type { CustomMonitor, NewsItem, NewsCategory, Aircraft, VolcanoData, AirQualityReading, DiseaseOutbreak, EarthquakeData } from '$lib/types';
@@ -207,6 +206,7 @@
 	// Weather alert overlay state
 	let weatherAlertsVisible = $state(false);
 	let weatherAlertsLoading = $state(false);
+	let globeWeatherAlerts = $state<WeatherAlert[]>([]);
 
 	// ADS-B Aircraft tracking data
 	let aircraftData = $state<Aircraft[]>([]);
@@ -1673,19 +1673,15 @@
 			const earthquakesSource = map.getSource('earthquakes') as mapboxgl.GeoJSONSource;
 			if (earthquakesSource) earthquakesSource.setData(getEarthquakesGeoJSON());
 
-			// Update traffic and road layer visibility
+			// Update traffic flow layer visibility (road base layers are always visible)
 			const trafficVisibility = dataLayers.traffic.visible ? 'visible' : 'none';
-			const trafficLayers = [
-				'roads-motorway',
-				'roads-primary',
-				'roads-secondary',
-				'roads-tertiary',
+			const trafficFlowLayers = [
 				'traffic-low',
 				'traffic-moderate',
 				'traffic-heavy',
 				'traffic-severe'
 			];
-			for (const layerId of trafficLayers) {
+			for (const layerId of trafficFlowLayers) {
 				if (map.getLayer(layerId)) {
 					map.setLayoutProperty(layerId, 'visibility', trafficVisibility);
 				}
@@ -1785,7 +1781,7 @@
 								'raster-contrast': 0.2
 							}
 						},
-						// Country borders - cyan tactical style for visibility
+						// Country borders - cyan tactical style for visibility (enhanced)
 						{
 							id: 'admin-0-boundary',
 							type: 'line',
@@ -1793,8 +1789,8 @@
 							'source-layer': 'admin',
 							filter: ['all', ['==', ['get', 'admin_level'], 0], ['==', ['get', 'disputed'], 'false'], ['==', ['get', 'maritime'], 'false']],
 							paint: {
-								'line-color': 'rgba(6, 182, 212, 0.5)',
-								'line-width': ['interpolate', ['linear'], ['zoom'], 0, 0.5, 3, 1, 6, 1.5],
+								'line-color': 'rgba(6, 182, 212, 0.7)',
+								'line-width': ['interpolate', ['linear'], ['zoom'], 0, 0.8, 3, 1.5, 6, 2, 10, 2.5],
 								'line-dasharray': [3, 1]
 							}
 						},
@@ -1806,9 +1802,23 @@
 							'source-layer': 'admin',
 							filter: ['all', ['==', ['get', 'admin_level'], 0], ['==', ['get', 'disputed'], 'true']],
 							paint: {
-								'line-color': 'rgba(239, 68, 68, 0.6)',
-								'line-width': ['interpolate', ['linear'], ['zoom'], 0, 0.5, 3, 1, 6, 1.5],
+								'line-color': 'rgba(239, 68, 68, 0.75)',
+								'line-width': ['interpolate', ['linear'], ['zoom'], 0, 0.8, 3, 1.5, 6, 2, 10, 2.5],
 								'line-dasharray': [3, 2]
+							}
+						},
+						// State/Province borders - subtle administrative boundaries (admin_level 1)
+						{
+							id: 'admin-1-boundary',
+							type: 'line',
+							source: 'mapbox-streets',
+							'source-layer': 'admin',
+							minzoom: 4,
+							filter: ['all', ['==', ['get', 'admin_level'], 1], ['==', ['get', 'maritime'], 'false']],
+							paint: {
+								'line-color': 'rgba(100, 116, 139, 0.5)',
+								'line-width': ['interpolate', ['linear'], ['zoom'], 4, 0.3, 6, 0.5, 8, 0.8, 12, 1.2],
+								'line-dasharray': [2, 2]
 							}
 						},
 						// Country labels - more prominent for tactical awareness
@@ -2161,86 +2171,101 @@
 
 				// Add layers
 
-				// ========== ROAD LAYERS - Visible at city-level zoom (zoom 10+) ==========
-				// These layers appear when traffic toggle is enabled
+				// ========== ROAD LAYERS - Always visible, progressively shown at different zoom levels ==========
+				// These layers show major roadways to provide geographic context
 
-				// Motorways/Highways - most prominent roads
+				// Motorways/Highways - most prominent roads (visible at zoom 6+)
 				map.addLayer({
 					id: 'roads-motorway',
 					type: 'line',
 					source: 'mapbox-streets',
 					'source-layer': 'road',
-					minzoom: 10,
+					minzoom: 6,
 					filter: ['==', ['get', 'class'], 'motorway'],
 					layout: {
 						'line-join': 'round',
-						'line-cap': 'round',
-						'visibility': dataLayers.traffic.visible ? 'visible' : 'none'
+						'line-cap': 'round'
 					},
 					paint: {
-						'line-color': 'rgba(120, 130, 150, 0.6)',
-						'line-width': ['interpolate', ['linear'], ['zoom'], 10, 1.5, 14, 4, 18, 8],
-						'line-opacity': 0.8
+						'line-color': 'rgba(100, 110, 130, 0.5)',
+						'line-width': ['interpolate', ['linear'], ['zoom'], 6, 0.5, 8, 1, 10, 1.5, 14, 3, 18, 6],
+						'line-opacity': ['interpolate', ['linear'], ['zoom'], 6, 0.4, 10, 0.7, 14, 0.8]
 					}
 				});
 
-				// Primary roads
+				// Trunk roads (major highways, one level below motorway) - visible at zoom 7+
+				map.addLayer({
+					id: 'roads-trunk',
+					type: 'line',
+					source: 'mapbox-streets',
+					'source-layer': 'road',
+					minzoom: 7,
+					filter: ['==', ['get', 'class'], 'trunk'],
+					layout: {
+						'line-join': 'round',
+						'line-cap': 'round'
+					},
+					paint: {
+						'line-color': 'rgba(95, 105, 125, 0.45)',
+						'line-width': ['interpolate', ['linear'], ['zoom'], 7, 0.4, 10, 1, 14, 2.5, 18, 5],
+						'line-opacity': ['interpolate', ['linear'], ['zoom'], 7, 0.35, 10, 0.6, 14, 0.75]
+					}
+				});
+
+				// Primary roads (visible at zoom 8+)
 				map.addLayer({
 					id: 'roads-primary',
 					type: 'line',
 					source: 'mapbox-streets',
 					'source-layer': 'road',
-					minzoom: 11,
+					minzoom: 8,
 					filter: ['==', ['get', 'class'], 'primary'],
 					layout: {
 						'line-join': 'round',
-						'line-cap': 'round',
-						'visibility': dataLayers.traffic.visible ? 'visible' : 'none'
+						'line-cap': 'round'
 					},
 					paint: {
-						'line-color': 'rgba(100, 110, 130, 0.5)',
-						'line-width': ['interpolate', ['linear'], ['zoom'], 11, 1, 14, 2.5, 18, 6],
-						'line-opacity': 0.7
+						'line-color': 'rgba(90, 100, 120, 0.4)',
+						'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.4, 10, 0.8, 14, 2, 18, 4],
+						'line-opacity': ['interpolate', ['linear'], ['zoom'], 8, 0.3, 10, 0.55, 14, 0.7]
 					}
 				});
 
-				// Secondary roads - visible at higher zoom
+				// Secondary roads - visible at zoom 10+
 				map.addLayer({
 					id: 'roads-secondary',
 					type: 'line',
 					source: 'mapbox-streets',
 					'source-layer': 'road',
-					minzoom: 13,
+					minzoom: 10,
 					filter: ['==', ['get', 'class'], 'secondary'],
 					layout: {
 						'line-join': 'round',
-						'line-cap': 'round',
-						'visibility': dataLayers.traffic.visible ? 'visible' : 'none'
+						'line-cap': 'round'
 					},
 					paint: {
-						'line-color': 'rgba(90, 100, 120, 0.4)',
-						'line-width': ['interpolate', ['linear'], ['zoom'], 13, 0.8, 16, 2, 18, 4],
-						'line-opacity': 0.6
+						'line-color': 'rgba(85, 95, 115, 0.35)',
+						'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.4, 13, 0.8, 16, 1.5, 18, 3],
+						'line-opacity': ['interpolate', ['linear'], ['zoom'], 10, 0.3, 14, 0.5, 16, 0.6]
 					}
 				});
 
-				// Tertiary roads - visible at even higher zoom
+				// Tertiary roads - visible at higher zoom (12+)
 				map.addLayer({
 					id: 'roads-tertiary',
 					type: 'line',
 					source: 'mapbox-streets',
 					'source-layer': 'road',
-					minzoom: 14,
+					minzoom: 12,
 					filter: ['==', ['get', 'class'], 'tertiary'],
 					layout: {
 						'line-join': 'round',
-						'line-cap': 'round',
-						'visibility': dataLayers.traffic.visible ? 'visible' : 'none'
+						'line-cap': 'round'
 					},
 					paint: {
-						'line-color': 'rgba(80, 90, 110, 0.35)',
-						'line-width': ['interpolate', ['linear'], ['zoom'], 14, 0.5, 17, 1.5, 18, 3],
-						'line-opacity': 0.5
+						'line-color': 'rgba(80, 90, 110, 0.3)',
+						'line-width': ['interpolate', ['linear'], ['zoom'], 12, 0.3, 15, 0.7, 17, 1.2, 18, 2],
+						'line-opacity': ['interpolate', ['linear'], ['zoom'], 12, 0.25, 15, 0.4, 17, 0.5]
 					}
 				});
 
@@ -3967,6 +3992,34 @@
 			pauseRotation();
 		});
 
+		// Weather alerts hover
+		map.on('mousemove', 'weather-alerts-fill', (e) => {
+			if (!e.features || e.features.length === 0 || tooltipLocked || !map) return;
+
+			const feature = e.features[0];
+			const props = feature.properties;
+
+			map.getCanvas().style.cursor = 'pointer';
+
+			tooltipData = {
+				label: props?.event || 'Weather Alert',
+				type: 'weather-alert',
+				desc: props?.areaDesc || 'Unknown area',
+				level: props?.severity?.toLowerCase() || 'unknown'
+			};
+			tooltipVisible = true;
+			updateTooltipPosition(e.point);
+			pauseRotation();
+		});
+
+		map.on('mouseleave', 'weather-alerts-fill', () => {
+			if (tooltipLocked || !map) return;
+			map.getCanvas().style.cursor = '';
+			tooltipVisible = false;
+			tooltipData = null;
+			resumeRotation();
+		});
+
 		map.on('click', 'points-layer', (e) => handlePointClick(e));
 		map.on('click', 'news-events-layer', (e) => handlePointClick(e));
 		map.on('click', 'outages-layer', (e) => handleOutageClick(e));
@@ -3978,6 +4031,7 @@
 		map.on('click', 'radiation-layer', (e) => handleRadiationClick(e));
 		map.on('click', 'diseases-layer', (e) => handleDiseaseClick(e));
 		map.on('click', 'earthquakes-layer', (e) => handleEarthquakeClick(e));
+		map.on('click', 'weather-alerts-fill', (e) => handleWeatherAlertClick(e));
 
 		// Cluster click handler - zoom in to expand cluster
 		map.on('click', 'news-clusters', (e) => {
@@ -4388,6 +4442,36 @@
 		}
 	}
 
+	function handleWeatherAlertClick(
+		e: mapboxgl.MapMouseEvent & { features?: mapboxgl.MapboxGeoJSONFeature[] }
+	) {
+		if (!e.features || e.features.length === 0) return;
+		const feature = e.features[0];
+		const props = feature.properties;
+
+		const event = props?.event || 'Weather Alert';
+		const severity = props?.severity || 'Unknown';
+		const areaDesc = props?.areaDesc || 'Unknown area';
+		const alertId = props?.id || '';
+
+		// Find full alert data
+		const fullAlert = globeWeatherAlerts.find((a) => a.id === alertId);
+		const headline = fullAlert?.headline || '';
+		const instruction = fullAlert?.instruction || '';
+		const expires = fullAlert?.expires ? new Date(fullAlert.expires).toLocaleString() : '';
+
+		tooltipData = {
+			label: `⚠ ${event}`,
+			type: 'weather-alert',
+			desc: `${areaDesc}${headline ? `\n\n${headline}` : ''}${instruction ? `\n\nInstructions: ${instruction.substring(0, 200)}${instruction.length > 200 ? '...' : ''}` : ''}${expires ? `\n\nExpires: ${expires}` : ''}`,
+			level: severity.toLowerCase()
+		};
+		tooltipVisible = true;
+		tooltipLocked = true;
+		updateTooltipPosition(e.point);
+		pauseRotation();
+	}
+
 	function updateTooltipPosition(point: mapboxgl.Point) {
 		if (!mapContainer) return;
 		const rect = mapContainer.getBoundingClientRect();
@@ -4553,14 +4637,115 @@
 	$effect(() => {
 		const alert = $selectedAlert;
 		if (alert && map && isInitialized) {
-			// Ensure alerts are visible
-			if (!weatherAlertsVisible) {
-				weatherAlertsVisible = true;
-				updateWeatherAlertLayer();
-			}
-			flyToAlert(alert);
+			// Handle alert selection (may need to fetch geometry)
+			handleAlertSelection(alert);
 		}
 	});
+
+	// Handle alert selection - fetch geometry if needed, then show on map
+	async function handleAlertSelection(alert: WeatherAlert) {
+		// Ensure alerts are visible
+		if (!weatherAlertsVisible) {
+			weatherAlertsVisible = true;
+		}
+
+		// Check if alert has geometry
+		let alertWithGeometry = alert;
+		if (!alert.geometry) {
+			console.log(`[Weather Alerts] Alert "${alert.event}" has no geometry, fetching zone geometry...`);
+			const geometry = await fetchZoneGeometryForAlert(alert);
+			if (geometry) {
+				alertWithGeometry = { ...alert, geometry };
+				console.log(`[Weather Alerts] Fetched zone geometry for "${alert.event}"`);
+			} else {
+				console.log(`[Weather Alerts] Could not fetch geometry for "${alert.event}"`);
+			}
+		}
+
+		// Add alert to globe alerts if not present (with geometry if we got it)
+		const existingIndex = globeWeatherAlerts.findIndex((a) => a.id === alert.id);
+		if (existingIndex === -1) {
+			globeWeatherAlerts = [...globeWeatherAlerts, alertWithGeometry];
+		} else if (alertWithGeometry.geometry && !globeWeatherAlerts[existingIndex].geometry) {
+			// Update existing alert with geometry
+			const updated = [...globeWeatherAlerts];
+			updated[existingIndex] = alertWithGeometry;
+			globeWeatherAlerts = updated;
+		}
+
+		updateWeatherAlertLayer();
+		flyToAlert(alertWithGeometry);
+	}
+
+	// Track which store alert batches we've processed to avoid loops
+	let lastProcessedStoreAlertIds = $state<string>('');
+	let isProcessingStoreAlerts = $state(false);
+
+	// Watch for weather store alerts changes (from configured zones)
+	// Automatically fetch geometry for all alerts and add to map
+	$effect(() => {
+		const storeAlerts = $weather.alerts;
+		if (storeAlerts.length > 0 && map && isInitialized && !isProcessingStoreAlerts) {
+			// Create a key from alert IDs to detect actual changes
+			const alertIdsKey = storeAlerts.map((a) => a.id).sort().join(',');
+
+			// Skip if we've already processed this exact set of alerts
+			if (alertIdsKey === lastProcessedStoreAlertIds) {
+				return;
+			}
+
+			lastProcessedStoreAlertIds = alertIdsKey;
+
+			// Automatically show weather alerts and fetch geometries
+			if (!weatherAlertsVisible) {
+				weatherAlertsVisible = true;
+			}
+			// Fetch geometries for all store alerts
+			fetchGeometriesForStoreAlerts(storeAlerts);
+		}
+	});
+
+	// Fetch geometries for store alerts and add them to globe alerts
+	async function fetchGeometriesForStoreAlerts(storeAlerts: WeatherAlert[]) {
+		if (isProcessingStoreAlerts) return;
+		isProcessingStoreAlerts = true;
+
+		// Filter to only alerts not already in globe alerts
+		const newAlerts = storeAlerts.filter((a) => !globeWeatherAlerts.find((g) => g.id === a.id));
+
+		if (newAlerts.length === 0) {
+			isProcessingStoreAlerts = false;
+			return;
+		}
+
+		console.log(`[Weather Alerts] Fetching geometries for ${newAlerts.length} new watched zone alerts...`);
+
+		const alertsWithGeometry: WeatherAlert[] = [];
+
+		for (const alert of newAlerts) {
+			let alertWithGeometry = alert;
+
+			// Fetch geometry if needed
+			if (!alert.geometry) {
+				const geometry = await fetchZoneGeometryForAlert(alert);
+				if (geometry) {
+					alertWithGeometry = { ...alert, geometry };
+				}
+			}
+
+			alertsWithGeometry.push(alertWithGeometry);
+		}
+
+		// Add all at once to avoid multiple re-renders
+		if (alertsWithGeometry.length > 0) {
+			const withGeo = alertsWithGeometry.filter((a) => a.geometry).length;
+			console.log(`[Weather Alerts] Added ${alertsWithGeometry.length} alerts from watched zones (${withGeo} with geometry)`);
+			globeWeatherAlerts = [...globeWeatherAlerts, ...alertsWithGeometry];
+			updateWeatherAlertLayer();
+		}
+
+		isProcessingStoreAlerts = false;
+	}
 
 	// Animate enhanced marker glow effects for visual hierarchy
 	$effect(() => {
@@ -5295,9 +5480,21 @@
 	function updateWeatherAlertLayer() {
 		if (!map || !isInitialized) return;
 
-		const state = get(weather);
-		const alerts = state.alerts.filter((a: WeatherAlert) => a.geometry);
-		const geojson = buildAlertGeoJSON(alerts);
+		// Merge alerts from both sources:
+		// 1. Globe's local alerts (from fetchAllActiveAlerts - nationwide)
+		// 2. Weather store's alerts (from configured zones)
+		const storeAlerts = $weather.alerts || [];
+		const allAlerts = [...globeWeatherAlerts];
+
+		// Add store alerts that aren't already in globe alerts (by id)
+		for (const alert of storeAlerts) {
+			if (!allAlerts.find((a) => a.id === alert.id)) {
+				allAlerts.push(alert);
+			}
+		}
+
+		const alertsWithGeometry = allAlerts.filter((a: WeatherAlert) => a.geometry);
+		const geojson = buildAlertGeoJSON(alertsWithGeometry);
 
 		// Add or update source
 		const source = map.getSource('weather-alerts') as mapboxgl.GeoJSONSource;
@@ -5344,16 +5541,36 @@
 	}
 
 	// Toggle weather alerts visibility
-	function toggleWeatherAlerts() {
+	async function toggleWeatherAlerts() {
 		weatherAlertsVisible = !weatherAlertsVisible;
 
-		const state = get(weather);
-		if (weatherAlertsVisible && state.alerts.length === 0) {
+		// Fetch ALL active US alerts when toggling on (not just configured zones)
+		if (weatherAlertsVisible && globeWeatherAlerts.length === 0) {
 			weatherAlertsLoading = true;
-			weather.fetchAlerts().then(() => {
-				weatherAlertsLoading = false;
-				updateWeatherAlertLayer();
-			});
+			try {
+				globeWeatherAlerts = await fetchAllActiveAlerts();
+				const withGeometry = globeWeatherAlerts.filter((a) => a.geometry);
+				const withoutGeometry = globeWeatherAlerts.filter((a) => !a.geometry);
+				console.log(
+					`[Weather Alerts] Fetched ${globeWeatherAlerts.length} active alerts:`
+				);
+				console.log(
+					`  - ${withGeometry.length} have polygon geometry (will display on map)`
+				);
+				console.log(
+					`  - ${withoutGeometry.length} have zone references only (not displayed)`
+				);
+				if (withGeometry.length > 0) {
+					console.log(
+						`  - Alert types with geometry: ${[...new Set(withGeometry.map((a) => a.event))].join(', ')}`
+					);
+				}
+			} catch (error) {
+				console.error('[Weather Alerts] Failed to fetch alerts:', error);
+				globeWeatherAlerts = [];
+			}
+			weatherAlertsLoading = false;
+			updateWeatherAlertLayer();
 		} else {
 			updateWeatherAlertLayer();
 		}

@@ -256,6 +256,56 @@ export async function fetchZoneInfo(
 }
 
 /**
+ * Fetch full zone geometry for an alert that doesn't have its own geometry
+ * Uses the first affected zone URL to get the zone's polygon
+ * @param alert - Weather alert with affectedZones
+ */
+export async function fetchZoneGeometryForAlert(
+	alert: WeatherAlert
+): Promise<GeoJSON.Geometry | null> {
+	// If alert already has geometry, return it
+	if (alert.geometry) {
+		return alert.geometry;
+	}
+
+	// Try to get geometry from affected zones
+	if (!alert.affectedZones || alert.affectedZones.length === 0) {
+		// Try UGC codes as fallback
+		if (alert.geocode?.UGC && alert.geocode.UGC.length > 0) {
+			const zoneCode = alert.geocode.UGC[0];
+			try {
+				const response = await nwsFetch(`${NWS_API.endpoints.zones}/forecast/${zoneCode}`);
+				const data: ZoneInfoResponse = await response.json();
+				return data.geometry || data.properties?.geometry || null;
+			} catch {
+				return null;
+			}
+		}
+		return null;
+	}
+
+	// Fetch geometry from first affected zone URL
+	try {
+		const zoneUrl = alert.affectedZones[0];
+		const response = await fetch(zoneUrl, {
+			headers: {
+				'User-Agent': NWS_API.userAgent,
+				Accept: 'application/geo+json'
+			},
+			signal: AbortSignal.timeout(10000)
+		});
+
+		if (!response.ok) return null;
+
+		const data = await response.json();
+		return data.geometry || null;
+	} catch (error) {
+		logger.warn('Weather', `Failed to fetch zone geometry for alert ${alert.id}:`, error);
+		return null;
+	}
+}
+
+/**
  * Calculate centroid from GeoJSON geometry
  */
 function calculateCentroid(geometry: GeoJSON.Geometry): { lat: number; lon: number } | null {

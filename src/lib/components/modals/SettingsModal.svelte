@@ -148,7 +148,7 @@
 		{
 			name: 'Infrastructure & Hazards',
 			icon: '⚠',
-			panels: ['gridstress', 'earthquakes', 'radiation', 'outbreaks']
+			panels: ['gridstress', 'earthquakes', 'radiation', 'outbreaks', 'weather', 'aircraft']
 		}
 	];
 
