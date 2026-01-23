@@ -500,3 +500,6 @@ export type {
 	WeatherBriefing,
 	WeatherState
 } from './weather';
+
+// Radar animation types
+export type { RadarFrame, RadarAnimationData, RadarAnimationControls } from './radar';
