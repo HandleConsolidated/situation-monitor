@@ -2868,6 +2868,50 @@ export async function getLatestRadarTileUrl(): Promise<string | null> {
 	return tileUrl;
 }
 
+import type { RadarFrame, RadarAnimationData } from '$lib/types/radar';
+
+/**
+ * Fetch all radar frames for animation (past + nowcast)
+ * Returns frames with pre-built tile URLs for Mapbox
+ */
+export async function fetchRadarAnimationData(): Promise<RadarAnimationData | null> {
+	const data = await fetchRainViewerData();
+
+	if (!data || !data.radar.past.length) {
+		return null;
+	}
+
+	const frames: RadarFrame[] = [];
+
+	// Add past frames
+	for (const frame of data.radar.past) {
+		frames.push({
+			timestamp: frame.time,
+			path: frame.path,
+			tileUrl: `https://tilecache.rainviewer.com${frame.path}/256/{z}/{x}/{y}/2/1_0.png`,
+			type: 'past'
+		});
+	}
+
+	// Add nowcast (forecast) frames
+	for (const frame of data.radar.nowcast) {
+		frames.push({
+			timestamp: frame.time,
+			path: frame.path,
+			tileUrl: `https://tilecache.rainviewer.com${frame.path}/256/{z}/{x}/{y}/2/1_0.png`,
+			type: 'nowcast'
+		});
+	}
+
+	return {
+		frames,
+		currentIndex: frames.length - 1, // Start at most recent
+		isPlaying: false,
+		playbackSpeed: 1, // 1 fps default
+		host: data.host
+	};
+}
+
 /**
  * OpenSky Network ADS-B Aircraft Tracking
  * Free API with ~400 requests/day limit, updates every 10 seconds
