@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
+	import { get } from 'svelte/store';
 	import mapboxgl from 'mapbox-gl';
 	import 'mapbox-gl/dist/mapbox-gl.css';
 	import {
@@ -11,6 +12,9 @@
 		THREAT_COLORS,
 		HOTSPOT_KEYWORDS
 	} from '$lib/config/map';
+	import { weather, selectedAlert } from '$lib/stores';
+	import { ALERT_MAP_COLORS } from '$lib/config/weather';
+	import type { WeatherAlert } from '$lib/types';
 	import { fetchOutageData, fetchUCDPConflicts, fetchAircraftPositions, OpenSkyRateLimitError, getAltitudeColor, formatAltitude, formatVelocity, formatHeading, fetchElevatedVolcanoes, VOLCANO_ALERT_COLORS, VOLCANO_ALERT_DESCRIPTIONS, getLatestRadarTileUrl, getShipTypeColor, formatVesselSpeed, formatVesselCourse, getFlagEmoji, fetchAirQualityData, AIR_QUALITY_COLORS, AIR_QUALITY_DESCRIPTIONS, RADIATION_LEVEL_COLORS } from '$lib/api';
 	import { vesselStore, vesselConnectionStatus, connectVesselStream, disconnectVesselStream } from '$lib/services/vessel-stream';
 	import type { OutageData, VIEWSConflictData, Vessel, RadiationReading } from '$lib/api';
@@ -199,6 +203,10 @@
 	let weatherRadarVisible = $state(false);
 	let weatherRadarTileUrl = $state<string | null>(null);
 	let weatherRadarLoading = $state(false);
+
+	// Weather alert overlay state
+	let weatherAlertsVisible = $state(false);
+	let weatherAlertsLoading = $state(false);
 
 	// ADS-B Aircraft tracking data
 	let aircraftData = $state<Aircraft[]>([]);
@@ -4541,6 +4549,19 @@
 		}
 	});
 
+	// Watch for selected weather alert changes
+	$effect(() => {
+		const alert = $selectedAlert;
+		if (alert && map && isInitialized) {
+			// Ensure alerts are visible
+			if (!weatherAlertsVisible) {
+				weatherAlertsVisible = true;
+				updateWeatherAlertLayer();
+			}
+			flyToAlert(alert);
+		}
+	});
+
 	// Animate enhanced marker glow effects for visual hierarchy
 	$effect(() => {
 		if (!map || !isInitialized) return;
@@ -5239,6 +5260,135 @@
 		}
 	}
 
+	// Build GeoJSON from weather alerts with geometry
+	function buildAlertGeoJSON(alerts: WeatherAlert[]): GeoJSON.FeatureCollection {
+		const features: GeoJSON.Feature[] = [];
+
+		for (const alert of alerts) {
+			if (!alert.geometry) continue;
+
+			// Get color based on severity
+			const colorConfig = ALERT_MAP_COLORS[alert.severity as keyof typeof ALERT_MAP_COLORS] || ALERT_MAP_COLORS.Unknown;
+
+			features.push({
+				type: 'Feature',
+				properties: {
+					id: alert.id,
+					event: alert.event,
+					severity: alert.severity,
+					areaDesc: alert.areaDesc,
+					fillColor: colorConfig.fill,
+					strokeColor: colorConfig.stroke,
+					strokeWidth: colorConfig.strokeWidth
+				},
+				geometry: alert.geometry
+			});
+		}
+
+		return {
+			type: 'FeatureCollection',
+			features
+		};
+	}
+
+	// Update weather alert layer
+	function updateWeatherAlertLayer() {
+		if (!map || !isInitialized) return;
+
+		const state = get(weather);
+		const alerts = state.alerts.filter((a: WeatherAlert) => a.geometry);
+		const geojson = buildAlertGeoJSON(alerts);
+
+		// Add or update source
+		const source = map.getSource('weather-alerts') as mapboxgl.GeoJSONSource;
+		if (source) {
+			source.setData(geojson);
+		} else {
+			map.addSource('weather-alerts', {
+				type: 'geojson',
+				data: geojson
+			});
+
+			// Add fill layer for alert polygons
+			map.addLayer({
+				id: 'weather-alerts-fill',
+				type: 'fill',
+				source: 'weather-alerts',
+				paint: {
+					'fill-color': ['get', 'fillColor'],
+					'fill-opacity': 0.3
+				}
+			});
+
+			// Add outline layer
+			map.addLayer({
+				id: 'weather-alerts-line',
+				type: 'line',
+				source: 'weather-alerts',
+				paint: {
+					'line-color': ['get', 'strokeColor'],
+					'line-width': ['get', 'strokeWidth'],
+					'line-opacity': 0.8
+				}
+			});
+		}
+
+		// Set visibility
+		const visibility = weatherAlertsVisible ? 'visible' : 'none';
+		if (map.getLayer('weather-alerts-fill')) {
+			map.setLayoutProperty('weather-alerts-fill', 'visibility', visibility);
+		}
+		if (map.getLayer('weather-alerts-line')) {
+			map.setLayoutProperty('weather-alerts-line', 'visibility', visibility);
+		}
+	}
+
+	// Toggle weather alerts visibility
+	function toggleWeatherAlerts() {
+		weatherAlertsVisible = !weatherAlertsVisible;
+
+		const state = get(weather);
+		if (weatherAlertsVisible && state.alerts.length === 0) {
+			weatherAlertsLoading = true;
+			weather.fetchAlerts().then(() => {
+				weatherAlertsLoading = false;
+				updateWeatherAlertLayer();
+			});
+		} else {
+			updateWeatherAlertLayer();
+		}
+	}
+
+	// Fly to selected weather alert
+	function flyToAlert(alert: WeatherAlert) {
+		if (!map || !alert.geometry) return;
+
+		// Calculate bounds from geometry
+		let bounds: mapboxgl.LngLatBounds | null = null;
+
+		if (alert.geometry.type === 'Polygon') {
+			bounds = new mapboxgl.LngLatBounds();
+			for (const coord of (alert.geometry as GeoJSON.Polygon).coordinates[0]) {
+				bounds.extend(coord as [number, number]);
+			}
+		} else if (alert.geometry.type === 'MultiPolygon') {
+			bounds = new mapboxgl.LngLatBounds();
+			for (const polygon of (alert.geometry as GeoJSON.MultiPolygon).coordinates) {
+				for (const coord of polygon[0]) {
+					bounds.extend(coord as [number, number]);
+				}
+			}
+		}
+
+		if (bounds) {
+			map.fitBounds(bounds, {
+				padding: 50,
+				maxZoom: 8,
+				duration: 1500
+			});
+		}
+	}
+
 	onMount(() => {
 		requestAnimationFrame(() => initMap());
 		// Fetch outage data immediately
@@ -5310,6 +5460,15 @@
 				title={weatherRadarVisible ? 'Hide weather radar' : 'Show weather radar'}
 			>
 				<span class="control-icon">{weatherRadarLoading ? '...' : '☁'}</span>
+			</button>
+			<button
+				class="control-btn weather-alerts-btn"
+				class:active={weatherAlertsVisible}
+				class:loading={weatherAlertsLoading}
+				onclick={toggleWeatherAlerts}
+				title={weatherAlertsVisible ? 'Hide weather alerts' : 'Show weather alerts'}
+			>
+				<span class="control-icon">{weatherAlertsLoading ? '...' : '⚠'}</span>
 			</button>
 			<button
 				class="control-btn"
@@ -5859,9 +6018,25 @@
 		animation: pulse 1s ease-in-out infinite;
 	}
 
-	@keyframes pulse {
-		0%, 100% { opacity: 0.5; }
-		50% { opacity: 1; }
+	/* Weather Alerts Button */
+	.weather-alerts-btn.active {
+		background: rgb(127 29 29 / 0.6);
+		border-color: rgb(248 113 113 / 0.6);
+		color: rgb(248 113 113);
+	}
+
+	.weather-alerts-btn:hover {
+		border-color: rgb(248 113 113 / 0.5);
+		color: rgb(248 113 113);
+	}
+
+	.weather-alerts-btn.loading {
+		opacity: 0.7;
+		cursor: wait;
+	}
+
+	.weather-alerts-btn.loading .control-icon {
+		animation: pulse 1s ease-in-out infinite;
 	}
 
 	/* Data Controls Panel */
