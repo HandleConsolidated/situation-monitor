@@ -14,7 +14,9 @@
 	import { selectedAlert, weather } from '$lib/stores';
 	import { ALERT_MAP_COLORS } from '$lib/config/weather';
 	import type { WeatherAlert } from '$lib/types';
-	import { fetchOutageData, fetchUCDPConflicts, fetchAircraftPositions, OpenSkyRateLimitError, getAltitudeColor, formatAltitude, formatVelocity, formatHeading, fetchElevatedVolcanoes, VOLCANO_ALERT_COLORS, VOLCANO_ALERT_DESCRIPTIONS, getLatestRadarTileUrl, getShipTypeColor, formatVesselSpeed, formatVesselCourse, getFlagEmoji, fetchAirQualityData, AIR_QUALITY_COLORS, AIR_QUALITY_DESCRIPTIONS, RADIATION_LEVEL_COLORS, fetchAllActiveAlerts, fetchZoneGeometryForAlert } from '$lib/api';
+	import { fetchOutageData, fetchUCDPConflicts, fetchAircraftPositions, OpenSkyRateLimitError, getAltitudeColor, formatAltitude, formatVelocity, formatHeading, fetchElevatedVolcanoes, VOLCANO_ALERT_COLORS, VOLCANO_ALERT_DESCRIPTIONS, fetchRadarAnimationData, getShipTypeColor, formatVesselSpeed, formatVesselCourse, getFlagEmoji, fetchAirQualityData, AIR_QUALITY_COLORS, AIR_QUALITY_DESCRIPTIONS, RADIATION_LEVEL_COLORS, fetchAllActiveAlerts, fetchZoneGeometryForAlert, fetchActiveTropicalCyclones, fetchCycloneForecastCone, fetchAllDay1Outlooks } from '$lib/api';
+	import type { RadarAnimationData, TropicalCyclone, ConvectiveOutlook } from '$lib/types';
+	import { CYCLONE_COLORS, CONVECTIVE_COLORS } from '$lib/types/storms';
 	import { vesselStore, vesselConnectionStatus, connectVesselStream, disconnectVesselStream } from '$lib/services/vessel-stream';
 	import type { OutageData, VIEWSConflictData, Vessel, RadiationReading } from '$lib/api';
 	import type { CustomMonitor, NewsItem, NewsCategory, Aircraft, VolcanoData, AirQualityReading, DiseaseOutbreak, EarthquakeData } from '$lib/types';
@@ -203,10 +205,26 @@
 	let weatherRadarTileUrl = $state<string | null>(null);
 	let weatherRadarLoading = $state(false);
 
+	// Radar animation state
+	let radarAnimationData = $state<RadarAnimationData | null>(null);
+	let radarAnimationPlaying = $state(false);
+	let radarCurrentFrame = $state(0);
+	let radarAnimationInterval: ReturnType<typeof setInterval> | null = null;
+
 	// Weather alert overlay state
 	let weatherAlertsVisible = $state(false);
 	let weatherAlertsLoading = $state(false);
 	let globeWeatherAlerts = $state<WeatherAlert[]>([]);
+
+	// Tropical cyclone overlay state
+	let tropicalCyclonesVisible = $state(false);
+	let tropicalCyclonesLoading = $state(false);
+	let activeCyclones = $state<TropicalCyclone[]>([]);
+
+	// Convective outlook overlay state
+	let convectiveOutlooksVisible = $state(false);
+	let convectiveOutlooksLoading = $state(false);
+	let convectiveOutlooks = $state<ConvectiveOutlook[]>([]);
 
 	// ADS-B Aircraft tracking data
 	let aircraftData = $state<Aircraft[]>([]);
@@ -4020,6 +4038,47 @@
 			resumeRotation();
 		});
 
+		// Convective outlook hover
+		map.on('mousemove', 'convective-fill', (e) => {
+			if (!e.features || e.features.length === 0 || tooltipLocked || !map) return;
+
+			const props = e.features[0].properties;
+
+			map.getCanvas().style.cursor = 'pointer';
+
+			const riskLabels: Record<string, string> = {
+				TSTM: 'General Thunderstorms',
+				MRGL: 'Marginal Risk',
+				SLGT: 'Slight Risk',
+				ENH: 'Enhanced Risk',
+				MDT: 'Moderate Risk',
+				HIGH: 'HIGH RISK'
+			};
+
+			tooltipData = {
+				label: `Day ${props?.day || 1} Storm Outlook`,
+				type: 'convective',
+				desc: riskLabels[props?.risk] || props?.risk || 'Unknown',
+				level:
+					props?.risk === 'HIGH' || props?.risk === 'MDT'
+						? 'critical'
+						: props?.risk === 'ENH' || props?.risk === 'SLGT'
+							? 'elevated'
+							: 'low'
+			};
+			tooltipVisible = true;
+			updateTooltipPosition(e.point);
+			pauseRotation();
+		});
+
+		map.on('mouseleave', 'convective-fill', () => {
+			if (tooltipLocked || !map) return;
+			map.getCanvas().style.cursor = '';
+			tooltipVisible = false;
+			tooltipData = null;
+			resumeRotation();
+		});
+
 		map.on('click', 'points-layer', (e) => handlePointClick(e));
 		map.on('click', 'news-events-layer', (e) => handlePointClick(e));
 		map.on('click', 'outages-layer', (e) => handleOutageClick(e));
@@ -5354,17 +5413,20 @@
 		}
 	}
 
-	// Load weather radar tile URL from RainViewer
+	// Load weather radar animation data from RainViewer
 	async function loadWeatherRadar() {
 		if (weatherRadarLoading) return;
 		weatherRadarLoading = true;
 		try {
-			const tileUrl = await getLatestRadarTileUrl();
-			if (tileUrl) {
-				weatherRadarTileUrl = tileUrl;
-				// Add or update the radar layer on the map
+			// Fetch full animation data instead of just latest frame
+			const animData = await fetchRadarAnimationData();
+			if (animData && animData.frames.length > 0) {
+				radarAnimationData = animData;
+				radarCurrentFrame = animData.frames.length - 1; // Most recent
+				weatherRadarTileUrl = animData.frames[radarCurrentFrame].tileUrl;
+
 				if (map && isInitialized) {
-					addOrUpdateRadarLayer(tileUrl);
+					addOrUpdateRadarLayer(weatherRadarTileUrl);
 				}
 			}
 		} catch (error) {
@@ -5426,9 +5488,102 @@
 		);
 	}
 
+	// Start/stop radar animation playback
+	function toggleRadarAnimation() {
+		if (!radarAnimationData) return;
+
+		if (radarAnimationPlaying) {
+			// Stop animation
+			if (radarAnimationInterval) {
+				clearInterval(radarAnimationInterval);
+				radarAnimationInterval = null;
+			}
+			radarAnimationPlaying = false;
+		} else {
+			// Start animation
+			radarAnimationPlaying = true;
+			radarAnimationInterval = setInterval(() => {
+				if (!radarAnimationData) return;
+				radarCurrentFrame = (radarCurrentFrame + 1) % radarAnimationData.frames.length;
+				updateRadarFrame(radarCurrentFrame);
+			}, 500); // 2 fps
+		}
+	}
+
+	// Update map to show specific radar frame
+	function updateRadarFrame(frameIndex: number) {
+		if (!map || !radarAnimationData || !radarAnimationData.frames[frameIndex]) return;
+
+		const frame = radarAnimationData.frames[frameIndex];
+
+		// Update the raster source with new tile URL
+		const source = map.getSource('weather-radar');
+		if (source) {
+			// Remove and re-add source with new tiles (Mapbox limitation)
+			if (map.getLayer('weather-radar-layer')) {
+				map.removeLayer('weather-radar-layer');
+			}
+			map.removeSource('weather-radar');
+
+			map.addSource('weather-radar', {
+				type: 'raster',
+				tiles: [frame.tileUrl],
+				tileSize: 256
+			});
+
+			// Find the first symbol layer to insert before it
+			const layers = map.getStyle()?.layers || [];
+			let firstSymbolLayer: string | undefined;
+			for (const layer of layers) {
+				if (layer.type === 'symbol' || layer.type === 'circle') {
+					firstSymbolLayer = layer.id;
+					break;
+				}
+			}
+
+			map.addLayer(
+				{
+					id: 'weather-radar-layer',
+					type: 'raster',
+					source: 'weather-radar',
+					paint: {
+						'raster-opacity': 0.6,
+						'raster-fade-duration': 0 // Instant for animation
+					}
+				},
+				firstSymbolLayer
+			);
+		}
+	}
+
+	// Step forward one frame
+	function radarStepForward() {
+		if (!radarAnimationData) return;
+		radarCurrentFrame = (radarCurrentFrame + 1) % radarAnimationData.frames.length;
+		updateRadarFrame(radarCurrentFrame);
+	}
+
+	// Step backward one frame
+	function radarStepBackward() {
+		if (!radarAnimationData) return;
+		radarCurrentFrame =
+			(radarCurrentFrame - 1 + radarAnimationData.frames.length) %
+			radarAnimationData.frames.length;
+		updateRadarFrame(radarCurrentFrame);
+	}
+
 	// Toggle weather radar visibility
 	function toggleWeatherRadar() {
 		weatherRadarVisible = !weatherRadarVisible;
+
+		// Stop animation when hiding radar
+		if (!weatherRadarVisible && radarAnimationPlaying) {
+			if (radarAnimationInterval) {
+				clearInterval(radarAnimationInterval);
+				radarAnimationInterval = null;
+			}
+			radarAnimationPlaying = false;
+		}
 
 		// Load radar data if not already loaded
 		if (weatherRadarVisible && !weatherRadarTileUrl && !weatherRadarLoading) {
@@ -5606,6 +5761,295 @@
 		}
 	}
 
+	// Fetch active tropical cyclones
+	async function loadTropicalCyclones() {
+		if (tropicalCyclonesLoading) return;
+		tropicalCyclonesLoading = true;
+
+		try {
+			const cyclones = await fetchActiveTropicalCyclones();
+			activeCyclones = cyclones;
+
+			// Fetch forecast cones for each cyclone
+			for (const cyclone of cyclones) {
+				const cone = await fetchCycloneForecastCone(cyclone.basin, cyclone.stormNumber);
+				if (cone) {
+					cyclone.forecastCone = cone;
+				}
+			}
+
+			if (map && isInitialized) {
+				updateCycloneLayers();
+			}
+
+			console.log(`[Tropical] Loaded ${cyclones.length} active cyclones`);
+		} catch (error) {
+			console.warn('Failed to fetch tropical cyclones:', error);
+		} finally {
+			tropicalCyclonesLoading = false;
+		}
+	}
+
+	// Update cyclone visualization layers
+	function updateCycloneLayers() {
+		if (!map) return;
+
+		// Remove existing cyclone layers
+		const layerIds = ['cyclone-cones', 'cyclone-tracks', 'cyclone-points', 'cyclone-labels'];
+		for (const id of layerIds) {
+			if (map.getLayer(id)) map.removeLayer(id);
+		}
+		if (map.getSource('cyclone-data')) map.removeSource('cyclone-data');
+		if (map.getSource('cyclone-cones')) map.removeSource('cyclone-cones');
+
+		if (activeCyclones.length === 0) return;
+
+		// Build GeoJSON for tracks and points
+		const trackFeatures: GeoJSON.Feature[] = [];
+		const pointFeatures: GeoJSON.Feature[] = [];
+		const coneFeatures: GeoJSON.Feature[] = [];
+
+		for (const cyclone of activeCyclones) {
+			// Forecast track line
+			if (cyclone.forecastTrack.length > 1) {
+				trackFeatures.push({
+					type: 'Feature',
+					properties: {
+						id: cyclone.id,
+						name: cyclone.name,
+						category: cyclone.currentIntensity.category
+					},
+					geometry: {
+						type: 'LineString',
+						coordinates: cyclone.forecastTrack.map((p) => [p.lon, p.lat])
+					}
+				});
+			}
+
+			// Forecast points
+			for (const point of cyclone.forecastTrack) {
+				pointFeatures.push({
+					type: 'Feature',
+					properties: {
+						id: cyclone.id,
+						name: cyclone.name,
+						hour: point.forecastHour,
+						wind: point.maxWind,
+						category: point.category,
+						color: CYCLONE_COLORS[point.category]
+					},
+					geometry: {
+						type: 'Point',
+						coordinates: [point.lon, point.lat]
+					}
+				});
+			}
+
+			// Forecast cone
+			if (cyclone.forecastCone) {
+				coneFeatures.push({
+					type: 'Feature',
+					properties: {
+						id: cyclone.id,
+						name: cyclone.name
+					},
+					geometry: cyclone.forecastCone
+				});
+			}
+		}
+
+		// Add cone source and layer
+		if (coneFeatures.length > 0) {
+			map.addSource('cyclone-cones', {
+				type: 'geojson',
+				data: { type: 'FeatureCollection', features: coneFeatures }
+			});
+
+			map.addLayer({
+				id: 'cyclone-cones',
+				type: 'fill',
+				source: 'cyclone-cones',
+				paint: {
+					'fill-color': 'rgba(255, 255, 255, 0.15)',
+					'fill-outline-color': 'rgba(255, 255, 255, 0.5)'
+				}
+			});
+		}
+
+		// Add track/point source
+		map.addSource('cyclone-data', {
+			type: 'geojson',
+			data: { type: 'FeatureCollection', features: [...trackFeatures, ...pointFeatures] }
+		});
+
+		// Track lines
+		map.addLayer({
+			id: 'cyclone-tracks',
+			type: 'line',
+			source: 'cyclone-data',
+			filter: ['==', '$type', 'LineString'],
+			paint: {
+				'line-color': '#ffffff',
+				'line-width': 2,
+				'line-dasharray': [2, 2]
+			}
+		});
+
+		// Forecast points
+		map.addLayer({
+			id: 'cyclone-points',
+			type: 'circle',
+			source: 'cyclone-data',
+			filter: ['==', '$type', 'Point'],
+			paint: {
+				'circle-radius': ['case', ['==', ['get', 'hour'], 0], 10, 6],
+				'circle-color': ['get', 'color'],
+				'circle-stroke-color': '#000000',
+				'circle-stroke-width': 1
+			}
+		});
+
+		// Labels for current positions
+		map.addLayer({
+			id: 'cyclone-labels',
+			type: 'symbol',
+			source: 'cyclone-data',
+			filter: ['all', ['==', '$type', 'Point'], ['==', ['get', 'hour'], 0]],
+			layout: {
+				'text-field': ['get', 'name'],
+				'text-size': 12,
+				'text-offset': [0, 1.5],
+				'text-anchor': 'top'
+			},
+			paint: {
+				'text-color': '#ffffff',
+				'text-halo-color': '#000000',
+				'text-halo-width': 1
+			}
+		});
+
+		// Set visibility based on state
+		const visibility = tropicalCyclonesVisible ? 'visible' : 'none';
+		for (const id of layerIds) {
+			if (map.getLayer(id)) {
+				map.setLayoutProperty(id, 'visibility', visibility);
+			}
+		}
+	}
+
+	// Toggle cyclone visibility
+	function toggleTropicalCyclones() {
+		tropicalCyclonesVisible = !tropicalCyclonesVisible;
+
+		if (tropicalCyclonesVisible && activeCyclones.length === 0) {
+			loadTropicalCyclones();
+		}
+
+		// Toggle layer visibility
+		const layerIds = ['cyclone-cones', 'cyclone-tracks', 'cyclone-points', 'cyclone-labels'];
+		for (const id of layerIds) {
+			if (map?.getLayer(id)) {
+				map.setLayoutProperty(id, 'visibility', tropicalCyclonesVisible ? 'visible' : 'none');
+			}
+		}
+	}
+
+	// Fetch convective outlooks from SPC
+	async function loadConvectiveOutlooks() {
+		if (convectiveOutlooksLoading) return;
+		convectiveOutlooksLoading = true;
+
+		try {
+			const outlooks = await fetchAllDay1Outlooks();
+			convectiveOutlooks = outlooks;
+
+			if (map && isInitialized) {
+				updateConvectiveLayer();
+			}
+
+			console.log(`[SPC] Loaded ${outlooks.length} convective outlook polygons`);
+		} catch (error) {
+			console.warn('Failed to fetch convective outlooks:', error);
+		} finally {
+			convectiveOutlooksLoading = false;
+		}
+	}
+
+	// Update convective outlook layer on the map
+	function updateConvectiveLayer() {
+		if (!map) return;
+
+		// Remove existing layers and source
+		if (map.getLayer('convective-fill')) map.removeLayer('convective-fill');
+		if (map.getLayer('convective-outline')) map.removeLayer('convective-outline');
+		if (map.getSource('convective-outlooks')) map.removeSource('convective-outlooks');
+
+		if (convectiveOutlooks.length === 0) return;
+
+		// Only show categorical outlooks on main layer
+		const categoricalOutlooks = convectiveOutlooks.filter(
+			(o: ConvectiveOutlook) => o.type === 'categorical'
+		);
+
+		const features: GeoJSON.Feature[] = categoricalOutlooks.map((outlook: ConvectiveOutlook) => ({
+			type: 'Feature',
+			properties: {
+				risk: outlook.risk,
+				color: CONVECTIVE_COLORS[outlook.risk],
+				day: outlook.day
+			},
+			geometry: outlook.geometry
+		}));
+
+		map.addSource('convective-outlooks', {
+			type: 'geojson',
+			data: { type: 'FeatureCollection', features }
+		});
+
+		// Fill layer
+		map.addLayer({
+			id: 'convective-fill',
+			type: 'fill',
+			source: 'convective-outlooks',
+			paint: {
+				'fill-color': ['get', 'color'],
+				'fill-opacity': 0.3
+			}
+		});
+
+		// Outline
+		map.addLayer({
+			id: 'convective-outline',
+			type: 'line',
+			source: 'convective-outlooks',
+			paint: {
+				'line-color': ['get', 'color'],
+				'line-width': 2
+			}
+		});
+
+		// Set initial visibility based on state
+		const visibility = convectiveOutlooksVisible ? 'visible' : 'none';
+		map.setLayoutProperty('convective-fill', 'visibility', visibility);
+		map.setLayoutProperty('convective-outline', 'visibility', visibility);
+	}
+
+	// Toggle convective outlook visibility
+	function toggleConvectiveOutlooks() {
+		convectiveOutlooksVisible = !convectiveOutlooksVisible;
+
+		if (convectiveOutlooksVisible && convectiveOutlooks.length === 0) {
+			loadConvectiveOutlooks();
+		}
+
+		// Toggle layer visibility if layers exist
+		for (const id of ['convective-fill', 'convective-outline']) {
+			if (map?.getLayer(id)) {
+				map.setLayoutProperty(id, 'visibility', convectiveOutlooksVisible ? 'visible' : 'none');
+			}
+		}
+	}
+
 	onMount(() => {
 		requestAnimationFrame(() => initMap());
 		// Fetch outage data immediately
@@ -5629,6 +6073,11 @@
 		stopMapUpdatePolling();
 		stopAircraftPolling();
 		stopVesselStream();
+		// Cleanup radar animation interval
+		if (radarAnimationInterval) {
+			clearInterval(radarAnimationInterval);
+			radarAnimationInterval = null;
+		}
 		if (map) {
 			map.remove();
 			map = null;
@@ -5669,6 +6118,42 @@
 			>
 				<span class="control-icon">&#9881;</span>
 			</button>
+			<!-- Radar controls group -->
+			<div class="radar-controls" class:visible={weatherRadarVisible && radarAnimationData}>
+				<button
+					class="control-btn radar-step-btn"
+					onclick={radarStepBackward}
+					title="Previous frame"
+					disabled={!radarAnimationData}
+				>
+					<span class="control-icon">&#9198;</span>
+				</button>
+				<button
+					class="control-btn radar-play-btn"
+					class:active={radarAnimationPlaying}
+					onclick={toggleRadarAnimation}
+					title={radarAnimationPlaying ? 'Pause' : 'Play'}
+					disabled={!radarAnimationData}
+				>
+					<span class="control-icon">{radarAnimationPlaying ? '&#9208;' : '&#9654;'}</span>
+				</button>
+				<button
+					class="control-btn radar-step-btn"
+					onclick={radarStepForward}
+					title="Next frame"
+					disabled={!radarAnimationData}
+				>
+					<span class="control-icon">&#9197;</span>
+				</button>
+				<div class="radar-timestamp">
+					{#if radarAnimationData && radarAnimationData.frames[radarCurrentFrame]}
+						{new Date(radarAnimationData.frames[radarCurrentFrame].timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+						{#if radarAnimationData.frames[radarCurrentFrame].type === 'nowcast'}
+							<span class="nowcast-badge">FCST</span>
+						{/if}
+					{/if}
+				</div>
+			</div>
 			<button
 				class="control-btn weather-radar-btn"
 				class:active={weatherRadarVisible}
@@ -6233,6 +6718,51 @@
 
 	.weather-radar-btn.loading .control-icon {
 		animation: pulse 1s ease-in-out infinite;
+	}
+
+	/* Radar Animation Controls */
+	.radar-controls {
+		display: none;
+		align-items: center;
+		gap: 2px;
+		background: rgb(15 23 42 / 0.8);
+		border: 1px solid rgb(51 65 85 / 0.5);
+		border-radius: 4px;
+		padding: 2px 4px;
+	}
+
+	.radar-controls.visible {
+		display: flex;
+	}
+
+	.radar-step-btn,
+	.radar-play-btn {
+		padding: 4px 6px;
+		min-width: 24px;
+	}
+
+	.radar-play-btn.active {
+		background: rgb(6 78 59 / 0.6);
+		border-color: rgb(16 185 129 / 0.6);
+		color: rgb(52 211 153);
+	}
+
+	.radar-timestamp {
+		font-size: 10px;
+		font-family: 'JetBrains Mono', 'SF Mono', Monaco, monospace;
+		color: rgb(148 163 184);
+		padding: 0 6px;
+		min-width: 60px;
+		text-align: center;
+	}
+
+	.nowcast-badge {
+		font-size: 8px;
+		background: rgb(59 130 246 / 0.3);
+		color: rgb(96 165 250);
+		padding: 1px 3px;
+		border-radius: 2px;
+		margin-left: 4px;
 	}
 
 	/* Weather Alerts Button */
