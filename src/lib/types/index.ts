@@ -503,3 +503,6 @@ export type {
 
 // Radar animation types
 export type { RadarFrame, RadarAnimationData, RadarAnimationControls } from './radar';
+
+// Tropical cyclone types
+export * from './storms';
