@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { Header } from '$lib/components/layout';
-	import { SettingsModal, MonitorFormModal, MonitorMatchesModal, OnboardingModal } from '$lib/components/modals';
+	import { SettingsModal, MonitorFormModal, MonitorMatchesModal, OnboardingModal, WeatherCommandModal } from '$lib/components/modals';
 	import {
 		NewsPanel,
 		MarketsPanel,
@@ -27,7 +27,8 @@
 		RadiationPanel,
 		DiseaseOutbreakPanel,
 		AnalysisChatPanel,
-		AircraftPanel
+		AircraftPanel,
+		WeatherPanel
 	} from '$lib/components/panels';
 	import {
 		news,
@@ -43,7 +44,8 @@
 		bottomPanels,
 		correlationResults,
 		narrativeResults,
-		mainCharacterResults
+		mainCharacterResults,
+		weather
 	} from '$lib/stores';
 	import { seenItems } from '$lib/services/seen-items';
 	import { DropZone } from '$lib/components/common';
@@ -72,6 +74,9 @@
 	let onboardingOpen = $state(false);
 	let editingMonitor = $state<CustomMonitor | null>(null);
 	let viewingMonitor = $state<CustomMonitor | null>(null);
+
+	// Weather command modal is controlled by weather store
+	const weatherModalOpen = $derived($weather.commandModalOpen);
 
 	// Misc panel data
 	let predictions = $state<Prediction[]>([]);
@@ -679,6 +684,13 @@
 							{actionHandlers}
 							{initialDataLoaded}
 						/>
+					{:else if panelId === 'weather'}
+						<WeatherPanel
+							onAlertClick={() => {
+								// Globe will auto-fly to alert via selectedAlert effect
+							}}
+							onOpenCommandCenter={() => weather.openCommandModal()}
+						/>
 					{/if}
 				{/each}
 			</DropZone>
@@ -882,6 +894,13 @@
 							{actionHandlers}
 							{initialDataLoaded}
 						/>
+					{:else if panelId === 'weather'}
+						<WeatherPanel
+							onAlertClick={() => {
+								// Globe will auto-fly to alert via selectedAlert effect
+							}}
+							onOpenCommandCenter={() => weather.openCommandModal()}
+						/>
 					{/if}
 				{/each}
 			</DropZone>
@@ -1029,6 +1048,13 @@
 					onOpenSettings={() => settingsOpen = true}
 					{initialDataLoaded}
 				/>
+			{:else if panelId === 'weather'}
+				<WeatherPanel
+					onAlertClick={() => {
+						// Globe will auto-fly to alert via selectedAlert effect
+					}}
+					onOpenCommandCenter={() => weather.openCommandModal()}
+				/>
 			{/if}
 		{/each}
 	</DropZone>
@@ -1052,6 +1078,13 @@
 		onEdit={handleEditMonitor}
 	/>
 	<OnboardingModal open={onboardingOpen} onSelectPreset={handleSelectPreset} />
+	<WeatherCommandModal
+		open={weatherModalOpen}
+		onClose={() => weather.closeCommandModal()}
+		onAlertSelect={() => {
+			// Globe will auto-fly via selectedAlert effect
+		}}
+	/>
 </div>
 
 <style>
