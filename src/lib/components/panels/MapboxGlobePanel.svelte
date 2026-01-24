@@ -4843,6 +4843,20 @@
 		isProcessingStoreAlerts = false;
 	}
 
+	// Reactively update weather alert layer when globeWeatherAlerts or visibility changes
+	$effect(() => {
+		// Track dependencies
+		const alertCount = globeWeatherAlerts.length;
+		const storeAlertCount = $weather.alerts.length;
+		const visible = weatherAlertsVisible;
+
+		// Only update if we have alerts and layer is visible
+		if ((alertCount > 0 || storeAlertCount > 0) && visible && map && isInitialized) {
+			// Use tick to ensure state is committed before updating
+			updateWeatherAlertLayer();
+		}
+	});
+
 	// Animate enhanced marker glow effects for visual hierarchy
 	$effect(() => {
 		if (!map || !isInitialized) return;

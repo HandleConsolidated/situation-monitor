@@ -114,3 +114,79 @@ export const CONVECTIVE_COLORS: Record<ConvectiveRisk, string> = {
 	MDT: '#e67c7c', // Red
 	HIGH: '#ff66ff' // Magenta
 };
+
+/**
+ * Watch types from SPC
+ */
+export type WatchType = 'tornado' | 'severe_thunderstorm';
+
+/**
+ * SPC Watch Box (Tornado Watch or Severe Thunderstorm Watch)
+ */
+export interface SPCWatch {
+	id: string;
+	type: WatchType;
+	number: number;
+	issued: string;
+	expires: string;
+	geometry: GeoJSON.Geometry;
+	counties: string[];
+	maxHailSize: number | null; // inches
+	maxWindGust: number | null; // mph
+	tornadoThreat: 'low' | 'moderate' | 'high' | null;
+	replacesWatch: number | null;
+}
+
+/**
+ * SPC Mesoscale Discussion
+ */
+export interface MesoscaleDiscussion {
+	id: string;
+	number: number;
+	issued: string;
+	expires: string;
+	geometry: GeoJSON.Geometry;
+	concernType: 'severe' | 'winter' | 'fire' | 'other';
+	watchLikelihood: 'unlikely' | 'possible' | 'likely' | null;
+	summary: string;
+	affectedAreas: string;
+}
+
+/**
+ * Storm Report type from SPC
+ */
+export type StormReportType = 'tornado' | 'hail' | 'wind';
+
+/**
+ * Individual storm report from SPC
+ */
+export interface StormReport {
+	id: string;
+	type: StormReportType;
+	lat: number;
+	lon: number;
+	time: string;
+	magnitude: number | null; // Tornado: EF scale, Hail: inches, Wind: mph
+	location: string;
+	county: string;
+	state: string;
+	source: string;
+	comments: string;
+}
+
+/**
+ * Color mapping for watch types
+ */
+export const WATCH_COLORS: Record<WatchType, string> = {
+	tornado: '#ff0000', // Red
+	severe_thunderstorm: '#ffaa00' // Orange
+};
+
+/**
+ * Color mapping for storm report types
+ */
+export const STORM_REPORT_COLORS: Record<StormReportType, string> = {
+	tornado: '#ff0000', // Red
+	hail: '#00ff00', // Green
+	wind: '#0088ff' // Blue
+};

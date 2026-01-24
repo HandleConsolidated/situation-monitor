@@ -10,7 +10,12 @@ import type {
 	CycloneCategory,
 	CycloneForecastPoint,
 	ConvectiveOutlook,
-	ConvectiveRisk
+	ConvectiveRisk,
+	SPCWatch,
+	WatchType,
+	MesoscaleDiscussion,
+	StormReport,
+	StormReportType
 } from '$lib/types/storms';
 
 // =====================================
@@ -300,4 +305,271 @@ export async function fetchAllDay1Outlooks(): Promise<ConvectiveOutlook[]> {
 	]);
 
 	return [...categorical, ...tornado, ...hail, ...wind];
+}
+
+// =====================================
+// SPC Watches API
+// =====================================
+
+// Active watches from NWS MapServer
+const WATCHES_BASE_URL =
+	'https://mapservices.weather.noaa.gov/vector/rest/services/watch_warn_adv/watch_warn_adv_all/MapServer';
+
+// Layer IDs for watches
+const WATCH_LAYERS = {
+	tornadoWatch: 0,
+	severeThunderstormWatch: 1
+};
+
+/**
+ * Fetch active SPC watches (Tornado and Severe Thunderstorm)
+ */
+export async function fetchActiveWatches(): Promise<SPCWatch[]> {
+	const watches: SPCWatch[] = [];
+
+	const watchTypes: Array<{ layer: number; type: WatchType }> = [
+		{ layer: WATCH_LAYERS.tornadoWatch, type: 'tornado' },
+		{ layer: WATCH_LAYERS.severeThunderstormWatch, type: 'severe_thunderstorm' }
+	];
+
+	for (const { layer, type } of watchTypes) {
+		try {
+			const url = `${WATCHES_BASE_URL}/${layer}/query?where=1=1&outFields=*&f=geojson`;
+
+			const response = await fetch(url, {
+				signal: AbortSignal.timeout(15000)
+			});
+
+			if (!response.ok) continue;
+
+			const data = await response.json();
+
+			if (!data.features || data.features.length === 0) continue;
+
+			for (const feature of data.features) {
+				const props = feature.properties;
+
+				// Parse watch number from various possible fields
+				const watchNum =
+					props.WATCHNUM ||
+					props.WN ||
+					props.VTEC?.match(/\.W(\d+)\./)?.[1] ||
+					0;
+
+				watches.push({
+					id: `${type}_${watchNum}`,
+					type,
+					number: parseInt(watchNum) || 0,
+					issued: props.ISSUED || props.ISSUETIME || '',
+					expires: props.EXPIRED || props.EXPIRETIME || props.ENDS || '',
+					geometry: feature.geometry,
+					counties: (props.NAME || '').split(',').map((c: string) => c.trim()),
+					maxHailSize: props.MAX_HAIL || null,
+					maxWindGust: props.MAX_WIND || null,
+					tornadoThreat:
+						type === 'tornado'
+							? props.TORNADO_THREAT?.toLowerCase() || null
+							: null,
+					replacesWatch: props.REPLACES || null
+				});
+			}
+		} catch (error) {
+			console.warn(`Failed to fetch ${type} watches:`, error);
+		}
+	}
+
+	return watches;
+}
+
+// =====================================
+// SPC Mesoscale Discussions API
+// =====================================
+
+// Mesoscale discussion RSS feed URL (SPC)
+const MD_BASE_URL =
+	'https://mapservices.weather.noaa.gov/vector/rest/services/outlooks/SPC_wx_outlks/MapServer';
+
+// Layer for mesoscale discussions
+const MD_LAYER = 24; // Active mesoscale discussions
+
+/**
+ * Fetch active SPC Mesoscale Discussions
+ */
+export async function fetchMesoscaleDiscussions(): Promise<MesoscaleDiscussion[]> {
+	const discussions: MesoscaleDiscussion[] = [];
+
+	try {
+		const url = `${MD_BASE_URL}/${MD_LAYER}/query?where=1=1&outFields=*&f=geojson`;
+
+		const response = await fetch(url, {
+			signal: AbortSignal.timeout(15000)
+		});
+
+		if (!response.ok) return [];
+
+		const data = await response.json();
+
+		if (!data.features) return [];
+
+		for (const feature of data.features) {
+			const props = feature.properties;
+
+			// Determine concern type from discussion text or product type
+			let concernType: MesoscaleDiscussion['concernType'] = 'severe';
+			const text = (props.PROD_TYPE || props.PHENOM || '').toLowerCase();
+			if (text.includes('winter') || text.includes('snow') || text.includes('ice')) {
+				concernType = 'winter';
+			} else if (text.includes('fire')) {
+				concernType = 'fire';
+			}
+
+			// Parse watch likelihood
+			let watchLikelihood: MesoscaleDiscussion['watchLikelihood'] = null;
+			const summary = (props.SUMMARY || props.REMARKS || '').toLowerCase();
+			if (summary.includes('watch likely') || summary.includes('watch is likely')) {
+				watchLikelihood = 'likely';
+			} else if (summary.includes('watch possible') || summary.includes('may be needed')) {
+				watchLikelihood = 'possible';
+			} else if (summary.includes('watch unlikely') || summary.includes('not expected')) {
+				watchLikelihood = 'unlikely';
+			}
+
+			discussions.push({
+				id: `md_${props.MD_NUMBER || props.OBJECTID || Date.now()}`,
+				number: props.MD_NUMBER || props.OBJECTID || 0,
+				issued: props.ISSUE_TIME || props.ISSUED || '',
+				expires: props.EXPIRE_TIME || props.EXPIRED || '',
+				geometry: feature.geometry,
+				concernType,
+				watchLikelihood,
+				summary: props.SUMMARY || props.REMARKS || '',
+				affectedAreas: props.AREAS_AFFECTED || props.NAME || ''
+			});
+		}
+	} catch (error) {
+		console.warn('Failed to fetch mesoscale discussions:', error);
+	}
+
+	return discussions;
+}
+
+// =====================================
+// SPC Storm Reports API
+// =====================================
+
+// Storm reports from SPC (today's reports)
+const STORM_REPORTS_URL = 'https://www.spc.noaa.gov/climo/reports';
+
+/**
+ * Parse SPC storm reports CSV data
+ */
+function parseStormReportsCSV(
+	csv: string,
+	type: StormReportType
+): StormReport[] {
+	const reports: StormReport[] = [];
+	const lines = csv.trim().split('\n');
+
+	// Skip header line if present
+	const startIndex = lines[0]?.includes('Time') ? 1 : 0;
+
+	for (let i = startIndex; i < lines.length; i++) {
+		const line = lines[i];
+		if (!line.trim()) continue;
+
+		const parts = line.split(',');
+		if (parts.length < 8) continue;
+
+		try {
+			// CSV format varies by report type but generally:
+			// Time, F_Scale/Size/Speed, Location, County, State, Lat, Lon, Comments
+			const time = parts[0]?.trim();
+			const magnitude = parseFloat(parts[1]?.trim() || '0') || null;
+			const location = parts[2]?.trim() || '';
+			const county = parts[3]?.trim() || '';
+			const state = parts[4]?.trim() || '';
+			const lat = parseFloat(parts[5]?.trim() || '0');
+			const lon = parseFloat(parts[6]?.trim() || '0');
+			const comments = parts.slice(7).join(',').trim();
+
+			if (isNaN(lat) || isNaN(lon) || lat === 0 || lon === 0) continue;
+
+			reports.push({
+				id: `${type}_${time}_${lat}_${lon}`,
+				type,
+				lat,
+				lon: lon > 0 ? -lon : lon, // SPC uses positive lon for US, need negative
+				time,
+				magnitude,
+				location,
+				county,
+				state,
+				source: 'SPC',
+				comments
+			});
+		} catch {
+			// Skip malformed lines
+			continue;
+		}
+	}
+
+	return reports;
+}
+
+/**
+ * Fetch today's storm reports from SPC
+ */
+export async function fetchTodayStormReports(): Promise<StormReport[]> {
+	const reports: StormReport[] = [];
+
+	const reportTypes: Array<{ file: string; type: StormReportType }> = [
+		{ file: 'today_torn.csv', type: 'tornado' },
+		{ file: 'today_hail.csv', type: 'hail' },
+		{ file: 'today_wind.csv', type: 'wind' }
+	];
+
+	for (const { file, type } of reportTypes) {
+		try {
+			// Use CORS proxy for SPC data
+			const url = `${STORM_REPORTS_URL}/${file}`;
+
+			const response = await fetch(url, {
+				signal: AbortSignal.timeout(15000)
+			});
+
+			if (!response.ok) continue;
+
+			const csv = await response.text();
+			const parsed = parseStormReportsCSV(csv, type);
+			reports.push(...parsed);
+		} catch (error) {
+			console.warn(`Failed to fetch ${type} reports:`, error);
+		}
+	}
+
+	return reports;
+}
+
+/**
+ * Fetch all severe weather data (outlooks, watches, MDs, reports)
+ */
+export async function fetchAllSevereWeatherData(): Promise<{
+	outlooks: ConvectiveOutlook[];
+	watches: SPCWatch[];
+	mesoscaleDiscussions: MesoscaleDiscussion[];
+	stormReports: StormReport[];
+}> {
+	const [outlooks, watches, mesoscaleDiscussions, stormReports] = await Promise.all([
+		fetchAllDay1Outlooks(),
+		fetchActiveWatches(),
+		fetchMesoscaleDiscussions(),
+		fetchTodayStormReports()
+	]);
+
+	return {
+		outlooks,
+		watches,
+		mesoscaleDiscussions,
+		stormReports
+	};
 }
