@@ -140,6 +140,10 @@ interface GridPointProperties {
 		};
 	};
 	timeZone: string;
+	// Zone URLs for alert lookups
+	forecastZone: string;
+	county: string;
+	fireWeatherZone: string;
 }
 
 interface GridPointResponse {
@@ -208,6 +212,62 @@ export async function fetchForecast(lat: number, lon: number): Promise<ForecastP
 		return data.properties.periods;
 	} catch (error) {
 		logger.warn('Weather', `Failed to fetch forecast for ${lat},${lon}:`, error);
+		return [];
+	}
+}
+
+/**
+ * Fetch alerts for a specific point location
+ * Uses the NWS points API to determine the forecast zone, then fetches alerts for that zone
+ * @param lat - Latitude
+ * @param lon - Longitude
+ */
+export async function fetchAlertsForPoint(lat: number, lon: number): Promise<WeatherAlert[]> {
+	try {
+		const gridPoint = await fetchGridPoint(lat, lon);
+		if (!gridPoint) {
+			logger.warn('Weather', `Could not get grid point for ${lat},${lon}`);
+			return [];
+		}
+
+		// Get zone information from grid point
+		const forecastZone = gridPoint.forecastZone;
+		const countyZone = gridPoint.county;
+		const fireZone = gridPoint.fireWeatherZone;
+
+		const alerts: WeatherAlert[] = [];
+		const seenIds = new Set<string>();
+
+		// Extract zone codes from URLs
+		const extractZoneCode = (url: string) => {
+			const match = url.match(/\/zones\/\w+\/([A-Z]{2}[CZ]\d{3})/);
+			return match ? match[1] : null;
+		};
+
+		// Fetch alerts for each zone type (forecast, county, fire)
+		const zones = [forecastZone, countyZone, fireZone].filter(Boolean);
+
+		for (const zoneUrl of zones) {
+			const zoneCode = extractZoneCode(zoneUrl);
+			if (!zoneCode) continue;
+
+			try {
+				const zoneAlerts = await fetchAlertsByZone(zoneCode);
+				for (const alert of zoneAlerts) {
+					if (!seenIds.has(alert.id)) {
+						seenIds.add(alert.id);
+						alerts.push(alert);
+					}
+				}
+			} catch {
+				// Continue with other zones if one fails
+			}
+		}
+
+		logger.log('Weather', `Fetched ${alerts.length} alerts for point ${lat},${lon}`);
+		return alerts;
+	} catch (error) {
+		logger.warn('Weather', `Failed to fetch alerts for point ${lat},${lon}:`, error);
 		return [];
 	}
 }

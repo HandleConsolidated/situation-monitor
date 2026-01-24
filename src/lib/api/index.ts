@@ -24,6 +24,7 @@ export {
 	fetchAlertsByZone,
 	fetchAllActiveAlerts,
 	fetchAlertsForStates,
+	fetchAlertsForPoint,
 	fetchGridPoint,
 	fetchForecast,
 	fetchZoneInfo,
@@ -38,5 +39,9 @@ export {
 	fetchActiveTropicalCyclones,
 	fetchCycloneForecastCone,
 	fetchConvectiveOutlooks,
-	fetchAllDay1Outlooks
+	fetchAllDay1Outlooks,
+	fetchActiveWatches,
+	fetchMesoscaleDiscussions,
+	fetchTodayStormReports,
+	fetchAllSevereWeatherData
 } from './storms';

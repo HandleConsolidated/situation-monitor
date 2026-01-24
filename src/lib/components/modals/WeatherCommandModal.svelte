@@ -3,6 +3,13 @@
 	import { weather, alertCount, zoneCount, weatherLoading } from '$lib/stores/weather';
 	import { US_STATES, PREDEFINED_REGIONS, ALERT_SEVERITY_COLORS } from '$lib/config/weather';
 	import type { WeatherAlert, AlertSeverity } from '$lib/types';
+	import { marked } from 'marked';
+
+	// Configure marked for safe rendering
+	marked.setOptions({
+		gfm: true,
+		breaks: true
+	});
 
 	interface Props {
 		open: boolean;
@@ -25,6 +32,14 @@
 	let briefingFormat = $state<'text' | 'markdown' | 'json'>('text');
 	let generatedBriefing = $state<string | null>(null);
 	let copySuccess = $state(false);
+	let showRenderedMarkdown = $state(true);
+
+	// Render markdown to HTML
+	let renderedMarkdown = $derived(
+		briefingFormat === 'markdown' && generatedBriefing
+			? marked.parse(generatedBriefing)
+			: ''
+	);
 
 	// Derived values from store
 	let alerts = $derived($weather.alerts);
@@ -420,15 +435,32 @@
 					<section class="briefing-section">
 						<div class="briefing-header">
 							<h4 class="zone-section-title">Generated Briefing</h4>
-							<button
-								class="copy-btn"
-								class:success={copySuccess}
-								onclick={copyBriefing}
-							>
-								{copySuccess ? 'COPIED!' : 'COPY'}
-							</button>
+							<div class="briefing-actions">
+								{#if briefingFormat === 'markdown'}
+									<button
+										class="view-toggle-btn"
+										class:active={showRenderedMarkdown}
+										onclick={() => showRenderedMarkdown = !showRenderedMarkdown}
+									>
+										{showRenderedMarkdown ? 'RAW' : 'PREVIEW'}
+									</button>
+								{/if}
+								<button
+									class="copy-btn"
+									class:success={copySuccess}
+									onclick={copyBriefing}
+								>
+									{copySuccess ? 'COPIED!' : 'COPY'}
+								</button>
+							</div>
 						</div>
-						<pre class="briefing-output">{generatedBriefing}</pre>
+						{#if briefingFormat === 'markdown' && showRenderedMarkdown}
+							<div class="briefing-rendered">
+								{@html renderedMarkdown}
+							</div>
+						{:else}
+							<pre class="briefing-output">{generatedBriefing}</pre>
+						{/if}
 					</section>
 				{/if}
 			</div>
@@ -988,6 +1020,35 @@
 		align-items: center;
 	}
 
+	.briefing-actions {
+		display: flex;
+		gap: 0.35rem;
+	}
+
+	.view-toggle-btn {
+		padding: 0.3rem 0.5rem;
+		background: var(--card-bg);
+		border: 1px solid var(--border);
+		border-radius: 2px;
+		color: var(--text-muted);
+		font-size: 0.45rem;
+		font-family: 'SF Mono', Monaco, monospace;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.15s ease;
+	}
+
+	.view-toggle-btn:hover {
+		border-color: var(--accent-border);
+		color: var(--accent);
+	}
+
+	.view-toggle-btn.active {
+		border-color: var(--accent);
+		color: var(--accent);
+		background: rgba(34, 211, 238, 0.1);
+	}
+
 	.copy-btn {
 		padding: 0.3rem 0.5rem;
 		background: var(--card-bg);
@@ -1026,5 +1087,111 @@
 		max-height: 300px;
 		overflow-y: auto;
 		line-height: 1.5;
+	}
+
+	/* Rendered Markdown Styles */
+	.briefing-rendered {
+		padding: 0.75rem;
+		background: rgba(0, 0, 0, 0.3);
+		border: 1px solid var(--border);
+		border-radius: 2px;
+		max-height: 350px;
+		overflow-y: auto;
+		font-size: 0.5625rem;
+		line-height: 1.6;
+		color: var(--text);
+	}
+
+	.briefing-rendered :global(h1) {
+		font-size: 0.875rem;
+		font-weight: 700;
+		color: var(--accent);
+		margin: 0 0 0.5rem 0;
+		padding-bottom: 0.35rem;
+		border-bottom: 1px solid var(--border);
+	}
+
+	.briefing-rendered :global(h2) {
+		font-size: 0.75rem;
+		font-weight: 700;
+		color: rgb(203 213 225);
+		margin: 0.75rem 0 0.35rem 0;
+	}
+
+	.briefing-rendered :global(h3) {
+		font-size: 0.625rem;
+		font-weight: 700;
+		color: rgb(148 163 184);
+		margin: 0.5rem 0 0.25rem 0;
+	}
+
+	.briefing-rendered :global(p) {
+		margin: 0 0 0.5rem 0;
+	}
+
+	.briefing-rendered :global(ul),
+	.briefing-rendered :global(ol) {
+		margin: 0 0 0.5rem 0;
+		padding-left: 1.25rem;
+	}
+
+	.briefing-rendered :global(li) {
+		margin-bottom: 0.25rem;
+	}
+
+	.briefing-rendered :global(strong) {
+		color: rgb(248 113 113);
+		font-weight: 700;
+	}
+
+	.briefing-rendered :global(em) {
+		color: rgb(253 224 71);
+		font-style: italic;
+	}
+
+	.briefing-rendered :global(code) {
+		background: rgba(0, 0, 0, 0.4);
+		padding: 0.1rem 0.25rem;
+		border-radius: 2px;
+		font-family: 'SF Mono', Monaco, monospace;
+		font-size: 0.5rem;
+	}
+
+	.briefing-rendered :global(hr) {
+		border: none;
+		border-top: 1px solid var(--border);
+		margin: 0.75rem 0;
+	}
+
+	.briefing-rendered :global(blockquote) {
+		margin: 0.5rem 0;
+		padding: 0.35rem 0.5rem;
+		border-left: 2px solid var(--accent);
+		background: rgba(34, 211, 238, 0.05);
+		color: rgb(148 163 184);
+	}
+
+	.briefing-rendered :global(table) {
+		width: 100%;
+		border-collapse: collapse;
+		margin: 0.5rem 0;
+		font-size: 0.5rem;
+	}
+
+	.briefing-rendered :global(th),
+	.briefing-rendered :global(td) {
+		padding: 0.35rem 0.5rem;
+		border: 1px solid var(--border);
+		text-align: left;
+	}
+
+	.briefing-rendered :global(th) {
+		background: rgba(0, 0, 0, 0.3);
+		font-weight: 700;
+		color: var(--accent);
+	}
+
+	.briefing-rendered :global(tr:nth-child(even)) {
+		background: rgba(0, 0, 0, 0.2);
 	}
 </style>
