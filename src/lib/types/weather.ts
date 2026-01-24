@@ -169,4 +169,7 @@ export interface WeatherState {
 	selectedAlertId: string | null;
 	commandModalOpen: boolean;
 	initialized: boolean;
+	// Map picker mode for selecting point locations
+	mapPickerMode: boolean;
+	pendingPointName: string | null;
 }

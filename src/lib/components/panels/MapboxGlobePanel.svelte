@@ -11,7 +11,7 @@
 		THREAT_COLORS,
 		HOTSPOT_KEYWORDS
 	} from '$lib/config/map';
-	import { selectedAlert, weather } from '$lib/stores';
+	import { selectedAlert, weather, mapPickerMode } from '$lib/stores';
 	import { ALERT_MAP_COLORS } from '$lib/config/weather';
 	import type { WeatherAlert } from '$lib/types';
 	import { fetchOutageData, fetchUCDPConflicts, fetchAircraftPositions, OpenSkyRateLimitError, getAltitudeColor, formatAltitude, formatVelocity, formatHeading, fetchElevatedVolcanoes, VOLCANO_ALERT_COLORS, VOLCANO_ALERT_DESCRIPTIONS, fetchRadarAnimationData, getShipTypeColor, formatVesselSpeed, formatVesselCourse, getFlagEmoji, fetchAirQualityData, AIR_QUALITY_COLORS, AIR_QUALITY_DESCRIPTIONS, RADIATION_LEVEL_COLORS, fetchAllActiveAlerts, fetchZoneGeometryForAlert, fetchActiveTropicalCyclones, fetchCycloneForecastCone, fetchAllDay1Outlooks } from '$lib/api';
@@ -4149,6 +4149,13 @@
 		});
 
 		map.on('click', (e) => {
+			// Handle map picker mode for weather zones
+			if ($mapPickerMode) {
+				const { lng, lat } = e.lngLat;
+				weather.handleMapPick(lat, lng);
+				return;
+			}
+
 			const features = map?.queryRenderedFeatures(e.point, {
 				layers: ['points-layer', 'news-events-layer', 'outages-layer', 'news-clusters']
 			});
@@ -6197,6 +6204,7 @@
 
 <div
 	class="globe-container"
+	class:picker-mode={$mapPickerMode}
 	bind:this={mapContainer}
 	onmousemove={handleMouseMove}
 	onmouseenter={handleContainerEnter}
@@ -6214,6 +6222,22 @@
 		<div class="globe-error">
 			<span class="error-icon">!</span>
 			<span class="error-text">{initError}</span>
+		</div>
+	{/if}
+
+	<!-- Map Picker Mode Overlay -->
+	{#if $mapPickerMode}
+		<div class="picker-overlay">
+			<div class="picker-message">
+				<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<circle cx="12" cy="10" r="3"/>
+					<path d="M12 2a8 8 0 0 0-8 8c0 5.4 7 12 8 12s8-6.6 8-12a8 8 0 0 0-8-8z"/>
+				</svg>
+				<span>Click on the globe to select a location</span>
+				<button class="picker-cancel" onclick={() => weather.cancelMapPickerMode()}>
+					Cancel
+				</button>
+			</div>
 		</div>
 	{/if}
 
@@ -6783,6 +6807,73 @@
 
 	.globe-container :global(.mapboxgl-canvas:active) {
 		cursor: grabbing;
+	}
+
+	/* Map Picker Mode */
+	.globe-container.picker-mode {
+		cursor: crosshair !important;
+	}
+
+	.globe-container.picker-mode :global(.mapboxgl-canvas) {
+		cursor: crosshair !important;
+	}
+
+	.picker-overlay {
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+		z-index: 100;
+		display: flex;
+		justify-content: center;
+		padding: 12px;
+		pointer-events: none;
+	}
+
+	.picker-message {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 10px 16px;
+		background: rgb(59 130 246 / 0.9);
+		border: 1px solid rgb(96 165 250 / 0.6);
+		border-radius: 4px;
+		color: rgb(219 234 254);
+		font-size: 12px;
+		font-family: 'JetBrains Mono', 'SF Mono', Monaco, monospace;
+		font-weight: 500;
+		backdrop-filter: blur(4px);
+		pointer-events: auto;
+		animation: pulse-border 1.5s ease-in-out infinite;
+	}
+
+	@keyframes pulse-border {
+		0%, 100% { border-color: rgb(96 165 250 / 0.6); }
+		50% { border-color: rgb(147 197 253 / 0.9); }
+	}
+
+	.picker-message svg {
+		flex-shrink: 0;
+	}
+
+	.picker-cancel {
+		margin-left: 8px;
+		padding: 4px 10px;
+		background: rgb(30 58 138 / 0.6);
+		border: 1px solid rgb(59 130 246 / 0.5);
+		border-radius: 2px;
+		color: rgb(191 219 254);
+		font-size: 10px;
+		font-family: 'JetBrains Mono', 'SF Mono', Monaco, monospace;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.15s ease;
+	}
+
+	.picker-cancel:hover {
+		background: rgb(30 58 138 / 0.9);
+		border-color: rgb(96 165 250 / 0.8);
+		color: white;
 	}
 
 	.globe-container :global(.mapboxgl-ctrl-logo) {

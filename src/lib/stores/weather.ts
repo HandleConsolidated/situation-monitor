@@ -135,7 +135,9 @@ function createWeatherStore() {
 		briefings: loadBriefings(),
 		selectedAlertId: null,
 		commandModalOpen: false,
-		initialized: false
+		initialized: false,
+		mapPickerMode: false,
+		pendingPointName: null
 	};
 
 	const { subscribe, set, update } = writable<WeatherState>(initialState);
@@ -533,8 +535,56 @@ function createWeatherStore() {
 				briefings: [],
 				selectedAlertId: null,
 				commandModalOpen: false,
-				initialized: true
+				initialized: true,
+				mapPickerMode: false,
+				pendingPointName: null
 			});
+		},
+
+		/**
+		 * Enter map picker mode for selecting a location
+		 * @param pointName - Optional name for the point to be created
+		 */
+		enterMapPickerMode(pointName?: string): void {
+			update((state) => ({
+				...state,
+				mapPickerMode: true,
+				pendingPointName: pointName || null,
+				commandModalOpen: false // Close modal while picking
+			}));
+		},
+
+		/**
+		 * Cancel map picker mode
+		 */
+		cancelMapPickerMode(): void {
+			update((state) => ({
+				...state,
+				mapPickerMode: false,
+				pendingPointName: null
+			}));
+		},
+
+		/**
+		 * Handle location picked from map
+		 * @param lat - Latitude
+		 * @param lon - Longitude
+		 * @returns The created zone or null
+		 */
+		handleMapPick(lat: number, lon: number): WeatherZone | null {
+			const state = get({ subscribe });
+			const name = state.pendingPointName || `Point ${lat.toFixed(2)}, ${lon.toFixed(2)}`;
+
+			// Exit picker mode
+			update((s) => ({
+				...s,
+				mapPickerMode: false,
+				pendingPointName: null,
+				commandModalOpen: true // Re-open modal after picking
+			}));
+
+			// Add the point zone
+			return this.addPointZone(name, lat, lon);
 		}
 	};
 }
@@ -588,3 +638,13 @@ export const selectedAlert = derived(weather, ($weather) => {
 	if (!$weather.selectedAlertId) return null;
 	return $weather.alerts.find((a) => a.id === $weather.selectedAlertId) ?? null;
 });
+
+/**
+ * Map picker mode state
+ */
+export const mapPickerMode = derived(weather, ($weather) => $weather.mapPickerMode);
+
+/**
+ * Pending point name for map picker
+ */
+export const pendingPointName = derived(weather, ($weather) => $weather.pendingPointName);

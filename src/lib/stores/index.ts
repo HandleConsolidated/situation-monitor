@@ -132,5 +132,7 @@ export {
 	enabledZones,
 	zoneCount,
 	weatherLoading,
-	selectedAlert
+	selectedAlert,
+	mapPickerMode,
+	pendingPointName
 } from './weather';

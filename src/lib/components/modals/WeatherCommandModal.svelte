@@ -143,6 +143,14 @@
 	function isStateAdded(code: string): boolean {
 		return zones.some((z) => z.type === 'state' && z.code === code);
 	}
+
+	/**
+	 * Enter map picker mode to select a location from the globe
+	 */
+	function handlePickFromMap() {
+		weather.enterMapPickerMode(newPointName || undefined);
+		// Modal will close automatically due to store update
+	}
 </script>
 
 <Modal {open} title="Weather Command Center" {onClose} size="large">
@@ -300,13 +308,26 @@
 								bind:value={newPointLon}
 							/>
 						</div>
-						<button
-							class="add-point-btn"
-							onclick={addCustomPoint}
-							disabled={!newPointLat || !newPointLon}
-						>
-							ADD POINT
-						</button>
+						<div class="point-actions">
+							<button
+								class="add-point-btn"
+								onclick={addCustomPoint}
+								disabled={!newPointLat || !newPointLon}
+							>
+								ADD POINT
+							</button>
+							<button
+								class="pick-map-btn"
+								onclick={handlePickFromMap}
+								title="Click on the globe to select a location"
+							>
+								<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<circle cx="12" cy="10" r="3"/>
+									<path d="M12 2a8 8 0 0 0-8 8c0 5.4 7 12 8 12s8-6.6 8-12a8 8 0 0 0-8-8z"/>
+								</svg>
+								PICK FROM MAP
+							</button>
+						</div>
 					</div>
 				</section>
 
@@ -753,7 +774,13 @@
 		flex: 1;
 	}
 
+	.point-actions {
+		display: flex;
+		gap: 0.35rem;
+	}
+
 	.add-point-btn {
+		flex: 1;
 		padding: 0.4rem;
 		background: var(--card-bg);
 		border: 1px solid var(--border);
@@ -770,6 +797,30 @@
 		border-color: var(--accent-border);
 		color: var(--accent);
 		background: rgba(34, 211, 238, 0.1);
+	}
+
+	.pick-map-btn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.35rem;
+		flex: 1;
+		padding: 0.4rem;
+		background: rgba(59, 130, 246, 0.1);
+		border: 1px solid rgba(59, 130, 246, 0.4);
+		border-radius: 2px;
+		color: rgb(147, 197, 253);
+		font-size: 0.5rem;
+		font-family: 'SF Mono', Monaco, monospace;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.15s ease;
+	}
+
+	.pick-map-btn:hover {
+		background: rgba(59, 130, 246, 0.2);
+		border-color: rgba(59, 130, 246, 0.6);
+		color: rgb(191, 219, 254);
 	}
 
 	.add-point-btn:disabled {
