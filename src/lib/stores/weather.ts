@@ -14,6 +14,7 @@ import type {
 } from '$lib/types';
 import {
 	fetchAlertsForStates,
+	fetchAlertsForPoint,
 	fetchForecast,
 	extractForecastHighlights,
 	generateBriefingText,
@@ -334,15 +335,19 @@ function createWeatherStore() {
 		},
 
 		/**
-		 * Fetch alerts for all enabled state zones
+		 * Fetch alerts for all enabled zones (states and points)
 		 */
 		async fetchAlerts(): Promise<void> {
 			const state = get({ subscribe });
 
 			// Get enabled state zones
 			const stateZones = state.zones.filter((z) => z.type === 'state' && z.enabled && z.code);
+			// Get enabled point zones
+			const pointZones = state.zones.filter(
+				(z) => z.type === 'point' && z.enabled && z.lat !== undefined && z.lon !== undefined
+			);
 
-			if (stateZones.length === 0) {
+			if (stateZones.length === 0 && pointZones.length === 0) {
 				update((s) => ({
 					...s,
 					alerts: [],
@@ -356,9 +361,38 @@ function createWeatherStore() {
 			update((s) => ({ ...s, alertsLoading: true, alertsError: null }));
 
 			try {
-				const stateCodes = stateZones.map((z) => z.code!);
-				const alerts = await fetchAlertsForStates(stateCodes);
-				const sortedAlerts = sortAlertsBySeverity(alerts);
+				const allAlerts: WeatherAlert[] = [];
+				const seenIds = new Set<string>();
+
+				// Fetch alerts for state zones
+				if (stateZones.length > 0) {
+					const stateCodes = stateZones.map((z) => z.code!);
+					const stateAlerts = await fetchAlertsForStates(stateCodes);
+					for (const alert of stateAlerts) {
+						if (!seenIds.has(alert.id)) {
+							seenIds.add(alert.id);
+							allAlerts.push(alert);
+						}
+					}
+				}
+
+				// Fetch alerts for point zones
+				if (pointZones.length > 0) {
+					const pointAlertPromises = pointZones.map((z) =>
+						fetchAlertsForPoint(z.lat!, z.lon!)
+					);
+					const pointAlertResults = await Promise.all(pointAlertPromises);
+					for (const pointAlerts of pointAlertResults) {
+						for (const alert of pointAlerts) {
+							if (!seenIds.has(alert.id)) {
+								seenIds.add(alert.id);
+								allAlerts.push(alert);
+							}
+						}
+					}
+				}
+
+				const sortedAlerts = sortAlertsBySeverity(allAlerts);
 
 				update((s) => ({
 					...s,

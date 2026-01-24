@@ -205,6 +205,10 @@
 	let weatherRadarTileUrl = $state<string | null>(null);
 	let weatherRadarLoading = $state(false);
 
+	// Satellite imagery state
+	let satelliteOverlayVisible = $state(false);
+	let satelliteOverlayLoading = $state(false);
+
 	// Radar animation state
 	let radarAnimationData = $state<RadarAnimationData | null>(null);
 	let radarAnimationPlaying = $state(false);
@@ -5717,6 +5721,51 @@
 		}
 	}
 
+	// Toggle satellite overlay visibility
+	async function toggleSatelliteOverlay() {
+		satelliteOverlayVisible = !satelliteOverlayVisible;
+
+		if (satelliteOverlayVisible && !map?.getSource('satellite-overlay')) {
+			satelliteOverlayLoading = true;
+			try {
+				// RainViewer infrared satellite tiles
+				// Using infrared composite for cloud visibility
+				const satelliteUrl = 'https://tilecache.rainviewer.com/v2/satellite/latest/256/{z}/{x}/{y}/0/0_0.png';
+
+				if (map) {
+					const firstSymbolLayer = findFirstSymbolLayer();
+
+					map.addSource('satellite-overlay', {
+						type: 'raster',
+						tiles: [satelliteUrl],
+						tileSize: 256
+					});
+
+					map.addLayer(
+						{
+							id: 'satellite-overlay-layer',
+							type: 'raster',
+							source: 'satellite-overlay',
+							paint: {
+								'raster-opacity': 0.5,
+								'raster-fade-duration': 300
+							}
+						},
+						firstSymbolLayer
+					);
+				}
+			} catch (error) {
+				console.error('[Satellite] Failed to load satellite imagery:', error);
+			}
+			satelliteOverlayLoading = false;
+		} else if (map) {
+			const visibility = satelliteOverlayVisible ? 'visible' : 'none';
+			if (map.getLayer('satellite-overlay-layer')) {
+				map.setLayoutProperty('satellite-overlay-layer', 'visibility', visibility);
+			}
+		}
+	}
+
 	// Build GeoJSON from weather alerts with geometry
 	function buildAlertGeoJSON(alerts: WeatherAlert[]): GeoJSON.FeatureCollection {
 		const features: GeoJSON.Feature[] = [];
@@ -6314,6 +6363,15 @@
 				title={weatherRadarVisible ? 'Hide weather radar' : 'Show weather radar'}
 			>
 				<span class="control-icon">{weatherRadarLoading ? '...' : '☁'}</span>
+			</button>
+			<button
+				class="control-btn satellite-btn"
+				class:active={satelliteOverlayVisible}
+				class:loading={satelliteOverlayLoading}
+				onclick={toggleSatelliteOverlay}
+				title={satelliteOverlayVisible ? 'Hide satellite imagery' : 'Show satellite imagery'}
+			>
+				<span class="control-icon">{satelliteOverlayLoading ? '...' : '🛰'}</span>
 			</button>
 			<button
 				class="control-btn weather-alerts-btn"
@@ -6988,6 +7046,23 @@
 
 	.weather-radar-btn.loading .control-icon {
 		animation: pulse 1s ease-in-out infinite;
+	}
+
+	/* Satellite Imagery Button */
+	.satellite-btn.active {
+		background: rgb(55 48 163 / 0.6);
+		border-color: rgb(129 140 248 / 0.6);
+		color: rgb(165 180 252);
+	}
+
+	.satellite-btn:hover {
+		border-color: rgb(129 140 248 / 0.5);
+		color: rgb(165 180 252);
+	}
+
+	.satellite-btn.loading {
+		opacity: 0.7;
+		cursor: wait;
 	}
 
 	/* Radar Animation Controls */
