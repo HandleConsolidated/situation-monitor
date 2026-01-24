@@ -1,5 +1,8 @@
 /**
  * Onboarding presets for first-time users
+ *
+ * Each preset defines which panels are enabled by default.
+ * Users can customize their setup after selecting a preset.
  */
 
 import type { PanelId } from './panels';
@@ -13,37 +16,38 @@ export interface Preset {
 }
 
 export const PRESETS: Record<string, Preset> = {
-	'news-junkie': {
-		id: 'news-junkie',
-		name: 'News Junkie',
-		icon: '📰',
-		description: 'Stay on top of breaking news across politics, tech, and finance',
-		panels: ['map', 'analysis', 'politics', 'tech', 'finance', 'gov', 'ai', 'mainchar', 'monitors']
-	},
-	trader: {
-		id: 'trader',
-		name: 'Trader',
-		icon: '📈',
-		description: 'Market-focused dashboard with stocks, crypto, and commodities',
+	/**
+	 * Default/Balanced preset - Good starting point for most users
+	 * Includes core news feeds, market data, and analysis tools
+	 */
+	balanced: {
+		id: 'balanced',
+		name: 'Balanced',
+		icon: '🎯',
+		description: 'Recommended starting point with news, markets, and situational awareness',
 		panels: [
 			'map',
 			'analysis',
+			'politics',
+			'tech',
+			'finance',
 			'markets',
 			'heatmap',
-			'commodities',
-			'crypto',
-			'polymarket',
-			'whales',
-			'printer',
-			'finance',
+			'mainchar',
+			'correlation',
 			'monitors'
 		]
 	},
+
+	/**
+	 * Geopolitical Focus preset - For tracking global conflicts and political situations
+	 * Emphasizes intel feeds, world leaders, and regional situation panels
+	 */
 	geopolitics: {
 		id: 'geopolitics',
-		name: 'Geopolitics Watcher',
+		name: 'Geopolitical Focus',
 		icon: '🌍',
-		description: 'Global situation awareness and regional hotspots',
+		description: 'Global conflicts, intel feeds, world leaders, and regional hotspots',
 		panels: [
 			'map',
 			'analysis',
@@ -56,14 +60,86 @@ export const PRESETS: Record<string, Preset> = {
 			'iran',
 			'correlation',
 			'narrative',
+			'mainchar',
 			'monitors'
 		]
 	},
+
+	/**
+	 * Financial/Markets preset - For traders and market watchers
+	 * Comprehensive market data including crypto, commodities, and whale activity
+	 */
+	markets: {
+		id: 'markets',
+		name: 'Financial Markets',
+		icon: '📈',
+		description: 'Stocks, crypto, commodities, whale tracking, and market predictions',
+		panels: [
+			'map',
+			'analysis',
+			'markets',
+			'heatmap',
+			'commodities',
+			'crypto',
+			'polymarket',
+			'whales',
+			'printer',
+			'finance',
+			'contracts',
+			'monitors'
+		]
+	},
+
+	/**
+	 * Infrastructure & Hazards preset - For monitoring natural disasters and infrastructure
+	 * Includes weather alerts, earthquakes, radiation, disease outbreaks, and grid stress
+	 */
+	hazards: {
+		id: 'hazards',
+		name: 'Infrastructure & Hazards',
+		icon: '⚠️',
+		description: 'Weather alerts, earthquakes, radiation, disease outbreaks, and grid stress',
+		panels: [
+			'map',
+			'analysis',
+			'weather',
+			'gridstress',
+			'earthquakes',
+			'radiation',
+			'outbreaks',
+			'politics',
+			'monitors'
+		]
+	},
+
+	/**
+	 * Aviation & Maritime preset - For tracking aircraft and weather conditions
+	 * Features aircraft tracking panel and weather alerts
+	 */
+	aviation: {
+		id: 'aviation',
+		name: 'Aviation & Weather',
+		icon: '✈️',
+		description: 'Aircraft tracking, weather radar, alerts, and atmospheric conditions',
+		panels: [
+			'map',
+			'analysis',
+			'aircraft',
+			'weather',
+			'politics',
+			'monitors'
+		]
+	},
+
+	/**
+	 * Intelligence Analyst preset - Deep dive into patterns and narrative tracking
+	 * For users who want to analyze trends and emerging stories
+	 */
 	intel: {
 		id: 'intel',
 		name: 'Intelligence Analyst',
 		icon: '🔍',
-		description: 'Deep analysis, pattern detection, and narrative tracking',
+		description: 'Pattern detection, narrative tracking, and trend analysis',
 		panels: [
 			'map',
 			'analysis',
@@ -73,37 +149,54 @@ export const PRESETS: Record<string, Preset> = {
 			'narrative',
 			'mainchar',
 			'politics',
+			'gov',
 			'monitors'
 		]
 	},
-	hazards: {
-		id: 'hazards',
-		name: 'Infrastructure & Hazards',
-		icon: '⚠️',
-		description: 'Monitor grid stress, earthquakes, radiation, and disease outbreaks',
+
+	/**
+	 * Tech & AI preset - For tracking technology and AI developments
+	 * Focuses on tech news, AI race, and related layoffs
+	 */
+	techwatch: {
+		id: 'techwatch',
+		name: 'Tech & AI Watch',
+		icon: '🤖',
+		description: 'AI developments, tech news, industry layoffs, and contracts',
 		panels: [
 			'map',
 			'analysis',
-			'gridstress',
-			'earthquakes',
-			'radiation',
-			'outbreaks',
-			'politics',
+			'tech',
+			'ai',
+			'layoffs',
+			'contracts',
+			'finance',
+			'mainchar',
 			'monitors'
 		]
 	},
+
+	/**
+	 * Minimal preset - Clean, distraction-free view
+	 * Just the essential panels for quick overview
+	 */
 	minimal: {
 		id: 'minimal',
 		name: 'Minimal',
 		icon: '⚡',
-		description: 'Just the essentials - map, news, and markets',
+		description: 'Clean and focused - just the map, news, and markets',
 		panels: ['map', 'politics', 'markets', 'monitors']
 	},
+
+	/**
+	 * Everything preset - All panels enabled
+	 * Maximum data visibility for power users
+	 */
 	everything: {
 		id: 'everything',
 		name: 'Everything',
 		icon: '🎛️',
-		description: 'Kitchen sink - all panels enabled',
+		description: 'All panels enabled - maximum situational awareness',
 		panels: [
 			'map',
 			'analysis',
@@ -133,17 +226,25 @@ export const PRESETS: Record<string, Preset> = {
 			'gridstress',
 			'earthquakes',
 			'radiation',
-			'outbreaks'
+			'outbreaks',
+			'aircraft',
+			'weather'
 		]
 	}
 };
 
+/**
+ * Order in which presets appear in the onboarding modal
+ * Balanced is first as the recommended default
+ */
 export const PRESET_ORDER = [
-	'news-junkie',
-	'trader',
+	'balanced',
 	'geopolitics',
-	'intel',
+	'markets',
 	'hazards',
+	'aviation',
+	'intel',
+	'techwatch',
 	'minimal',
 	'everything'
 ];
