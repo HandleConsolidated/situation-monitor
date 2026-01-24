@@ -210,6 +210,10 @@
 	let radarAnimationPlaying = $state(false);
 	let radarCurrentFrame = $state(0);
 	let radarAnimationInterval: ReturnType<typeof setInterval> | null = null;
+	// Track which layer (A or B) is currently active for crossfade effect
+	let radarActiveLayer = $state<'A' | 'B'>('A');
+	// Preloaded frame images for smoother transitions
+	let radarPreloadedFrames = $state<Set<number>>(new Set());
 
 	// Weather alert overlay state
 	let weatherAlertsVisible = $state(false);
@@ -5469,56 +5473,109 @@
 		}
 	}
 
+	// Find the first symbol layer to insert radar layers before
+	function findFirstSymbolLayer(): string | undefined {
+		if (!map) return undefined;
+		const layers = map.getStyle()?.layers || [];
+		for (const layer of layers) {
+			if (layer.type === 'symbol' || layer.type === 'circle') {
+				return layer.id;
+			}
+		}
+		return undefined;
+	}
+
+	// Initialize dual radar layers for smooth crossfade animation
+	function initRadarLayers() {
+		if (!map || !radarAnimationData) return;
+
+		const firstSymbolLayer = findFirstSymbolLayer();
+		const visibility = weatherRadarVisible ? 'visible' : 'none';
+
+		// Create layer A (initially visible)
+		if (!map.getSource('weather-radar-A')) {
+			const frame = radarAnimationData.frames[radarCurrentFrame];
+			map.addSource('weather-radar-A', {
+				type: 'raster',
+				tiles: [frame.tileUrl],
+				tileSize: 256
+			});
+			map.addLayer(
+				{
+					id: 'weather-radar-layer-A',
+					type: 'raster',
+					source: 'weather-radar-A',
+					paint: {
+						'raster-opacity': 0.6,
+						'raster-fade-duration': 200
+					},
+					layout: {
+						visibility
+					}
+				},
+				firstSymbolLayer
+			);
+		}
+
+		// Create layer B (initially hidden, for preloading next frame)
+		if (!map.getSource('weather-radar-B')) {
+			map.addSource('weather-radar-B', {
+				type: 'raster',
+				tiles: [radarAnimationData.frames[radarCurrentFrame].tileUrl],
+				tileSize: 256
+			});
+			map.addLayer(
+				{
+					id: 'weather-radar-layer-B',
+					type: 'raster',
+					source: 'weather-radar-B',
+					paint: {
+						'raster-opacity': 0,
+						'raster-fade-duration': 200
+					},
+					layout: {
+						visibility
+					}
+				},
+				firstSymbolLayer
+			);
+		}
+
+		radarActiveLayer = 'A';
+	}
+
 	// Add or update the weather radar raster layer
-	function addOrUpdateRadarLayer(tileUrl: string) {
+	function addOrUpdateRadarLayer(_tileUrl: string) {
 		if (!map) return;
 
-		// Check if source already exists
+		// Clean up old single-layer approach if it exists
 		if (map.getSource('weather-radar')) {
-			// Remove existing layer and source to update
 			if (map.getLayer('weather-radar-layer')) {
 				map.removeLayer('weather-radar-layer');
 			}
 			map.removeSource('weather-radar');
 		}
 
-		// Add the raster source for weather radar
-		map.addSource('weather-radar', {
-			type: 'raster',
-			tiles: [tileUrl],
-			tileSize: 256
-		});
+		// Initialize dual layers (uses radarAnimationData for current frame)
+		initRadarLayers();
+	}
 
-		// Add the radar layer - positioned above satellite but below markers
-		// Find the first symbol layer to insert before it
-		const layers = map.getStyle()?.layers || [];
-		let firstSymbolLayer: string | undefined;
-		for (const layer of layers) {
-			if (layer.type === 'symbol' || layer.type === 'circle') {
-				firstSymbolLayer = layer.id;
-				break;
+	// Preload upcoming frames for smoother animation
+	function preloadRadarFrames() {
+		if (!radarAnimationData) return;
+
+		// Preload next 3 frames by creating Image objects
+		for (let i = 1; i <= 3; i++) {
+			const nextIndex = (radarCurrentFrame + i) % radarAnimationData.frames.length;
+			if (!radarPreloadedFrames.has(nextIndex)) {
+				const img = new Image();
+				img.src = radarAnimationData.frames[nextIndex].tileUrl
+					.replace('{z}', '4')
+					.replace('{x}', '4')
+					.replace('{y}', '6');
+				radarPreloadedFrames = new Set([...radarPreloadedFrames, nextIndex]);
 			}
 		}
-
-		map.addLayer(
-			{
-				id: 'weather-radar-layer',
-				type: 'raster',
-				source: 'weather-radar',
-				paint: {
-					'raster-opacity': 0.6,
-					'raster-fade-duration': 300
-				}
-			},
-			firstSymbolLayer
-		);
-
-		// Set initial visibility based on state
-		map.setLayoutProperty(
-			'weather-radar-layer',
-			'visibility',
-			weatherRadarVisible ? 'visible' : 'none'
-		);
 	}
 
 	// Start/stop radar animation playback
@@ -5535,57 +5592,56 @@
 		} else {
 			// Start animation
 			radarAnimationPlaying = true;
+			// Preload frames before starting
+			preloadRadarFrames();
 			radarAnimationInterval = setInterval(() => {
 				if (!radarAnimationData) return;
 				radarCurrentFrame = (radarCurrentFrame + 1) % radarAnimationData.frames.length;
 				updateRadarFrame(radarCurrentFrame);
-			}, 500); // 2 fps
+				// Preload more frames as we go
+				preloadRadarFrames();
+			}, 600); // Slightly slower for smoother transitions
 		}
 	}
 
-	// Update map to show specific radar frame
+	// Update map to show specific radar frame using crossfade
 	function updateRadarFrame(frameIndex: number) {
 		if (!map || !radarAnimationData || !radarAnimationData.frames[frameIndex]) return;
 
 		const frame = radarAnimationData.frames[frameIndex];
+		const nextLayer = radarActiveLayer === 'A' ? 'B' : 'A';
+		const currentLayerId = `weather-radar-layer-${radarActiveLayer}`;
+		const nextLayerId = `weather-radar-layer-${nextLayer}`;
+		const nextSourceId = `weather-radar-${nextLayer}`;
 
-		// Update the raster source with new tile URL
-		const source = map.getSource('weather-radar');
-		if (source) {
-			// Remove and re-add source with new tiles (Mapbox limitation)
-			if (map.getLayer('weather-radar-layer')) {
-				map.removeLayer('weather-radar-layer');
+		// Update the inactive layer's source with the new frame
+		const nextSource = map.getSource(nextSourceId);
+		if (nextSource) {
+			// Remove and recreate source with new tiles
+			if (map.getLayer(nextLayerId)) {
+				// Fade out current layer
+				map.setPaintProperty(currentLayerId, 'raster-opacity', 0);
 			}
-			map.removeSource('weather-radar');
-
-			map.addSource('weather-radar', {
+			map.removeSource(nextSourceId);
+			map.addSource(nextSourceId, {
 				type: 'raster',
 				tiles: [frame.tileUrl],
 				tileSize: 256
 			});
 
-			// Find the first symbol layer to insert before it
-			const layers = map.getStyle()?.layers || [];
-			let firstSymbolLayer: string | undefined;
-			for (const layer of layers) {
-				if (layer.type === 'symbol' || layer.type === 'circle') {
-					firstSymbolLayer = layer.id;
-					break;
+			// The layer should already exist, just update its source reference
+			// Fade in the new layer
+			setTimeout(() => {
+				if (map && map.getLayer(nextLayerId)) {
+					map.setPaintProperty(nextLayerId, 'raster-opacity', 0.6);
 				}
-			}
+			}, 50);
 
-			map.addLayer(
-				{
-					id: 'weather-radar-layer',
-					type: 'raster',
-					source: 'weather-radar',
-					paint: {
-						'raster-opacity': 0.6,
-						'raster-fade-duration': 0 // Instant for animation
-					}
-				},
-				firstSymbolLayer
-			);
+			// Switch active layer
+			radarActiveLayer = nextLayer;
+		} else {
+			// Fallback: recreate layers if they don't exist
+			initRadarLayers();
 		}
 	}
 
@@ -5623,13 +5679,20 @@
 			loadWeatherRadar();
 		}
 
-		// Toggle layer visibility if it exists
-		if (map && map.getLayer('weather-radar-layer')) {
-			map.setLayoutProperty(
-				'weather-radar-layer',
-				'visibility',
-				weatherRadarVisible ? 'visible' : 'none'
-			);
+		// Toggle layer visibility for dual-layer system
+		const visibility = weatherRadarVisible ? 'visible' : 'none';
+		if (map) {
+			// Handle dual-layer system
+			if (map.getLayer('weather-radar-layer-A')) {
+				map.setLayoutProperty('weather-radar-layer-A', 'visibility', visibility);
+			}
+			if (map.getLayer('weather-radar-layer-B')) {
+				map.setLayoutProperty('weather-radar-layer-B', 'visibility', visibility);
+			}
+			// Legacy single-layer fallback
+			if (map.getLayer('weather-radar-layer')) {
+				map.setLayoutProperty('weather-radar-layer', 'visibility', visibility);
+			}
 		}
 	}
 
@@ -6159,7 +6222,11 @@
 					title="Previous frame"
 					disabled={!radarAnimationData}
 				>
-					<span class="control-icon">&#9198;</span>
+					<span class="control-icon">
+						<svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+							<path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/>
+						</svg>
+					</span>
 				</button>
 				<button
 					class="control-btn radar-play-btn"
@@ -6168,7 +6235,17 @@
 					title={radarAnimationPlaying ? 'Pause' : 'Play'}
 					disabled={!radarAnimationData}
 				>
-					<span class="control-icon">{radarAnimationPlaying ? '&#9208;' : '&#9654;'}</span>
+					<span class="control-icon">
+						{#if radarAnimationPlaying}
+							<svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+								<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+							</svg>
+						{:else}
+							<svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+								<path d="M8 5v14l11-7z"/>
+							</svg>
+						{/if}
+					</span>
 				</button>
 				<button
 					class="control-btn radar-step-btn"
@@ -6176,13 +6253,17 @@
 					title="Next frame"
 					disabled={!radarAnimationData}
 				>
-					<span class="control-icon">&#9197;</span>
+					<span class="control-icon">
+						<svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+							<path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
+						</svg>
+					</span>
 				</button>
 				<div class="radar-timestamp">
 					{#if radarAnimationData && radarAnimationData.frames[radarCurrentFrame]}
 						{new Date(radarAnimationData.frames[radarCurrentFrame].timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
 						{#if radarAnimationData.frames[radarCurrentFrame].type === 'nowcast'}
-							<span class="nowcast-badge">FCST</span>
+							<span class="nowcast-badge">Future</span>
 						{/if}
 					{/if}
 				</div>
@@ -6231,6 +6312,39 @@
 			>
 				<span class="control-icon">{isRotating ? '⏸' : '▶'}</span>
 			</button>
+		</div>
+	{/if}
+
+	<!-- Radar Precipitation Legend -->
+	{#if isInitialized && weatherRadarVisible}
+		<div class="radar-legend">
+			<div class="radar-legend-title">PRECIPITATION</div>
+			<div class="radar-legend-items">
+				<div class="radar-legend-item">
+					<span class="radar-legend-color" style="background: #40ff40;"></span>
+					<span class="radar-legend-label">Light Rain</span>
+				</div>
+				<div class="radar-legend-item">
+					<span class="radar-legend-color" style="background: #ffff00;"></span>
+					<span class="radar-legend-label">Moderate</span>
+				</div>
+				<div class="radar-legend-item">
+					<span class="radar-legend-color" style="background: #ff8000;"></span>
+					<span class="radar-legend-label">Heavy</span>
+				</div>
+				<div class="radar-legend-item">
+					<span class="radar-legend-color" style="background: #ff0000;"></span>
+					<span class="radar-legend-label">Intense</span>
+				</div>
+				<div class="radar-legend-item">
+					<span class="radar-legend-color" style="background: #ff00ff;"></span>
+					<span class="radar-legend-label">Extreme</span>
+				</div>
+				<div class="radar-legend-item">
+					<span class="radar-legend-color" style="background: #00ffff;"></span>
+					<span class="radar-legend-label">Snow/Ice</span>
+				</div>
+			</div>
 		</div>
 	{/if}
 
@@ -6814,6 +6928,54 @@
 		padding: 1px 3px;
 		border-radius: 2px;
 		margin-left: 4px;
+	}
+
+	/* Radar Precipitation Legend */
+	.radar-legend {
+		position: absolute;
+		bottom: 12px;
+		left: 12px;
+		background: rgb(15 23 42 / 0.9);
+		border: 1px solid rgb(51 65 85 / 0.6);
+		border-radius: 4px;
+		padding: 8px 10px;
+		z-index: 10;
+		backdrop-filter: blur(4px);
+	}
+
+	.radar-legend-title {
+		font-size: 9px;
+		font-family: 'JetBrains Mono', 'SF Mono', Monaco, monospace;
+		font-weight: 700;
+		color: rgb(148 163 184);
+		letter-spacing: 0.05em;
+		margin-bottom: 6px;
+		text-transform: uppercase;
+	}
+
+	.radar-legend-items {
+		display: flex;
+		flex-direction: column;
+		gap: 3px;
+	}
+
+	.radar-legend-item {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+
+	.radar-legend-color {
+		width: 12px;
+		height: 8px;
+		border-radius: 1px;
+		flex-shrink: 0;
+	}
+
+	.radar-legend-label {
+		font-size: 9px;
+		font-family: 'JetBrains Mono', 'SF Mono', Monaco, monospace;
+		color: rgb(203 213 225);
 	}
 
 	/* Weather Alerts Button */

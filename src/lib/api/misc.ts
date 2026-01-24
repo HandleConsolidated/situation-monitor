@@ -2861,9 +2861,9 @@ export async function getLatestRadarTileUrl(): Promise<string | null> {
 	// https://tilecache.rainviewer.com{path}/{size}/{z}/{x}/{y}/{color}/{options}.png
 	// path: Already includes /v2/radar/{timestamp} from the API response
 	// size: 256 or 512 (tile size) - comes BEFORE z/x/y
-	// color: 0-8 (color scheme, 2 = universal blue)
-	// options: {smooth}_{snow} (0 or 1 each)
-	const tileUrl = `https://tilecache.rainviewer.com${latestRadar.path}/256/{z}/{x}/{y}/2/1_0.png`;
+	// color: 0-8 (color scheme, 6 = original dark theme for precipitation type visibility)
+	// options: {smooth}_{snow} (0 or 1 each) - snow=1 shows snow differently
+	const tileUrl = `https://tilecache.rainviewer.com${latestRadar.path}/256/{z}/{x}/{y}/6/1_1.png`;
 
 	return tileUrl;
 }
@@ -2883,12 +2883,23 @@ export async function fetchRadarAnimationData(): Promise<RadarAnimationData | nu
 
 	const frames: RadarFrame[] = [];
 
+	// RainViewer color schemes:
+	// 0: Original (shows precip type differences - rain/snow/ice)
+	// 2: Universal Blue (all precip same color)
+	// 6: Original with dark theme (best for dark maps)
+	// Using scheme 6 for precipitation type differentiation with dark-friendly colors
+	// Format: /size/{z}/{x}/{y}/colorScheme/smooth_snow.png
+	// smooth: 1 = anti-aliased, snow: 1 = show snow differently
+	const colorScheme = 6; // Original dark theme
+	const smooth = 1;
+	const snow = 1;
+
 	// Add past frames
 	for (const frame of data.radar.past) {
 		frames.push({
 			timestamp: frame.time,
 			path: frame.path,
-			tileUrl: `https://tilecache.rainviewer.com${frame.path}/256/{z}/{x}/{y}/2/1_0.png`,
+			tileUrl: `https://tilecache.rainviewer.com${frame.path}/256/{z}/{x}/{y}/${colorScheme}/${smooth}_${snow}.png`,
 			type: 'past'
 		});
 	}
@@ -2898,7 +2909,7 @@ export async function fetchRadarAnimationData(): Promise<RadarAnimationData | nu
 		frames.push({
 			timestamp: frame.time,
 			path: frame.path,
-			tileUrl: `https://tilecache.rainviewer.com${frame.path}/256/{z}/{x}/{y}/2/1_0.png`,
+			tileUrl: `https://tilecache.rainviewer.com${frame.path}/256/{z}/{x}/{y}/${colorScheme}/${smooth}_${snow}.png`,
 			type: 'nowcast'
 		});
 	}
