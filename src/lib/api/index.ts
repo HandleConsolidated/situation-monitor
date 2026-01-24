@@ -33,5 +33,10 @@ export {
 	generateBriefingMarkdown
 } from './weather';
 
-// Tropical Cyclone API
-export { fetchActiveTropicalCyclones, fetchCycloneForecastCone } from './storms';
+// Tropical Cyclone and Convective Outlook API
+export {
+	fetchActiveTropicalCyclones,
+	fetchCycloneForecastCone,
+	fetchConvectiveOutlooks,
+	fetchAllDay1Outlooks
+} from './storms';

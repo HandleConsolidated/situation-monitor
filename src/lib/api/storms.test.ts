@@ -220,3 +220,203 @@ describe('fetchActiveTropicalCyclones', () => {
 		}
 	});
 });
+
+describe('fetchConvectiveOutlooks', () => {
+	beforeEach(() => {
+		vi.resetAllMocks();
+	});
+
+	it('should fetch Day 1 categorical outlook polygons', async () => {
+		const mockGeoJson = {
+			type: 'FeatureCollection',
+			features: [
+				{
+					type: 'Feature',
+					properties: {
+						LABEL: 'SLGT',
+						LABEL2: 'Slight',
+						VALID: '202401221200',
+						EXPIRE: '202401231200',
+						ISSUE: '202401220600'
+					},
+					geometry: {
+						type: 'Polygon',
+						coordinates: [
+							[
+								[-100, 35],
+								[-95, 35],
+								[-95, 40],
+								[-100, 40],
+								[-100, 35]
+							]
+						]
+					}
+				}
+			]
+		};
+
+		global.fetch = vi.fn().mockResolvedValue({
+			ok: true,
+			json: () => Promise.resolve(mockGeoJson)
+		});
+
+		const result = await fetchConvectiveOutlooks(1, 'categorical');
+
+		expect(result).toHaveLength(1);
+		expect(result[0].risk).toBe('SLGT');
+		expect(result[0].day).toBe(1);
+		expect(result[0].type).toBe('categorical');
+	});
+
+	it('should parse all convective risk levels correctly', async () => {
+		const testCases = [
+			{ label: 'TSTM', expected: 'TSTM' },
+			{ label: 'MRGL', expected: 'MRGL' },
+			{ label: 'MARGINAL', expected: 'MRGL' },
+			{ label: 'SLGT', expected: 'SLGT' },
+			{ label: 'SLIGHT', expected: 'SLGT' },
+			{ label: 'ENH', expected: 'ENH' },
+			{ label: 'ENHANCED', expected: 'ENH' },
+			{ label: 'MDT', expected: 'MDT' },
+			{ label: 'MODERATE', expected: 'MDT' },
+			{ label: 'HIGH', expected: 'HIGH' }
+		];
+
+		for (const tc of testCases) {
+			const mockGeoJson = {
+				type: 'FeatureCollection',
+				features: [
+					{
+						type: 'Feature',
+						properties: {
+							LABEL: tc.label,
+							VALID: '202401221200'
+						},
+						geometry: {
+							type: 'Polygon',
+							coordinates: [
+								[
+									[-100, 35],
+									[-95, 35],
+									[-95, 40],
+									[-100, 40],
+									[-100, 35]
+								]
+							]
+						}
+					}
+				]
+			};
+
+			global.fetch = vi.fn().mockResolvedValue({
+				ok: true,
+				json: () => Promise.resolve(mockGeoJson)
+			});
+
+			const result = await fetchConvectiveOutlooks(1, 'categorical');
+			expect(result[0].risk).toBe(tc.expected);
+		}
+	});
+
+	it('should return empty array when no outlook data', async () => {
+		global.fetch = vi.fn().mockResolvedValue({
+			ok: true,
+			json: () => Promise.resolve({ type: 'FeatureCollection', features: [] })
+		});
+
+		const result = await fetchConvectiveOutlooks(1, 'categorical');
+
+		expect(result).toEqual([]);
+	});
+
+	it('should handle API errors gracefully', async () => {
+		global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 500 });
+
+		const result = await fetchConvectiveOutlooks(1, 'categorical');
+
+		expect(result).toEqual([]);
+	});
+
+	it('should fetch Day 2 and Day 3 outlooks', async () => {
+		const mockGeoJson = {
+			type: 'FeatureCollection',
+			features: [
+				{
+					type: 'Feature',
+					properties: {
+						LABEL: 'MRGL',
+						VALID: '202401231200'
+					},
+					geometry: {
+						type: 'Polygon',
+						coordinates: [
+							[
+								[-100, 35],
+								[-95, 35],
+								[-95, 40],
+								[-100, 40],
+								[-100, 35]
+							]
+						]
+					}
+				}
+			]
+		};
+
+		global.fetch = vi.fn().mockResolvedValue({
+			ok: true,
+			json: () => Promise.resolve(mockGeoJson)
+		});
+
+		const day2Result = await fetchConvectiveOutlooks(2, 'categorical');
+		expect(day2Result[0].day).toBe(2);
+
+		const day3Result = await fetchConvectiveOutlooks(3, 'categorical');
+		expect(day3Result[0].day).toBe(3);
+	});
+});
+
+describe('fetchAllDay1Outlooks', () => {
+	beforeEach(() => {
+		vi.resetAllMocks();
+	});
+
+	it('should fetch all Day 1 outlook types in parallel', async () => {
+		const mockGeoJson = {
+			type: 'FeatureCollection',
+			features: [
+				{
+					type: 'Feature',
+					properties: {
+						LABEL: 'SLGT',
+						VALID: '202401221200'
+					},
+					geometry: {
+						type: 'Polygon',
+						coordinates: [
+							[
+								[-100, 35],
+								[-95, 35],
+								[-95, 40],
+								[-100, 40],
+								[-100, 35]
+							]
+						]
+					}
+				}
+			]
+		};
+
+		global.fetch = vi.fn().mockResolvedValue({
+			ok: true,
+			json: () => Promise.resolve(mockGeoJson)
+		});
+
+		const result = await fetchAllDay1Outlooks();
+
+		// Should have called fetch 4 times (categorical, tornado, hail, wind)
+		expect(global.fetch).toHaveBeenCalledTimes(4);
+		// Should have 4 outlooks (1 from each type)
+		expect(result).toHaveLength(4);
+	});
+});

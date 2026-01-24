@@ -6173,6 +6173,15 @@
 				<span class="control-icon">{weatherAlertsLoading ? '...' : '⚠'}</span>
 			</button>
 			<button
+				class="control-btn convective-btn"
+				class:active={convectiveOutlooksVisible}
+				class:loading={convectiveOutlooksLoading}
+				onclick={toggleConvectiveOutlooks}
+				title={convectiveOutlooksVisible ? 'Hide storm outlooks' : 'Show storm outlooks'}
+			>
+				<span class="control-icon">{convectiveOutlooksLoading ? '...' : '⛈'}</span>
+			</button>
+			<button
 				class="control-btn"
 				class:active={isRotating}
 				onclick={toggleRotation}
@@ -6783,6 +6792,27 @@
 	}
 
 	.weather-alerts-btn.loading .control-icon {
+		animation: pulse 1s ease-in-out infinite;
+	}
+
+	/* Convective Outlook Button */
+	.convective-btn.active {
+		background: rgb(113 63 18 / 0.6);
+		border-color: rgb(245 158 11 / 0.6);
+		color: rgb(253 224 71);
+	}
+
+	.convective-btn:hover {
+		border-color: rgb(245 158 11 / 0.5);
+		color: rgb(253 224 71);
+	}
+
+	.convective-btn.loading {
+		opacity: 0.7;
+		cursor: wait;
+	}
+
+	.convective-btn.loading .control-icon {
 		animation: pulse 1s ease-in-out infinite;
 	}
 

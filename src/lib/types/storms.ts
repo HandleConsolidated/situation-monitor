@@ -79,3 +79,38 @@ export const CYCLONE_COLORS: Record<CycloneCategory, string> = {
 	SS: '#aa88ff', // Purple
 	PTC: '#888888' // Dark gray
 };
+
+/**
+ * SPC Convective Outlook risk levels
+ */
+export type ConvectiveRisk =
+	| 'TSTM' // General thunderstorms
+	| 'MRGL' // Marginal risk
+	| 'SLGT' // Slight risk
+	| 'ENH' // Enhanced risk
+	| 'MDT' // Moderate risk
+	| 'HIGH'; // High risk
+
+/**
+ * Convective outlook polygon
+ */
+export interface ConvectiveOutlook {
+	day: 1 | 2 | 3;
+	type: 'categorical' | 'tornado' | 'hail' | 'wind';
+	risk: ConvectiveRisk;
+	geometry: GeoJSON.Geometry;
+	validTime: string;
+	isSignificant: boolean;
+}
+
+/**
+ * Color mapping for convective risks
+ */
+export const CONVECTIVE_COLORS: Record<ConvectiveRisk, string> = {
+	TSTM: '#c0e8c0', // Light green
+	MRGL: '#66c57c', // Dark green
+	SLGT: '#f6f67f', // Yellow
+	ENH: '#e6c27c', // Orange
+	MDT: '#e67c7c', // Red
+	HIGH: '#ff66ff' // Magenta
+};
