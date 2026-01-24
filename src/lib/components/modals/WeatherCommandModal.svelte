@@ -33,6 +33,7 @@
 	let generatedBriefing = $state<string | null>(null);
 	let copySuccess = $state(false);
 	let showRenderedMarkdown = $state(true);
+	let aiPromptCopied = $state(false);
 
 	// Render markdown to HTML
 	let renderedMarkdown = $derived(
@@ -165,6 +166,56 @@
 	function handlePickFromMap() {
 		weather.enterMapPickerMode(newPointName || undefined);
 		// Modal will close automatically due to store update
+	}
+
+	/**
+	 * Generate an AI analysis prompt and copy to clipboard
+	 */
+	async function generateAIPrompt() {
+		const now = new Date();
+		const enabledZoneNames = zones.filter(z => z.enabled).map(z => z.name);
+
+		// Build the prompt
+		const prompt = `You are a meteorological analyst providing tactical weather intelligence. Analyze the following weather data and provide actionable insights.
+
+## CURRENT DATE/TIME
+${now.toLocaleString()}
+
+## MONITORED AREAS
+${enabledZoneNames.join(', ')}
+
+## ACTIVE WEATHER ALERTS (${alerts.length} total)
+${alerts.map(a => `
+### ${a.event} (${a.severity})
+- **Area**: ${a.areaDesc}
+- **Effective**: ${a.effective ? new Date(a.effective).toLocaleString() : 'Unknown'}
+- **Expires**: ${a.expires ? new Date(a.expires).toLocaleString() : 'Unknown'}
+${a.headline ? `- **Headline**: ${a.headline}` : ''}
+${a.instruction ? `- **Instructions**: ${a.instruction}` : ''}
+`).join('\n')}
+
+## ANALYSIS REQUIREMENTS
+Please provide:
+1. **Threat Assessment**: Rate overall weather threat level (Low/Moderate/High/Extreme) and explain
+2. **Key Impacts**: What are the primary impacts to expect? (travel, outdoor activities, infrastructure, safety)
+3. **Timing Windows**: When are the most dangerous periods? When will conditions improve?
+4. **Recommended Actions**: What specific actions should be taken now and in the coming hours?
+5. **Watch Areas**: Are there any areas that could see escalation or new hazards developing?
+
+Format your response in markdown with clear headers and bullet points for easy reading.`;
+
+		try {
+			await navigator.clipboard.writeText(prompt);
+			aiPromptCopied = true;
+			setTimeout(() => {
+				aiPromptCopied = false;
+			}, 2000);
+		} catch (e) {
+			console.error('Failed to copy AI prompt to clipboard:', e);
+			// Fallback: show the prompt in the briefing area
+			generatedBriefing = prompt;
+			briefingFormat = 'text';
+		}
 	}
 </script>
 
@@ -422,13 +473,39 @@
 						</label>
 					</div>
 
-					<button
-						class="generate-btn"
-						onclick={generateBriefing}
-						disabled={zones.filter((z) => z.enabled).length === 0}
-					>
-						GENERATE BRIEFING
-					</button>
+					<div class="briefing-buttons">
+						<button
+							class="generate-btn"
+							onclick={generateBriefing}
+							disabled={zones.filter((z) => z.enabled).length === 0}
+						>
+							GENERATE BRIEFING
+						</button>
+						<button
+							class="ai-analysis-btn"
+							class:copied={aiPromptCopied}
+							onclick={generateAIPrompt}
+							disabled={zones.filter((z) => z.enabled).length === 0 || alerts.length === 0}
+							title="Generate an AI analysis prompt and copy to clipboard"
+						>
+							{#if aiPromptCopied}
+								<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<polyline points="20 6 9 17 4 12"/>
+								</svg>
+								COPIED!
+							{:else}
+								<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<path d="M12 2a10 10 0 1 0 10 10 4 4 0 0 1-5-5 4 4 0 0 1-5-5"/>
+									<path d="M8.5 8.5v.01"/>
+									<path d="M16 15.5v.01"/>
+									<path d="M12 12v.01"/>
+									<path d="M11 17v.01"/>
+									<path d="M7 14v.01"/>
+								</svg>
+								AI ANALYSIS
+							{/if}
+						</button>
+					</div>
 				</section>
 
 				{#if generatedBriefing}
@@ -990,7 +1067,13 @@
 		accent-color: var(--accent);
 	}
 
+	.briefing-buttons {
+		display: flex;
+		gap: 0.5rem;
+	}
+
 	.generate-btn {
+		flex: 1;
 		padding: 0.5rem 1rem;
 		background: rgba(34, 211, 238, 0.1);
 		border: 1px solid var(--accent-border);
@@ -1002,6 +1085,41 @@
 		letter-spacing: 0.1em;
 		cursor: pointer;
 		transition: all 0.15s ease;
+	}
+
+	.ai-analysis-btn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.35rem;
+		padding: 0.5rem 0.75rem;
+		background: rgba(168, 85, 247, 0.1);
+		border: 1px solid rgba(168, 85, 247, 0.4);
+		border-radius: 2px;
+		color: rgb(192, 132, 252);
+		font-size: 0.5rem;
+		font-family: 'SF Mono', Monaco, monospace;
+		font-weight: 700;
+		letter-spacing: 0.05em;
+		cursor: pointer;
+		transition: all 0.15s ease;
+	}
+
+	.ai-analysis-btn:hover:not(:disabled) {
+		background: rgba(168, 85, 247, 0.2);
+		border-color: rgba(168, 85, 247, 0.6);
+		color: rgb(216, 180, 254);
+	}
+
+	.ai-analysis-btn:disabled {
+		opacity: 0.4;
+		cursor: not-allowed;
+	}
+
+	.ai-analysis-btn.copied {
+		background: rgba(16, 185, 129, 0.2);
+		border-color: rgba(16, 185, 129, 0.6);
+		color: rgb(52, 211, 153);
 	}
 
 	.generate-btn:hover:not(:disabled) {
