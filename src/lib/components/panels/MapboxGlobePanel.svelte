@@ -4079,6 +4079,39 @@
 			resumeRotation();
 		});
 
+		// Cyclone hover
+		map.on('mousemove', 'cyclone-points', (e) => {
+			if (!e.features || e.features.length === 0 || tooltipLocked || !map) return;
+
+			const feature = e.features[0];
+			const props = feature.properties;
+
+			map.getCanvas().style.cursor = 'pointer';
+
+			const isCurrentPos = props?.hour === 0;
+			const forecastHour = props?.hour ?? 0;
+			tooltipData = {
+				label: `${isCurrentPos ? '🌀 ' : ''}${props?.name || 'Storm'}`,
+				type: 'cyclone',
+				desc: `${props?.category || 'TS'} - ${props?.wind || '?'} kt${forecastHour > 0 ? ` (+${forecastHour}h forecast)` : ' (current)'}`,
+				level:
+					props?.category?.startsWith('H') && parseInt(props.category.slice(1)) >= 3
+						? 'critical'
+						: 'elevated'
+			};
+			tooltipVisible = true;
+			updateTooltipPosition(e.point);
+			pauseRotation();
+		});
+
+		map.on('mouseleave', 'cyclone-points', () => {
+			if (tooltipLocked || !map) return;
+			map.getCanvas().style.cursor = '';
+			tooltipVisible = false;
+			tooltipData = null;
+			resumeRotation();
+		});
+
 		map.on('click', 'points-layer', (e) => handlePointClick(e));
 		map.on('click', 'news-events-layer', (e) => handlePointClick(e));
 		map.on('click', 'outages-layer', (e) => handleOutageClick(e));
@@ -6182,6 +6215,15 @@
 				<span class="control-icon">{convectiveOutlooksLoading ? '...' : '⛈'}</span>
 			</button>
 			<button
+				class="control-btn cyclone-btn"
+				class:active={tropicalCyclonesVisible}
+				class:loading={tropicalCyclonesLoading}
+				onclick={toggleTropicalCyclones}
+				title={tropicalCyclonesVisible ? 'Hide tropical cyclones' : 'Show tropical cyclones'}
+			>
+				<span class="control-icon">{tropicalCyclonesLoading ? '...' : '🌀'}</span>
+			</button>
+			<button
 				class="control-btn"
 				class:active={isRotating}
 				onclick={toggleRotation}
@@ -6813,6 +6855,27 @@
 	}
 
 	.convective-btn.loading .control-icon {
+		animation: pulse 1s ease-in-out infinite;
+	}
+
+	/* Tropical Cyclone Button */
+	.cyclone-btn.active {
+		background: rgb(127 29 29 / 0.6);
+		border-color: rgb(239 68 68 / 0.6);
+		color: rgb(252 165 165);
+	}
+
+	.cyclone-btn:hover {
+		border-color: rgb(239 68 68 / 0.5);
+		color: rgb(252 165 165);
+	}
+
+	.cyclone-btn.loading {
+		opacity: 0.7;
+		cursor: wait;
+	}
+
+	.cyclone-btn.loading .control-icon {
 		animation: pulse 1s ease-in-out infinite;
 	}
 
