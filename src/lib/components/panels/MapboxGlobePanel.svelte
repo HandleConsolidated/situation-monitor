@@ -2001,7 +2001,7 @@
 					],
 					glyphs: 'mapbox://fonts/mapbox/{fontstack}/{range}.pbf'
 				},
-				center: [10, 25],
+				center: [-98, 39],
 				zoom: 1.5,
 				projection: 'globe',
 				attributionControl: false,
