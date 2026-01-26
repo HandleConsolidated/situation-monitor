@@ -4046,46 +4046,47 @@
 			resumeRotation();
 		});
 
-		// Convective outlook hover
-		map.on('mousemove', 'convective-fill', (e) => {
+		// Convective outlook hover - both categorical and hazard layers
+		const convectiveHoverHandler = (e: mapboxgl.MapLayerMouseEvent) => {
 			if (!e.features || e.features.length === 0 || tooltipLocked || !map) return;
 
 			const props = e.features[0].properties;
 
 			map.getCanvas().style.cursor = 'pointer';
 
-			const riskLabels: Record<string, string> = {
-				TSTM: 'General Thunderstorms',
-				MRGL: 'Marginal Risk',
-				SLGT: 'Slight Risk',
-				ENH: 'Enhanced Risk',
-				MDT: 'Moderate Risk',
-				HIGH: 'HIGH RISK'
-			};
+			// Use the pre-computed labels from the GeoJSON properties
+			const typeLabel = props?.typeLabel || 'Storm Outlook';
+			const riskLabel = props?.riskLabel || props?.risk || 'Unknown';
+			const isSignificant = props?.isSignificant;
 
 			tooltipData = {
-				label: `Day ${props?.day || 1} Storm Outlook`,
+				label: `Day ${props?.day || 1} ${typeLabel}`,
 				type: 'convective',
-				desc: riskLabels[props?.risk] || props?.risk || 'Unknown',
+				desc: `${riskLabel}${isSignificant ? ' (SIGNIFICANT)' : ''}`,
 				level:
-					props?.risk === 'HIGH' || props?.risk === 'MDT'
+					props?.risk === 'HIGH' || props?.risk === 'MDT' || isSignificant
 						? 'critical'
-						: props?.risk === 'ENH' || props?.risk === 'SLGT'
+						: props?.risk === 'ENH' || props?.risk === 'SLGT' || props?.risk === '10%' || props?.risk === '15%'
 							? 'elevated'
 							: 'low'
 			};
 			tooltipVisible = true;
 			updateTooltipPosition(e.point);
 			pauseRotation();
-		});
+		};
 
-		map.on('mouseleave', 'convective-fill', () => {
+		const convectiveLeaveHandler = () => {
 			if (tooltipLocked || !map) return;
 			map.getCanvas().style.cursor = '';
 			tooltipVisible = false;
 			tooltipData = null;
 			resumeRotation();
-		});
+		};
+
+		map.on('mousemove', 'convective-fill', convectiveHoverHandler);
+		map.on('mousemove', 'convective-hazard-outline', convectiveHoverHandler);
+		map.on('mouseleave', 'convective-fill', convectiveLeaveHandler);
+		map.on('mouseleave', 'convective-hazard-outline', convectiveLeaveHandler);
 
 		// Cyclone hover
 		map.on('mousemove', 'cyclone-points', (e) => {
@@ -4825,31 +4826,49 @@
 			return;
 		}
 
-		console.log(`[Weather Alerts] Fetching geometries for ${newAlerts.length} new watched zone alerts...`);
+		console.log(`[Weather Alerts] Processing ${newAlerts.length} new watched zone alerts...`);
 
-		const alertsWithGeometry: WeatherAlert[] = [];
+		// Separate alerts that already have geometry from those that need fetching
+		const alertsWithExistingGeometry = newAlerts.filter((a) => a.geometry);
+		const alertsNeedingGeometry = newAlerts.filter((a) => !a.geometry);
 
-		for (const alert of newAlerts) {
-			let alertWithGeometry = alert;
-
-			// Fetch geometry if needed
-			if (!alert.geometry) {
-				const geometry = await fetchZoneGeometryForAlert(alert);
-				if (geometry) {
-					alertWithGeometry = { ...alert, geometry };
-				}
-			}
-
-			alertsWithGeometry.push(alertWithGeometry);
-		}
-
-		// Add all at once to avoid multiple re-renders
-		if (alertsWithGeometry.length > 0) {
-			const withGeo = alertsWithGeometry.filter((a) => a.geometry).length;
-			console.log(`[Weather Alerts] Added ${alertsWithGeometry.length} alerts from watched zones (${withGeo} with geometry)`);
-			globeWeatherAlerts = [...globeWeatherAlerts, ...alertsWithGeometry];
+		// Immediately add alerts that already have geometry
+		if (alertsWithExistingGeometry.length > 0) {
+			console.log(`[Weather Alerts] Immediately adding ${alertsWithExistingGeometry.length} alerts with existing geometry`);
+			globeWeatherAlerts = [...globeWeatherAlerts, ...alertsWithExistingGeometry];
 			updateWeatherAlertLayer();
 		}
+
+		// Fetch missing geometries in parallel (batch of 5 at a time to avoid overwhelming the API)
+		if (alertsNeedingGeometry.length > 0) {
+			console.log(`[Weather Alerts] Fetching geometries for ${alertsNeedingGeometry.length} alerts...`);
+
+			const BATCH_SIZE = 5;
+			for (let i = 0; i < alertsNeedingGeometry.length; i += BATCH_SIZE) {
+				const batch = alertsNeedingGeometry.slice(i, i + BATCH_SIZE);
+
+				const batchResults = await Promise.all(
+					batch.map(async (alert) => {
+						const geometry = await fetchZoneGeometryForAlert(alert);
+						return geometry ? { ...alert, geometry } : alert;
+					})
+				);
+
+				// Add batch results and update layer
+				const withGeometry = batchResults.filter((a) => a.geometry);
+				if (withGeometry.length > 0) {
+					globeWeatherAlerts = [...globeWeatherAlerts, ...batchResults];
+					updateWeatherAlertLayer();
+					console.log(`[Weather Alerts] Added batch of ${batchResults.length} alerts (${withGeometry.length} with geometry)`);
+				} else {
+					// Still add alerts without geometry so they're tracked
+					globeWeatherAlerts = [...globeWeatherAlerts, ...batchResults];
+				}
+			}
+		}
+
+		const finalWithGeo = globeWeatherAlerts.filter((a) => a.geometry).length;
+		console.log(`[Weather Alerts] Total: ${globeWeatherAlerts.length} alerts (${finalWithGeo} with geometry)`);
 
 		isProcessingStoreAlerts = false;
 	}
@@ -5475,10 +5494,14 @@
 		}
 	}
 
-	// Load weather radar animation data from RainViewer
+	// Load weather radar animation data from RainViewer with retry
+	let radarLoadRetries = 0;
+	const MAX_RADAR_RETRIES = 3;
+
 	async function loadWeatherRadar() {
 		if (weatherRadarLoading) return;
 		weatherRadarLoading = true;
+
 		try {
 			// Fetch full animation data instead of just latest frame
 			const animData = await fetchRadarAnimationData();
@@ -5486,13 +5509,29 @@
 				radarAnimationData = animData;
 				radarCurrentFrame = animData.frames.length - 1; // Most recent
 				weatherRadarTileUrl = animData.frames[radarCurrentFrame].tileUrl;
+				radarLoadRetries = 0; // Reset retry count on success
 
 				if (map && isInitialized) {
 					addOrUpdateRadarLayer(weatherRadarTileUrl);
 				}
+				console.log(`[Radar] Loaded ${animData.frames.length} frames`);
+			} else {
+				throw new Error('No radar frames returned');
 			}
 		} catch (error) {
-			console.warn('Failed to fetch weather radar data:', error);
+			console.warn('[Radar] Failed to fetch weather radar data:', error);
+
+			// Retry logic
+			if (radarLoadRetries < MAX_RADAR_RETRIES && weatherRadarVisible) {
+				radarLoadRetries++;
+				const retryDelay = 2000 * radarLoadRetries; // Exponential backoff
+				console.log(`[Radar] Retrying in ${retryDelay}ms (attempt ${radarLoadRetries}/${MAX_RADAR_RETRIES})...`);
+				setTimeout(() => {
+					weatherRadarLoading = false;
+					loadWeatherRadar();
+				}, retryDelay);
+				return; // Don't set loading to false yet
+			}
 		} finally {
 			weatherRadarLoading = false;
 		}
@@ -5514,75 +5553,102 @@
 	function initRadarLayers() {
 		if (!map || !radarAnimationData) return;
 
-		const firstSymbolLayer = findFirstSymbolLayer();
-		const visibility = weatherRadarVisible ? 'visible' : 'none';
+		// Ensure map style is loaded before adding layers
+		if (!map.isStyleLoaded()) {
+			console.log('[Radar] Map style not loaded, deferring radar layer init...');
+			map.once('style.load', () => initRadarLayers());
+			return;
+		}
 
-		// Create layer A (initially visible)
-		if (!map.getSource('weather-radar-A')) {
+		try {
+			const firstSymbolLayer = findFirstSymbolLayer();
+			const visibility = weatherRadarVisible ? 'visible' : 'none';
 			const frame = radarAnimationData.frames[radarCurrentFrame];
-			map.addSource('weather-radar-A', {
-				type: 'raster',
-				tiles: [frame.tileUrl],
-				tileSize: 256
-			});
-			map.addLayer(
-				{
-					id: 'weather-radar-layer-A',
-					type: 'raster',
-					source: 'weather-radar-A',
-					paint: {
-						'raster-opacity': 0.6,
-						'raster-fade-duration': 200
-					},
-					layout: {
-						visibility
-					}
-				},
-				firstSymbolLayer
-			);
-		}
 
-		// Create layer B (initially hidden, for preloading next frame)
-		if (!map.getSource('weather-radar-B')) {
-			map.addSource('weather-radar-B', {
-				type: 'raster',
-				tiles: [radarAnimationData.frames[radarCurrentFrame].tileUrl],
-				tileSize: 256
-			});
-			map.addLayer(
-				{
-					id: 'weather-radar-layer-B',
-					type: 'raster',
-					source: 'weather-radar-B',
-					paint: {
-						'raster-opacity': 0,
-						'raster-fade-duration': 200
-					},
-					layout: {
-						visibility
-					}
-				},
-				firstSymbolLayer
-			);
-		}
+			if (!frame?.tileUrl) {
+				console.warn('[Radar] No valid frame URL for radar layer');
+				return;
+			}
 
-		radarActiveLayer = 'A';
+			// Create layer A (initially visible)
+			if (!map.getSource('weather-radar-A')) {
+				map.addSource('weather-radar-A', {
+					type: 'raster',
+					tiles: [frame.tileUrl],
+					tileSize: 256
+				});
+				map.addLayer(
+					{
+						id: 'weather-radar-layer-A',
+						type: 'raster',
+						source: 'weather-radar-A',
+						paint: {
+							'raster-opacity': 0.6,
+							'raster-fade-duration': 200
+						},
+						layout: {
+							visibility
+						}
+					},
+					firstSymbolLayer
+				);
+			}
+
+			// Create layer B (initially hidden, for preloading next frame)
+			if (!map.getSource('weather-radar-B')) {
+				map.addSource('weather-radar-B', {
+					type: 'raster',
+					tiles: [frame.tileUrl],
+					tileSize: 256
+				});
+				map.addLayer(
+					{
+						id: 'weather-radar-layer-B',
+						type: 'raster',
+						source: 'weather-radar-B',
+						paint: {
+							'raster-opacity': 0,
+							'raster-fade-duration': 200
+						},
+						layout: {
+							visibility
+						}
+					},
+					firstSymbolLayer
+				);
+			}
+
+			radarActiveLayer = 'A';
+			console.log('[Radar] Layers initialized successfully');
+		} catch (error) {
+			console.warn('[Radar] Failed to initialize radar layers:', error);
+			// Retry after a short delay
+			setTimeout(() => {
+				if (map && radarAnimationData && weatherRadarVisible) {
+					initRadarLayers();
+				}
+			}, 1000);
+		}
 	}
 
 	// Add or update the weather radar raster layer
 	function addOrUpdateRadarLayer(_tileUrl: string) {
 		if (!map) return;
 
-		// Clean up old single-layer approach if it exists
-		if (map.getSource('weather-radar')) {
-			if (map.getLayer('weather-radar-layer')) {
-				map.removeLayer('weather-radar-layer');
+		try {
+			// Clean up old single-layer approach if it exists
+			if (map.getSource('weather-radar')) {
+				if (map.getLayer('weather-radar-layer')) {
+					map.removeLayer('weather-radar-layer');
+				}
+				map.removeSource('weather-radar');
 			}
-			map.removeSource('weather-radar');
-		}
 
-		// Initialize dual layers (uses radarAnimationData for current frame)
-		initRadarLayers();
+			// Initialize dual layers (uses radarAnimationData for current frame)
+			initRadarLayers();
+		} catch (error) {
+			console.warn('[Radar] Failed to update radar layer:', error);
+		}
 	}
 
 	// Preload upcoming frames for smoother animation
@@ -6146,58 +6212,150 @@
 		if (!map) return;
 
 		// Remove existing layers and source
-		if (map.getLayer('convective-fill')) map.removeLayer('convective-fill');
-		if (map.getLayer('convective-outline')) map.removeLayer('convective-outline');
+		const layerIds = ['convective-fill', 'convective-outline', 'convective-hazard-fill', 'convective-hazard-outline'];
+		for (const id of layerIds) {
+			if (map.getLayer(id)) map.removeLayer(id);
+		}
 		if (map.getSource('convective-outlooks')) map.removeSource('convective-outlooks');
+		if (map.getSource('convective-hazards')) map.removeSource('convective-hazards');
 
 		if (convectiveOutlooks.length === 0) return;
 
-		// Only show categorical outlooks on main layer
+		// Separate categorical outlooks from hazard-specific outlooks
 		const categoricalOutlooks = convectiveOutlooks.filter(
 			(o: ConvectiveOutlook) => o.type === 'categorical'
 		);
+		const hazardOutlooks = convectiveOutlooks.filter(
+			(o: ConvectiveOutlook) => o.type !== 'categorical'
+		);
 
-		const features: GeoJSON.Feature[] = categoricalOutlooks.map((outlook: ConvectiveOutlook) => ({
+		// Risk labels for tooltip - more descriptive
+		const riskDescriptions: Record<string, string> = {
+			'TSTM': 'General Thunderstorm Area - 10% or greater chance of thunderstorms',
+			'MRGL': 'Marginal Risk - Isolated severe storms possible',
+			'SLGT': 'Slight Risk - Scattered severe storms possible',
+			'ENH': 'Enhanced Risk - Numerous severe storms likely',
+			'MDT': 'Moderate Risk - Widespread severe storms expected',
+			'HIGH': 'HIGH RISK - Major severe weather outbreak expected'
+		};
+
+		// Type labels
+		const typeLabels: Record<string, string> = {
+			'categorical': 'Severe Storm Risk',
+			'tornado': 'Tornado Probability',
+			'hail': 'Large Hail Probability',
+			'wind': 'Damaging Wind Probability'
+		};
+
+		// Create features for categorical outlooks
+		const categoricalFeatures: GeoJSON.Feature[] = categoricalOutlooks.map((outlook: ConvectiveOutlook) => ({
 			type: 'Feature',
 			properties: {
 				risk: outlook.risk,
+				riskLabel: riskDescriptions[outlook.risk] || outlook.risk,
+				type: outlook.type,
+				typeLabel: typeLabels[outlook.type] || outlook.type,
 				color: CONVECTIVE_COLORS[outlook.risk],
-				day: outlook.day
+				day: outlook.day,
+				isSignificant: outlook.isSignificant
 			},
 			geometry: outlook.geometry
 		}));
 
-		map.addSource('convective-outlooks', {
-			type: 'geojson',
-			data: { type: 'FeatureCollection', features }
+		// Create features for hazard-specific outlooks (tornado/hail/wind probabilities)
+		const hazardFeatures: GeoJSON.Feature[] = hazardOutlooks.map((outlook: ConvectiveOutlook) => {
+			// Hazard outlooks use percentage-based colors - gradient from green to purple
+			const getHazardColor = (risk: string): string => {
+				// For significant areas, use a distinctive color
+				if (risk === 'SIGN' || risk.includes('SIG')) return '#ff00ff'; // Magenta
+
+				// Parse percentage value
+				const pctMatch = risk.match(/(\d+)/);
+				const pct = pctMatch ? parseInt(pctMatch[1]) : 0;
+
+				// Color scale based on percentage
+				if (pct <= 2) return '#40a040';   // Green - low probability
+				if (pct <= 5) return '#c0c000';   // Yellow
+				if (pct <= 10) return '#ff8000';  // Orange
+				if (pct <= 15) return '#ff6060';  // Red-orange
+				if (pct <= 30) return '#ff0000';  // Red
+				if (pct <= 45) return '#ff00ff';  // Magenta
+				return '#8b00ff';                  // Purple - extreme
+			};
+			const color = getHazardColor(outlook.risk);
+
+			return {
+				type: 'Feature',
+				properties: {
+					risk: outlook.risk,
+					riskLabel: `${outlook.risk} probability`,
+					type: outlook.type,
+					typeLabel: typeLabels[outlook.type] || outlook.type,
+					color: color,
+					day: outlook.day,
+					isSignificant: outlook.isSignificant
+				},
+				geometry: outlook.geometry
+			};
 		});
 
-		// Fill layer
-		map.addLayer({
-			id: 'convective-fill',
-			type: 'fill',
-			source: 'convective-outlooks',
-			paint: {
-				'fill-color': ['get', 'color'],
-				'fill-opacity': 0.3
-			}
-		});
+		// Add categorical outlook source and layers
+		if (categoricalFeatures.length > 0) {
+			map.addSource('convective-outlooks', {
+				type: 'geojson',
+				data: { type: 'FeatureCollection', features: categoricalFeatures }
+			});
 
-		// Outline
-		map.addLayer({
-			id: 'convective-outline',
-			type: 'line',
-			source: 'convective-outlooks',
-			paint: {
-				'line-color': ['get', 'color'],
-				'line-width': 2
-			}
-		});
+			// Fill layer
+			map.addLayer({
+				id: 'convective-fill',
+				type: 'fill',
+				source: 'convective-outlooks',
+				paint: {
+					'fill-color': ['get', 'color'],
+					'fill-opacity': 0.3
+				}
+			});
+
+			// Outline
+			map.addLayer({
+				id: 'convective-outline',
+				type: 'line',
+				source: 'convective-outlooks',
+				paint: {
+					'line-color': ['get', 'color'],
+					'line-width': 2
+				}
+			});
+		}
+
+		// Add hazard-specific outlook source and layers (tornado/hail/wind probabilities)
+		if (hazardFeatures.length > 0) {
+			map.addSource('convective-hazards', {
+				type: 'geojson',
+				data: { type: 'FeatureCollection', features: hazardFeatures }
+			});
+
+			// Dashed outline for hazard areas
+			map.addLayer({
+				id: 'convective-hazard-outline',
+				type: 'line',
+				source: 'convective-hazards',
+				paint: {
+					'line-color': ['get', 'color'],
+					'line-width': 3,
+					'line-dasharray': [4, 2]
+				}
+			});
+		}
 
 		// Set initial visibility based on state
 		const visibility = convectiveOutlooksVisible ? 'visible' : 'none';
-		map.setLayoutProperty('convective-fill', 'visibility', visibility);
-		map.setLayoutProperty('convective-outline', 'visibility', visibility);
+		for (const id of layerIds) {
+			if (map.getLayer(id)) {
+				map.setLayoutProperty(id, 'visibility', visibility);
+			}
+		}
 	}
 
 	// Toggle convective outlook visibility
@@ -6208,8 +6366,9 @@
 			loadConvectiveOutlooks();
 		}
 
-		// Toggle layer visibility if layers exist
-		for (const id of ['convective-fill', 'convective-outline']) {
+		// Toggle layer visibility if layers exist (both categorical and hazard layers)
+		const layerIds = ['convective-fill', 'convective-outline', 'convective-hazard-fill', 'convective-hazard-outline'];
+		for (const id of layerIds) {
 			if (map?.getLayer(id)) {
 				map.setLayoutProperty(id, 'visibility', convectiveOutlooksVisible ? 'visible' : 'none');
 			}
