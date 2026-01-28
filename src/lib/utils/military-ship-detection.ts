@@ -39,6 +39,63 @@ export interface ProximityAlert {
 	timestamp: string;
 }
 
+export interface ThreatAssessment {
+	shipId: string;
+	shipName: string;
+	threatLevel: 'extreme' | 'high' | 'medium' | 'low';
+	threatScore: number; // 0-100
+	factors: {
+		shipType: number;
+		location: number;
+		proximity: number;
+		velocity: number;
+		formation: number;
+	};
+	reasoning: string[];
+	timestamp: string;
+}
+
+export interface ShipFormation {
+	id: string;
+	name: string;
+	ships: string[]; // ship IDs
+	country: string;
+	formationType: 'carrier_group' | 'convoy' | 'patrol' | 'task_force' | 'unknown';
+	centerLat: number;
+	centerLon: number;
+	radius: number; // km
+	heading?: number;
+	velocity?: number;
+	detectedAt: string;
+}
+
+export interface PredictedPosition {
+	lat: number;
+	lon: number;
+	timestamp: string; // When ship is predicted to be at this position
+	confidence: number; // 0-1
+}
+
+export interface ShipCapabilities {
+	displacement: number; // tons
+	length: number; // meters
+	beam: number; // meters
+	speed: number; // knots
+	range: number; // nautical miles
+	crew: number;
+	armament: string[];
+	sensors: string[];
+	aircraft?: {
+		fixed: number;
+		rotary: number;
+	};
+	commissioned?: string;
+}
+
+export interface ShipDatabase {
+	[shipName: string]: ShipCapabilities;
+}
+
 // Ship tracking history (in-memory store, could be persisted)
 const shipTrackingHistory = new Map<string, ShipPosition[]>();
 
@@ -47,6 +104,191 @@ const PROXIMITY_THRESHOLDS = {
 	critical: 50,  // Within 50km of hotspot
 	warning: 150,  // Within 150km
 	watch: 300     // Within 300km
+};
+
+// Ship capabilities database (major warships)
+const SHIP_DATABASE: ShipDatabase = {
+	// US Navy Carriers
+	'USS Gerald R. Ford': {
+		displacement: 100000,
+		length: 337,
+		beam: 78,
+		speed: 30,
+		range: 9999,
+		crew: 4539,
+		armament: ['RIM-162 ESSM', 'RIM-116 RAM', 'Phalanx CIWS'],
+		sensors: ['AN/SPY-3', 'AN/SPY-4', 'AN/SLQ-32'],
+		aircraft: { fixed: 75, rotary: 0 },
+		commissioned: '2017-07-22'
+	},
+	'USS Ronald Reagan': {
+		displacement: 97000,
+		length: 333,
+		beam: 77,
+		speed: 30,
+		range: 9999,
+		crew: 5680,
+		armament: ['RIM-162 ESSM', 'RIM-116 RAM'],
+		sensors: ['AN/SPS-48', 'AN/SPS-49'],
+		aircraft: { fixed: 90, rotary: 0 },
+		commissioned: '2003-07-12'
+	},
+	'USS Nimitz': {
+		displacement: 97000,
+		length: 333,
+		beam: 77,
+		speed: 30,
+		range: 9999,
+		crew: 5680,
+		armament: ['RIM-162 ESSM', 'RIM-116 RAM'],
+		sensors: ['AN/SPS-48', 'AN/SPS-49'],
+		aircraft: { fixed: 90, rotary: 0 },
+		commissioned: '1975-05-03'
+	},
+	
+	// US Navy Destroyers
+	'USS Arleigh Burke': {
+		displacement: 9200,
+		length: 155,
+		beam: 20,
+		speed: 30,
+		range: 4400,
+		crew: 380,
+		armament: ['Mk 41 VLS (90-96 cells)', 'Tomahawk', 'SM-2', 'ESSM', 'ASROC', '5-inch gun', 'Harpoon'],
+		sensors: ['AN/SPY-1D', 'AN/SQS-53C'],
+		commissioned: '1991-07-04'
+	},
+	
+	// Chinese Navy
+	'Liaoning': {
+		displacement: 60000,
+		length: 305,
+		beam: 75,
+		speed: 29,
+		range: 3850,
+		crew: 2626,
+		armament: ['HHQ-10', 'Type 1130 CIWS'],
+		sensors: ['Type 346 AESA', 'Type 382'],
+		aircraft: { fixed: 24, rotary: 2 },
+		commissioned: '2012-09-25'
+	},
+	'Shandong': {
+		displacement: 70000,
+		length: 315,
+		beam: 75,
+		speed: 28,
+		range: 3850,
+		crew: 2626,
+		armament: ['HHQ-10', 'Type 1130 CIWS'],
+		sensors: ['Type 346A AESA'],
+		aircraft: { fixed: 36, rotary: 2 },
+		commissioned: '2019-12-17'
+	},
+	
+	// Royal Navy
+	'HMS Queen Elizabeth': {
+		displacement: 65000,
+		length: 284,
+		beam: 73,
+		speed: 25,
+		range: 10000,
+		crew: 1600,
+		armament: ['Phalanx CIWS', '30mm DS30M'],
+		sensors: ['Type 997 Artisan', 'Type 1046'],
+		aircraft: { fixed: 40, rotary: 0 },
+		commissioned: '2017-12-07'
+	},
+	'HMS Prince of Wales': {
+		displacement: 65000,
+		length: 284,
+		beam: 73,
+		speed: 25,
+		range: 10000,
+		crew: 1600,
+		armament: ['Phalanx CIWS', '30mm DS30M'],
+		sensors: ['Type 997 Artisan'],
+		aircraft: { fixed: 40, rotary: 0 },
+		commissioned: '2019-12-10'
+	},
+	
+	// Russian Navy
+	'Admiral Kuznetsov': {
+		displacement: 58500,
+		length: 305,
+		beam: 72,
+		speed: 29,
+		range: 3850,
+		crew: 1960,
+		armament: ['Granit AShM', 'Kinzhal SAM', 'AK-630 CIWS', '30mm AK-630'],
+		sensors: ['Polyment', 'Fregat-M2EM'],
+		aircraft: { fixed: 18, rotary: 17 },
+		commissioned: '1990-12-25'
+	},
+	'Pyotr Velikiy': {
+		displacement: 25860,
+		length: 252,
+		beam: 29,
+		speed: 32,
+		range: 5000,
+		crew: 727,
+		armament: ['Granit AShM', 'S-300F SAM', 'RBU-6000', '130mm gun'],
+		sensors: ['S-300F Fort', 'Polynom'],
+		commissioned: '1998-04-18'
+	},
+	
+	// French Navy
+	'Charles de Gaulle': {
+		displacement: 42000,
+		length: 262,
+		beam: 64,
+		speed: 27,
+		range: 9999,
+		crew: 1950,
+		armament: ['Aster 15 SAM', 'Mistral', 'Sadral'],
+		sensors: ['DRBJ 11B', 'ARABEL'],
+		aircraft: { fixed: 30, rotary: 2 },
+		commissioned: '2001-05-18'
+	},
+	
+	// Indian Navy
+	'INS Vikramaditya': {
+		displacement: 45400,
+		length: 284,
+		beam: 60,
+		speed: 32,
+		range: 7000,
+		crew: 1400,
+		armament: ['Barak SAM', 'AK-630 CIWS'],
+		sensors: ['MR-710 Fregat-M2EM'],
+		aircraft: { fixed: 26, rotary: 10 },
+		commissioned: '2013-11-16'
+	},
+	
+	// Japanese MSDF
+	'JS Izumo': {
+		displacement: 27000,
+		length: 248,
+		beam: 38,
+		speed: 30,
+		range: 9999,
+		crew: 520,
+		armament: ['Phalanx CIWS', 'SeaRAM'],
+		sensors: ['FCS-3', 'OPS-50'],
+		aircraft: { fixed: 14, rotary: 7 },
+		commissioned: '2015-03-25'
+	},
+	'JS Kaga': {
+		displacement: 27000,
+		length: 248,
+		beam: 38,
+		speed: 30,
+		range: 9999,
+		crew: 520,
+		armament: ['Phalanx CIWS', 'SeaRAM'],
+		sensors: ['FCS-3', 'OPS-50'],
+		aircraft: { fixed: 14, rotary: 7 },
+		commissioned: '2017-03-22'
+	}
 };
 
 // Military ship name patterns (common prefixes and ship classes)
@@ -518,5 +760,427 @@ export function detectMilitaryShipsWithTracking(newsItems: NewsItem[]): Detected
 	// Update tracking for each detected ship
 	ships.forEach(ship => updateShipTracking(ship));
 	
+	// Load persisted history from localStorage
+	loadTrackingHistory();
+	
+	// Save updated history
+	saveTrackingHistory();
+	
 	return ships;
+}
+
+/**
+ * Calculate threat level for a ship based on multiple factors
+ */
+export function assessThreat(
+	ship: DetectedMilitaryShip,
+	hotspots: Array<{ name: string; lat: number; lon: number }>
+): ThreatAssessment {
+	const factors = {
+		shipType: 0,
+		location: 0,
+		proximity: 0,
+		velocity: 0,
+		formation: 0
+	};
+	const reasoning: string[] = [];
+
+	// Ship type scoring (0-30 points)
+	switch (ship.type) {
+		case 'carrier':
+			factors.shipType = 30;
+			reasoning.push('Aircraft carrier - strategic asset');
+			break;
+		case 'submarine':
+			factors.shipType = 28;
+			reasoning.push('Submarine - stealth threat');
+			break;
+		case 'cruiser':
+			factors.shipType = 22;
+			reasoning.push('Cruiser - major combatant');
+			break;
+		case 'destroyer':
+			factors.shipType = 20;
+			reasoning.push('Destroyer - surface combatant');
+			break;
+		case 'frigate':
+			factors.shipType = 15;
+			reasoning.push('Frigate - patrol vessel');
+			break;
+		case 'amphibious':
+			factors.shipType = 18;
+			reasoning.push('Amphibious - potential landing force');
+			break;
+		default:
+			factors.shipType = 10;
+	}
+
+	// Location scoring (0-25 points) - Critical areas
+	if (ship.location) {
+		const criticalAreas = [
+			'Taiwan Strait', 'South China Sea', 'Korean Peninsula',
+			'Persian Gulf', 'Strait of Hormuz', 'Black Sea',
+			'Baltic Sea', 'Eastern Mediterranean'
+		];
+		
+		if (criticalAreas.some(area => ship.location?.includes(area))) {
+			factors.location = 25;
+			reasoning.push(`Operating in high-tension area: ${ship.location}`);
+		} else {
+			factors.location = 10;
+			reasoning.push(`Active in: ${ship.location}`);
+		}
+	}
+
+	// Proximity scoring (0-25 points)
+	if (ship.lat && ship.lon && hotspots.length > 0) {
+		let minDistance = Infinity;
+		let nearestHotspot = '';
+
+		for (const hotspot of hotspots) {
+			const distance = calculateDistance(ship.lat, ship.lon, hotspot.lat, hotspot.lon);
+			if (distance < minDistance) {
+				minDistance = distance;
+				nearestHotspot = hotspot.name;
+			}
+		}
+
+		if (minDistance < 50) {
+			factors.proximity = 25;
+			reasoning.push(`Critical proximity: ${Math.round(minDistance)}km from ${nearestHotspot}`);
+		} else if (minDistance < 150) {
+			factors.proximity = 18;
+			reasoning.push(`Close proximity: ${Math.round(minDistance)}km from ${nearestHotspot}`);
+		} else if (minDistance < 300) {
+			factors.proximity = 10;
+			reasoning.push(`Nearby: ${Math.round(minDistance)}km from ${nearestHotspot}`);
+		} else {
+			factors.proximity = 5;
+		}
+	}
+
+	// Velocity scoring (0-10 points) - Fast movement = higher alert
+	if (ship.velocity) {
+		if (ship.velocity > 30) {
+			factors.velocity = 10;
+			reasoning.push(`High speed: ${Math.round(ship.velocity)} km/h`);
+		} else if (ship.velocity > 20) {
+			factors.velocity = 7;
+			reasoning.push(`Moderate speed: ${Math.round(ship.velocity)} km/h`);
+		} else if (ship.velocity > 10) {
+			factors.velocity = 4;
+			reasoning.push(`Moving: ${Math.round(ship.velocity)} km/h`);
+		} else {
+			factors.velocity = 2;
+			reasoning.push('Slow or stationary');
+		}
+	}
+
+	// Formation bonus (0-10 points) - Will be calculated externally
+	factors.formation = 0;
+
+	// Calculate total threat score (0-100)
+	const threatScore = Object.values(factors).reduce((sum, val) => sum + val, 0);
+
+	// Determine threat level
+	let threatLevel: ThreatAssessment['threatLevel'];
+	if (threatScore >= 75) {
+		threatLevel = 'extreme';
+	} else if (threatScore >= 50) {
+		threatLevel = 'high';
+	} else if (threatScore >= 25) {
+		threatLevel = 'medium';
+	} else {
+		threatLevel = 'low';
+	}
+
+	return {
+		shipId: ship.id,
+		shipName: ship.name,
+		threatLevel,
+		threatScore,
+		factors,
+		reasoning,
+		timestamp: new Date().toISOString()
+	};
+}
+
+/**
+ * Detect ship formations (groups of ships traveling together)
+ */
+export function detectFormations(ships: DetectedMilitaryShip[]): ShipFormation[] {
+	const formations: ShipFormation[] = [];
+	const processedShips = new Set<string>();
+
+	// Group ships by country and proximity
+	for (const ship of ships) {
+		if (processedShips.has(ship.id) || !ship.lat || !ship.lon) continue;
+
+		const group: DetectedMilitaryShip[] = [ship];
+		processedShips.add(ship.id);
+
+		// Find nearby ships from same country
+		for (const otherShip of ships) {
+			if (
+				otherShip.id !== ship.id &&
+				!processedShips.has(otherShip.id) &&
+				otherShip.country === ship.country &&
+				otherShip.lat &&
+				otherShip.lon
+			) {
+				const distance = calculateDistance(ship.lat, ship.lon, otherShip.lat, otherShip.lon);
+				
+				// Ships within 100km are considered a formation
+				if (distance <= 100) {
+					group.push(otherShip);
+					processedShips.add(otherShip.id);
+				}
+			}
+		}
+
+		// Only create formation if 2+ ships
+		if (group.length >= 2) {
+			// Calculate center point
+			const centerLat = group.reduce((sum, s) => sum + (s.lat || 0), 0) / group.length;
+			const centerLon = group.reduce((sum, s) => sum + (s.lon || 0), 0) / group.length;
+
+			// Calculate radius (max distance from center)
+			const radius = Math.max(
+				...group.map(s =>
+					calculateDistance(centerLat, centerLon, s.lat || 0, s.lon || 0)
+				)
+			);
+
+			// Determine formation type
+			const hasCarrier = group.some(s => s.type === 'carrier');
+			const hasAmphibious = group.some(s => s.type === 'amphibious');
+			const shipCount = group.length;
+
+			let formationType: ShipFormation['formationType'];
+			let name: string;
+
+			if (hasCarrier && shipCount >= 3) {
+				formationType = 'carrier_group';
+				name = `${ship.country} Carrier Strike Group`;
+			} else if (hasAmphibious && shipCount >= 3) {
+				formationType = 'task_force';
+				name = `${ship.country} Amphibious Task Force`;
+			} else if (shipCount >= 5) {
+				formationType = 'task_force';
+				name = `${ship.country} Naval Task Force`;
+			} else if (shipCount >= 3) {
+				formationType = 'patrol';
+				name = `${ship.country} Patrol Group`;
+			} else {
+				formationType = 'convoy';
+				name = `${ship.country} Naval Convoy`;
+			}
+
+			// Calculate average heading and velocity
+			const shipsWithHeading = group.filter(s => s.heading !== undefined);
+			const shipsWithVelocity = group.filter(s => s.velocity !== undefined);
+
+			const heading =
+				shipsWithHeading.length > 0
+					? shipsWithHeading.reduce((sum, s) => sum + (s.heading || 0), 0) / shipsWithHeading.length
+					: undefined;
+
+			const velocity =
+				shipsWithVelocity.length > 0
+					? shipsWithVelocity.reduce((sum, s) => sum + (s.velocity || 0), 0) / shipsWithVelocity.length
+					: undefined;
+
+			formations.push({
+				id: `formation-${ship.country}-${Date.now()}-${formations.length}`,
+				name,
+				ships: group.map(s => s.id),
+				country: ship.country,
+				formationType,
+				centerLat,
+				centerLon,
+				radius,
+				heading,
+				velocity,
+				detectedAt: new Date().toISOString()
+			});
+		}
+	}
+
+	return formations;
+}
+
+/**
+ * Predict future position of a ship based on current trajectory
+ */
+export function predictPosition(
+	ship: DetectedMilitaryShip,
+	hoursAhead: number
+): PredictedPosition | null {
+	if (!ship.lat || !ship.lon || !ship.heading || !ship.velocity) {
+		return null;
+	}
+
+	// Convert velocity from km/h to km
+	const distanceKm = ship.velocity * hoursAhead;
+
+	// Convert heading to radians
+	const headingRad = toRad(ship.heading);
+
+	// Calculate new position using great circle navigation
+	const R = 6371; // Earth's radius in km
+	const lat1 = toRad(ship.lat);
+	const lon1 = toRad(ship.lon);
+
+	const lat2 = Math.asin(
+		Math.sin(lat1) * Math.cos(distanceKm / R) +
+		Math.cos(lat1) * Math.sin(distanceKm / R) * Math.cos(headingRad)
+	);
+
+	const lon2 = lon1 + Math.atan2(
+		Math.sin(headingRad) * Math.sin(distanceKm / R) * Math.cos(lat1),
+		Math.cos(distanceKm / R) - Math.sin(lat1) * Math.sin(lat2)
+	);
+
+	// Calculate confidence based on data quality
+	const confidence = calculatePredictionConfidence(ship);
+
+	const futureTime = new Date();
+	futureTime.setHours(futureTime.getHours() + hoursAhead);
+
+	return {
+		lat: toDeg(lat2),
+		lon: toDeg(lon2),
+		timestamp: futureTime.toISOString(),
+		confidence
+	};
+}
+
+/**
+ * Calculate confidence in position prediction
+ */
+function calculatePredictionConfidence(ship: DetectedMilitaryShip): number {
+	let confidence = 0.5; // Base confidence
+
+	// More history = better confidence
+	const historyLength = ship.previousLocations?.length || 0;
+	if (historyLength >= 5) confidence += 0.2;
+	else if (historyLength >= 3) confidence += 0.1;
+
+	// Recent velocity data improves confidence
+	if (ship.velocity) confidence += 0.15;
+
+	// Recent heading data improves confidence
+	if (ship.heading) confidence += 0.15;
+
+	return Math.min(confidence, 1.0);
+}
+
+/**
+ * Get ship capabilities from database
+ */
+export function getShipCapabilities(shipName: string): ShipCapabilities | null {
+	// Try exact match first
+	if (SHIP_DATABASE[shipName]) {
+		return SHIP_DATABASE[shipName];
+	}
+
+	// Try partial match (e.g., "USS Ronald Reagan" contains "Ronald Reagan")
+	for (const [dbShipName, capabilities] of Object.entries(SHIP_DATABASE)) {
+		if (shipName.includes(dbShipName) || dbShipName.includes(shipName)) {
+			return capabilities;
+		}
+	}
+
+	return null;
+}
+
+/**
+ * Save tracking history to localStorage
+ */
+export function saveTrackingHistory(): void {
+	if (typeof window === 'undefined') return;
+
+	try {
+		const data: Record<string, ShipPosition[]> = {};
+		shipTrackingHistory.forEach((value, key) => {
+			data[key] = value;
+		});
+
+		localStorage.setItem('shipTrackingHistory', JSON.stringify(data));
+	} catch (error) {
+		console.error('Failed to save tracking history:', error);
+	}
+}
+
+/**
+ * Load tracking history from localStorage
+ */
+export function loadTrackingHistory(): void {
+	if (typeof window === 'undefined') return;
+
+	try {
+		const data = localStorage.getItem('shipTrackingHistory');
+		if (data) {
+			const parsed = JSON.parse(data);
+			for (const [key, value] of Object.entries(parsed)) {
+				shipTrackingHistory.set(key, value as ShipPosition[]);
+			}
+		}
+	} catch (error) {
+		console.error('Failed to load tracking history:', error);
+	}
+}
+
+/**
+ * Get threat level color
+ */
+export function getThreatLevelColor(level: ThreatAssessment['threatLevel']): string {
+	switch (level) {
+		case 'extreme':
+			return '#991b1b'; // Dark red
+		case 'high':
+			return '#dc2626'; // Red
+		case 'medium':
+			return '#f97316'; // Orange
+		case 'low':
+			return '#10b981'; // Green
+		default:
+			return '#6b7280'; // Gray
+	}
+}
+
+/**
+ * Get threat level emoji
+ */
+export function getThreatLevelEmoji(level: ThreatAssessment['threatLevel']): string {
+	switch (level) {
+		case 'extreme':
+			return '🚨';
+		case 'high':
+			return '⚠️';
+		case 'medium':
+			return '👁️';
+		case 'low':
+			return '✅';
+		default:
+			return '❓';
+	}
+}
+
+/**
+ * Get formation type emoji
+ */
+export function getFormationTypeEmoji(type: ShipFormation['formationType']): string {
+	switch (type) {
+		case 'carrier_group':
+			return '🛫';
+		case 'task_force':
+			return '⚓';
+		case 'patrol':
+			return '👁️';
+		case 'convoy':
+			return '🚢';
+		default:
+			return '⚓';
+	}
 }
