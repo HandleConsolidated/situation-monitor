@@ -28,7 +28,12 @@
 		DiseaseOutbreakPanel,
 		AnalysisChatPanel,
 		AircraftPanel,
-		WeatherPanel
+		WeatherPanel,
+		SpaceWeatherPanel,
+		InternationalWeatherPanel,
+		CyberThreatsPanel,
+		SupplyChainPanel,
+		FinancialStressPanel
 	} from '$lib/components/panels';
 	import {
 		news,
@@ -691,6 +696,16 @@
 							}}
 							onOpenCommandCenter={() => weather.openCommandModal()}
 						/>
+					{:else if panelId === 'space-weather'}
+						<SpaceWeatherPanel />
+					{:else if panelId === 'international-weather'}
+						<InternationalWeatherPanel />
+					{:else if panelId === 'cyber-threats'}
+						<CyberThreatsPanel />
+					{:else if panelId === 'supply-chain'}
+						<SupplyChainPanel />
+					{:else if panelId === 'financial-stress'}
+						<FinancialStressPanel />
 					{/if}
 				{/each}
 			</DropZone>
@@ -901,6 +916,16 @@
 							}}
 							onOpenCommandCenter={() => weather.openCommandModal()}
 						/>
+					{:else if panelId === 'space-weather'}
+						<SpaceWeatherPanel />
+					{:else if panelId === 'international-weather'}
+						<InternationalWeatherPanel />
+					{:else if panelId === 'cyber-threats'}
+						<CyberThreatsPanel />
+					{:else if panelId === 'supply-chain'}
+						<SupplyChainPanel />
+					{:else if panelId === 'financial-stress'}
+						<FinancialStressPanel />
 					{/if}
 				{/each}
 			</DropZone>
@@ -1055,6 +1080,16 @@
 					}}
 					onOpenCommandCenter={() => weather.openCommandModal()}
 				/>
+			{:else if panelId === 'space-weather'}
+				<SpaceWeatherPanel />
+			{:else if panelId === 'international-weather'}
+				<InternationalWeatherPanel />
+			{:else if panelId === 'cyber-threats'}
+				<CyberThreatsPanel />
+			{:else if panelId === 'supply-chain'}
+				<SupplyChainPanel />
+			{:else if panelId === 'financial-stress'}
+				<FinancialStressPanel />
 			{/if}
 		{/each}
 	</DropZone>

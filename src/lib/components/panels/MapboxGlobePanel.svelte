@@ -11,10 +11,18 @@
 		THREAT_COLORS,
 		HOTSPOT_KEYWORDS
 	} from '$lib/config/map';
+	import {
+		inferCountryFromBase,
+		inferBaseType,
+		getBaseTypeColor,
+		getBaseTypeIcon,
+		MILITARY_ALLIANCES
+	} from '$lib/config/military-filters';
 	import { selectedAlert, weather, mapPickerMode } from '$lib/stores';
 	import { ALERT_MAP_COLORS } from '$lib/config/weather';
 	import type { WeatherAlert } from '$lib/types';
-	import { fetchOutageData, fetchUCDPConflicts, fetchAircraftPositions, OpenSkyRateLimitError, getAltitudeColor, formatAltitude, formatVelocity, formatHeading, fetchElevatedVolcanoes, VOLCANO_ALERT_COLORS, VOLCANO_ALERT_DESCRIPTIONS, fetchRadarAnimationData, getShipTypeColor, formatVesselSpeed, formatVesselCourse, getFlagEmoji, fetchAirQualityData, AIR_QUALITY_COLORS, AIR_QUALITY_DESCRIPTIONS, RADIATION_LEVEL_COLORS, fetchAllActiveAlerts, fetchZoneGeometryForAlert, fetchActiveTropicalCyclones, fetchCycloneForecastCone, fetchAllDay1Outlooks } from '$lib/api';
+	import { fetchOutageData, fetchUCDPConflicts, fetchAircraftPositions, OpenSkyRateLimitError, getAltitudeColor, formatAltitude, formatVelocity, formatHeading, fetchElevatedVolcanoes, VOLCANO_ALERT_COLORS, VOLCANO_ALERT_DESCRIPTIONS, fetchRadarAnimationData, getShipTypeColor, formatVesselSpeed, formatVesselCourse, getFlagEmoji, fetchAirQualityData, AIR_QUALITY_COLORS, AIR_QUALITY_DESCRIPTIONS, RADIATION_LEVEL_COLORS, fetchAllActiveAlerts, fetchZoneGeometryForAlert, fetchActiveTropicalCyclones, fetchCycloneForecastCone, fetchAllDay1Outlooks, fetchSpaceWeather, fetchAllInternationalAlerts, getSpaceWeatherColor, getInternationalAlertColor } from '$lib/api';
+	import type { SolarActivity, InternationalAlert } from '$lib/api';
 	import type { RadarAnimationData, TropicalCyclone, ConvectiveOutlook } from '$lib/types';
 	import { CYCLONE_COLORS, CONVECTIVE_COLORS } from '$lib/types/storms';
 	import { vesselStore, vesselConnectionStatus, connectVesselStream, disconnectVesselStream } from '$lib/services/vessel-stream';
@@ -143,7 +151,9 @@
 		airQuality: { visible: false, paused: false }, // OpenAQ air quality monitoring - off by default
 		radiation: { visible: true, paused: false }, // Safecast radiation readings
 		diseases: { visible: true, paused: false }, // WHO/ReliefWeb disease outbreaks
-		traffic: { visible: false, paused: false } // Mapbox traffic and roads - off by default
+		traffic: { visible: false, paused: false }, // Mapbox traffic and roads - off by default
+		spaceWeather: { visible: true, paused: false }, // NOAA space weather activity
+		internationalWeather: { visible: true, paused: false } // International weather alerts
 	});
 
 	// Individual feed category visibility
@@ -160,6 +170,10 @@
 	let newsTTL = $state(30); // Minutes until news expires from map
 	let newsTimeFilter = $state(60); // Only show news from last X minutes
 	let showAlertsOnly = $state(false);
+
+	// Military base filtering
+	let militaryFilter = $state<'all' | 'nato' | 'russia' | 'china' | 'us' | 'allies'>('all');
+	let militarySearchQuery = $state('');
 
 	// Interaction state
 	let tooltipLocked = $state(false);
@@ -195,6 +209,14 @@
 	// Real outage data from API
 	let outageData = $state<OutageData[]>([]);
 	let outageDataLoading = $state(false);
+
+	// Space weather data from NOAA SWPC
+	let spaceWeatherData = $state<SolarActivity | null>(null);
+	let spaceWeatherLoading = $state(false);
+
+	// International weather alerts
+	let internationalWeatherData = $state<InternationalAlert[]>([]);
+	let internationalWeatherLoading = $state(false);
 
 	// VIEWS Conflict Forecast data (Smart Hotspots)
 	let conflictData = $state<VIEWSConflictData | null>(null);
@@ -459,7 +481,50 @@
 
 		// Add military bases - star markers for defense installations
 		if (dataLayers.military.visible) {
-			MILITARY_BASES.forEach((mb) => {
+			// Filter bases based on selected filter and search
+			const filteredBases = MILITARY_BASES.filter((mb) => {
+				const country = mb.country || inferCountryFromBase(mb);
+				
+				// Apply alliance/country filter
+				if (militaryFilter !== 'all') {
+					const natoCountries = MILITARY_ALLIANCES.NATO;
+					switch (militaryFilter) {
+						case 'nato':
+							if (!natoCountries.includes(country as typeof natoCountries[number])) return false;
+							break;
+						case 'russia':
+							if (country !== 'RU') return false;
+							break;
+						case 'china':
+							if (country !== 'CN') return false;
+							break;
+						case 'us':
+							if (country !== 'US') return false;
+							break;
+						case 'allies':
+							// US + NATO + Five Eyes + QUAD partners
+							const alliedCountries = ['US', ...natoCountries, 'AU', 'NZ', 'JP', 'IN'];
+							if (!alliedCountries.includes(country)) return false;
+							break;
+					}
+				}
+				
+				// Apply search filter
+				if (militarySearchQuery.trim()) {
+					const query = militarySearchQuery.toLowerCase();
+					const searchText = `${mb.name} ${mb.desc}`.toLowerCase();
+					if (!searchText.includes(query)) return false;
+				}
+				
+				return true;
+			});
+			
+			filteredBases.forEach((mb) => {
+				const country = mb.country || inferCountryFromBase(mb);
+				const baseType = mb.type || inferBaseType(mb);
+				const typeColor = getBaseTypeColor(baseType);
+				const typeIcon = getBaseTypeIcon(baseType);
+				
 				features.push({
 					type: 'Feature',
 					geometry: { type: 'Point', coordinates: [mb.lon, mb.lat] },
@@ -467,12 +532,14 @@
 						label: mb.name,
 						type: 'military',
 						desc: mb.desc,
-						color: '#3b82f6', // Blue-500
-						innerColor: '#2563eb', // Blue-600
+						country: country,
+						baseType: baseType,
+						color: typeColor,
+						innerColor: typeColor,
 						size: 8,
 						glowSize: 14,
 						strokeWidth: 1.5,
-						icon: '✦', // Star shape
+						icon: typeIcon,
 						importance: 1
 					}
 				});
@@ -1078,6 +1145,71 @@
 		return { type: 'FeatureCollection', features };
 	}
 
+	// Generate space weather overlay GeoJSON
+	function getSpaceWeatherGeoJSON(): GeoJSON.FeatureCollection {
+		if (!dataLayers.spaceWeather.visible || !spaceWeatherData) {
+			return { type: 'FeatureCollection', features: [] };
+		}
+
+		const features: GeoJSON.Feature[] = [];
+
+		// For now, add a global indicator at North Pole for Kp index
+		// Could be expanded to show auroral zones, affected regions, etc.
+		if (spaceWeatherData.kpIndex >= 5) {
+			// G1+ storm - show indicator
+			features.push({
+				type: 'Feature',
+				geometry: { type: 'Point', coordinates: [0, 90] }, // North Pole
+				properties: {
+					type: 'space-weather',
+					kpIndex: spaceWeatherData.kpIndex,
+					description: spaceWeatherData.kpDescription,
+					severity: spaceWeatherData.kpIndex >= 8 ? 'extreme' : 
+						spaceWeatherData.kpIndex >= 7 ? 'severe' : 
+						spaceWeatherData.kpIndex >= 6 ? 'strong' : 'moderate',
+					color: getSpaceWeatherColor(spaceWeatherData.kpIndex),
+					geomagneticStorm: spaceWeatherData.geomagneticStorm,
+					radioBlackout: spaceWeatherData.radioBlackout,
+					solarRadiationStorm: spaceWeatherData.solarRadiationStorm
+				}
+			});
+		}
+
+		return { type: 'FeatureCollection', features };
+	}
+
+	// Generate international weather alerts GeoJSON
+	function getInternationalWeatherGeoJSON(): GeoJSON.FeatureCollection {
+		if (!dataLayers.internationalWeather.visible) {
+			return { type: 'FeatureCollection', features: [] };
+		}
+
+		const features: GeoJSON.Feature[] = [];
+
+		internationalWeatherData.forEach((alert) => {
+			if (alert.lat && alert.lon) {
+				features.push({
+					type: 'Feature',
+					geometry: { type: 'Point', coordinates: [alert.lon, alert.lat] },
+					properties: {
+						type: 'international-weather',
+						event: alert.event,
+						severity: alert.severity,
+						source: alert.source,
+						country: alert.country,
+						countryCode: alert.countryCode,
+						effective: alert.effective,
+						expires: alert.expires,
+						description: alert.description,
+						color: getInternationalAlertColor(alert.severity)
+					}
+				});
+			}
+		});
+
+		return { type: 'FeatureCollection', features };
+	}
+
 	// Generate circle coordinates for radius visualization
 	function generateCircleCoordinates(
 		centerLon: number,
@@ -1664,6 +1796,13 @@
 			const outageRadiusSource = map.getSource('outage-radius') as mapboxgl.GeoJSONSource;
 			if (outageRadiusSource) outageRadiusSource.setData(getOutageRadiusGeoJSON());
 
+			// Update space weather and international weather sources
+			const spaceWeatherSource = map.getSource('space-weather') as mapboxgl.GeoJSONSource;
+			if (spaceWeatherSource) spaceWeatherSource.setData(getSpaceWeatherGeoJSON());
+
+			const intlWeatherSource = map.getSource('international-weather') as mapboxgl.GeoJSONSource;
+			if (intlWeatherSource) intlWeatherSource.setData(getInternationalWeatherGeoJSON());
+
 			// Update UCDP conflict sources (Smart Hotspots)
 			const conflictHotspotsSource = map.getSource('ucdp-hotspots') as mapboxgl.GeoJSONSource;
 			if (conflictHotspotsSource) conflictHotspotsSource.setData(getConflictHotspotsGeoJSON());
@@ -2145,7 +2284,17 @@
 				map.addSource('chokepoints', { type: 'geojson', data: getChokepointsGeoJSON() });
 				map.addSource('cables', { type: 'geojson', data: getCablesGeoJSON() });
 				map.addSource('nuclear', { type: 'geojson', data: getNuclearGeoJSON() });
-				map.addSource('military', { type: 'geojson', data: getMilitaryGeoJSON() });
+				map.addSource('military', {
+					type: 'geojson',
+					data: getMilitaryGeoJSON(),
+					cluster: true,
+					clusterRadius: 40,
+					clusterMaxZoom: 8, // Show individual bases at zoom 9+
+					clusterProperties: {
+						// Count bases in cluster
+						count: ['+', 1]
+					}
+				});
 				map.addSource('monitors', { type: 'geojson', data: getMonitorsGeoJSON() });
 				map.addSource('arcs', { type: 'geojson', data: getArcsGeoJSON() });
 				map.addSource('arc-particles', { type: 'geojson', data: getArcParticlesGeoJSON() });
@@ -2163,6 +2312,10 @@
 				});
 				map.addSource('outages', { type: 'geojson', data: getOutagesGeoJSON() });
 				map.addSource('outage-radius', { type: 'geojson', data: getOutageRadiusGeoJSON() });
+
+				// Space weather and international weather sources
+				map.addSource('space-weather', { type: 'geojson', data: getSpaceWeatherGeoJSON() });
+				map.addSource('international-weather', { type: 'geojson', data: getInternationalWeatherGeoJSON() });
 
 				// UCDP Conflict sources (Smart Hotspots)
 				map.addSource('ucdp-hotspots', { type: 'geojson', data: getConflictHotspotsGeoJSON() });
@@ -2710,6 +2863,70 @@
 					}
 				});
 
+				// ========== SPACE WEATHER - Aurora indicators at poles ==========
+				map.addLayer({
+					id: 'space-weather-pulse',
+					type: 'circle',
+					source: 'space-weather',
+					paint: {
+						'circle-radius': 40,
+						'circle-color': ['get', 'color'],
+						'circle-opacity': 0.2,
+						'circle-blur': 1
+					}
+				});
+
+				map.addLayer({
+					id: 'space-weather-main',
+					type: 'circle',
+					source: 'space-weather',
+					paint: {
+						'circle-radius': 25,
+						'circle-color': ['get', 'color'],
+						'circle-opacity': 0.7,
+						'circle-stroke-color': '#ffffff',
+						'circle-stroke-width': 2
+					}
+				});
+
+				// ========== INTERNATIONAL WEATHER - Weather alerts worldwide ==========
+				map.addLayer({
+					id: 'international-weather-pulse',
+					type: 'circle',
+					source: 'international-weather',
+					paint: {
+						'circle-radius': 20,
+						'circle-color': ['get', 'color'],
+						'circle-opacity': 0.15,
+						'circle-blur': 1
+					}
+				});
+
+				map.addLayer({
+					id: 'international-weather-glow',
+					type: 'circle',
+					source: 'international-weather',
+					paint: {
+						'circle-radius': 12,
+						'circle-color': ['get', 'color'],
+						'circle-opacity': 0.3,
+						'circle-blur': 0.5
+					}
+				});
+
+				map.addLayer({
+					id: 'international-weather-main',
+					type: 'circle',
+					source: 'international-weather',
+					paint: {
+						'circle-radius': 8,
+						'circle-color': ['get', 'color'],
+						'circle-opacity': 0.8,
+						'circle-stroke-color': '#1e1b4b',
+						'circle-stroke-width': 1.5
+					}
+				});
+
 				// ========== CABLE LANDINGS - Small emerald markers for digital infrastructure ==========
 				// Outer glow
 				map.addLayer({
@@ -2750,11 +2967,51 @@
 				});
 
 				// ========== MILITARY BASES - Blue star markers for defense installations ==========
-				// Outer glow
+				// Cluster layers for zoomed-out view
+				map.addLayer({
+					id: 'military-clusters',
+					type: 'circle',
+					source: 'military',
+					filter: ['has', 'point_count'],
+					paint: {
+						// Size increases with cluster point count
+						'circle-radius': [
+							'step',
+							['get', 'point_count'],
+							15,   // 15px for clusters < 10
+							10, 20, // 20px for clusters 10-50
+							50, 25, // 25px for clusters 50-100
+							100, 30 // 30px for clusters 100+
+						],
+						'circle-color': '#3b82f6',
+						'circle-opacity': 0.7,
+						'circle-stroke-color': '#60a5fa',
+						'circle-stroke-width': 2,
+						'circle-stroke-opacity': 0.9
+					}
+				});
+				// Cluster count labels
+				map.addLayer({
+					id: 'military-cluster-count',
+					type: 'symbol',
+					source: 'military',
+					filter: ['has', 'point_count'],
+					layout: {
+						'text-field': ['get', 'point_count_abbreviated'],
+						'text-font': ['DIN Pro Medium', 'Arial Unicode MS Bold'],
+						'text-size': 12,
+						'text-allow-overlap': true
+					},
+					paint: {
+						'text-color': '#ffffff'
+					}
+				});
+				// Outer glow - unclustered points only
 				map.addLayer({
 					id: 'military-glow-outer',
 					type: 'circle',
 					source: 'military',
+					filter: ['!', ['has', 'point_count']],
 					paint: {
 						'circle-radius': ['coalesce', ['get', 'glowSize'], 14],
 						'circle-color': ['coalesce', ['get', 'color'], '#3b82f6'],
@@ -2762,11 +3019,12 @@
 						'circle-blur': 1
 					}
 				});
-				// Inner glow
+				// Inner glow - unclustered points only
 				map.addLayer({
 					id: 'military-glow-inner',
 					type: 'circle',
 					source: 'military',
+					filter: ['!', ['has', 'point_count']],
 					paint: {
 						'circle-radius': ['*', ['coalesce', ['get', 'size'], 8], 1.4],
 						'circle-color': ['coalesce', ['get', 'color'], '#3b82f6'],
@@ -2774,11 +3032,12 @@
 						'circle-blur': 0.4
 					}
 				});
-				// Main marker
+				// Main marker - unclustered points only
 				map.addLayer({
 					id: 'military-layer',
 					type: 'circle',
 					source: 'military',
+					filter: ['!', ['has', 'point_count']],
 					paint: {
 						'circle-radius': ['coalesce', ['get', 'size'], 8],
 						'circle-color': ['coalesce', ['get', 'innerColor'], '#2563eb'],
@@ -2787,11 +3046,12 @@
 						'circle-stroke-opacity': 0.6
 					}
 				});
-				// Icon symbol
+				// Icon symbol - unclustered points only
 				map.addLayer({
 					id: 'military-icons',
 					type: 'symbol',
 					source: 'military',
+					filter: ['!', ['has', 'point_count']],
 					layout: {
 						'text-field': ['coalesce', ['get', 'icon'], '✦'],
 						'text-size': 10,
@@ -4153,6 +4413,25 @@
 			});
 		});
 
+		// Military cluster click handler - zoom in to expand cluster
+		map.on('click', 'military-clusters', (e) => {
+			const features = e.features;
+			if (!features || features.length === 0 || !map) return;
+
+			const clusterId = features[0].properties?.cluster_id;
+			const source = map.getSource('military') as mapboxgl.GeoJSONSource;
+
+			source.getClusterExpansionZoom(clusterId, (err, expansionZoom) => {
+				if (err || !map || expansionZoom == null) return;
+
+				const geometry = features[0].geometry as GeoJSON.Point;
+				map.easeTo({
+					center: geometry.coordinates as [number, number],
+					zoom: expansionZoom + 0.5 // Zoom a bit more for better visibility
+				});
+			});
+		});
+
 		map.on('click', (e) => {
 			// Handle map picker mode for weather zones
 			if ($mapPickerMode) {
@@ -5074,6 +5353,42 @@
 			console.warn('Failed to fetch UCDP conflict data:', error);
 		} finally {
 			conflictDataLoading = false;
+		}
+	}
+
+	// Load space weather data from NOAA SWPC
+	async function loadSpaceWeatherData() {
+		if (spaceWeatherLoading) return;
+		spaceWeatherLoading = true;
+		try {
+			const data = await fetchSpaceWeather();
+			spaceWeatherData = data;
+			// Update map layers with new space weather data
+			if (map && isInitialized) {
+				updateMapLayers();
+			}
+		} catch (error) {
+			console.warn('Failed to fetch space weather data:', error);
+		} finally {
+			spaceWeatherLoading = false;
+		}
+	}
+
+	// Load international weather alerts
+	async function loadInternationalWeatherData() {
+		if (internationalWeatherLoading) return;
+		internationalWeatherLoading = true;
+		try {
+			const data = await fetchAllInternationalAlerts();
+			internationalWeatherData = data;
+			// Update map layers with new international weather alerts
+			if (map && isInitialized) {
+				updateMapLayers();
+			}
+		} catch (error) {
+			console.warn('Failed to fetch international weather alerts:', error);
+		} finally {
+			internationalWeatherLoading = false;
 		}
 	}
 
@@ -6382,6 +6697,16 @@
 		// Refresh outage data every 5 minutes
 		const outageRefreshInterval = setInterval(loadOutageData, 5 * 60 * 1000);
 
+		// Fetch space weather data immediately
+		loadSpaceWeatherData();
+		// Refresh space weather data every 5 minutes
+		const spaceWeatherRefreshInterval = setInterval(loadSpaceWeatherData, 5 * 60 * 1000);
+
+		// Fetch international weather alerts immediately
+		loadInternationalWeatherData();
+		// Refresh international weather alerts every 10 minutes
+		const intlWeatherRefreshInterval = setInterval(loadInternationalWeatherData, 10 * 60 * 1000);
+
 		// Fetch volcano data immediately
 		loadVolcanoData();
 		// Refresh volcano data every 30 minutes (volcano status changes slowly)
@@ -6389,6 +6714,8 @@
 
 		return () => {
 			clearInterval(outageRefreshInterval);
+			clearInterval(spaceWeatherRefreshInterval);
+			clearInterval(intlWeatherRefreshInterval);
 			clearInterval(volcanoRefreshInterval);
 		};
 	});
@@ -6739,6 +7066,32 @@
 					<label class="filter-row checkbox">
 						<input type="checkbox" bind:checked={showAlertsOnly} onchange={() => updateMapLayers()} />
 						<span class="filter-label">Alerts only</span>
+					</label>
+				</div>
+
+				<!-- Military Base Filters -->
+				<div class="layer-section">
+					<span class="layer-section-title">MILITARY BASES</span>
+					<label class="filter-row">
+						<span class="filter-label">Filter:</span>
+						<select bind:value={militaryFilter} onchange={() => updateMapLayers()}>
+							<option value="all">All ({MILITARY_BASES.length})</option>
+							<option value="us">US Only</option>
+							<option value="nato">NATO</option>
+							<option value="allies">US + Allies</option>
+							<option value="russia">Russia</option>
+							<option value="china">China</option>
+						</select>
+					</label>
+					<label class="filter-row">
+						<span class="filter-label">Search:</span>
+						<input
+							type="text"
+							class="search-input"
+							placeholder="Search bases..."
+							bind:value={militarySearchQuery}
+							oninput={() => updateMapLayers()}
+						/>
 					</label>
 				</div>
 
@@ -7593,6 +7946,34 @@
 		background-color: #1e293b; /* slate-800 */
 		color: #e2e8f0; /* slate-200 */
 		padding: 0.25rem;
+	}
+
+	.search-input {
+		font-size: 0.5625rem;
+		font-family: 'SF Mono', Monaco, monospace;
+		background-color: #1e293b;
+		border: 1px solid rgb(51 65 85);
+		border-radius: 2px;
+		color: #e2e8f0;
+		padding: 0.125rem 0.375rem;
+		width: 100%;
+		max-width: 120px;
+		transition: all 0.15s ease;
+	}
+
+	.search-input:hover {
+		background-color: #334155;
+		border-color: rgb(6 182 212 / 0.5);
+	}
+
+	.search-input:focus {
+		border-color: rgb(34 211 238);
+		background-color: #334155;
+		outline: none;
+	}
+
+	.search-input::placeholder {
+		color: rgb(100 116 139);
 	}
 
 	.filter-row select option:hover,

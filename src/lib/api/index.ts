@@ -45,3 +45,24 @@ export {
 	fetchTodayStormReports,
 	fetchAllSevereWeatherData
 } from './storms';
+
+// Space Weather API (NOAA SWPC)
+export {
+	fetchSpaceWeather,
+	fetchSpaceWeatherAlerts,
+	getSpaceWeatherColor
+} from './space-weather';
+export type { SolarActivity, SpaceWeatherAlert } from './space-weather';
+
+// International Weather API (Global Alerts)
+export {
+	fetchCanadaAlerts,
+	fetchMeteoAlarmAlerts,
+	fetchJMAAlerts,
+	fetchBOMAlerts,
+	fetchAllInternationalAlerts,
+	getInternationalAlertColor,
+	getCountryFlag,
+	getInternationalAlertStats
+} from './international-weather';
+export type { InternationalAlert } from './international-weather';

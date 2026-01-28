@@ -2,23 +2,69 @@
 	import { Panel } from '$lib/components/common';
 	import { weather, activeAlerts, alertCount, severeAlertCount, weatherLoading } from '$lib/stores/weather';
 	import { ALERT_SEVERITY_COLORS, WINTER_WEATHER_EVENTS } from '$lib/config/weather';
-	import type { WeatherAlert, AlertSeverity } from '$lib/types';
+	import { AIR_QUALITY_COLORS, AIR_QUALITY_DESCRIPTIONS } from '$lib/api';
+	import { analyzeAlertTrends, getTrendDisplay, getTimeSinceFirstSeen, getRecentEscalations, type AlertWithTrend } from '$lib/utils';
+	import type { WeatherAlert, AlertSeverity, AirQualityReading, AirQualityLevel } from '$lib/types';
 
 	interface Props {
 		onAlertClick?: (alert: WeatherAlert) => void;
 		onOpenCommandCenter?: () => void;
+		airQualityData?: AirQualityReading[];
 	}
 
-	let { onAlertClick, onOpenCommandCenter }: Props = $props();
+	let { onAlertClick, onOpenCommandCenter, airQualityData = [] }: Props = $props();
+
+	// Air quality summary derived from data
+	const airQualitySummary = $derived(() => {
+		if (airQualityData.length === 0) return null;
+		
+		// Find worst air quality in the set
+		const levelOrder: Record<AirQualityLevel, number> = {
+			'good': 0,
+			'moderate': 1,
+			'unhealthy_sensitive': 2,
+			'unhealthy': 3,
+			'very_unhealthy': 4,
+			'hazardous': 5
+		};
+		
+		let worstReading: AirQualityReading | null = null;
+		let worstLevel = -1;
+		
+		for (const reading of airQualityData) {
+			const level = levelOrder[reading.level] ?? 0;
+			if (level > worstLevel) {
+				worstLevel = level;
+				worstReading = reading;
+			}
+		}
+		
+		if (!worstReading) return null;
+		
+		return {
+			level: worstReading.level,
+			location: worstReading.city || worstReading.location,
+			aqi: worstReading.aqi,
+			count: airQualityData.length,
+			hasUnhealthy: worstLevel >= 3
+		};
+	});
 
 	// Derive data from store
-	const alerts = $derived($activeAlerts);
+	const rawAlerts = $derived($activeAlerts);
 	const count = $derived($alertCount);
 	const severeCount = $derived($severeAlertCount);
 	const loading = $derived($weatherLoading);
 	const forecasts = $derived($weather.forecasts);
 	const zones = $derived($weather.zones);
 	const error = $derived($weather.alertsError);
+	
+	// Apply trend analysis to alerts
+	const alerts = $derived(analyzeAlertTrends(rawAlerts));
+	
+	// Check for recent escalations (last 30 minutes)
+	const recentEscalations = $derived(getRecentEscalations(alerts, 30));
+	const hasEscalations = $derived(recentEscalations.length > 0);
 
 	// Display limits
 	const MAX_ALERTS_DISPLAY = 8;
@@ -125,9 +171,10 @@
 	/**
 	 * Handle alert click
 	 */
-	function handleAlertClick(alert: WeatherAlert) {
+	function handleAlertClick(alert: AlertWithTrend) {
 		if (onAlertClick) {
-			onAlertClick(alert);
+			// Pass as WeatherAlert (base type) to callback
+			onAlertClick(alert as WeatherAlert);
 		}
 		weather.selectAlert(alert.id);
 	}
@@ -178,8 +225,14 @@
 		</div>
 	{:else}
 		<div class="weather-content">
-			<!-- Severe Alert Banner -->
-			{#if hasSevereAlerts}
+			<!-- Escalation Banner (takes priority) -->
+			{#if hasEscalations}
+				<div class="escalation-banner">
+					<span class="escalation-icon">⬆️</span>
+					<span class="escalation-text">{recentEscalations.length} Alert{recentEscalations.length > 1 ? 's' : ''} Escalated</span>
+				</div>
+			{:else if hasSevereAlerts}
+				<!-- Severe Alert Banner -->
 				<div class="severe-banner">
 					<span class="severe-icon">⚠️</span>
 					<span class="severe-text">{severeCount} Extreme/Severe Alert{severeCount > 1 ? 's' : ''}</span>
@@ -191,10 +244,13 @@
 				<div class="alerts-list">
 					{#each displayAlerts as alert (alert.id)}
 						{@const colors = getSeverityColors(alert.severity)}
+						{@const trendInfo = getTrendDisplay(alert.trend)}
 						<!-- svelte-ignore a11y_click_events_have_key_events -->
 						<!-- svelte-ignore a11y_no_static_element_interactions -->
 						<div
 							class="alert-item"
+							class:escalated={alert.trend === 'escalated'}
+							class:new-alert={alert.trend === 'new'}
 							onclick={() => handleAlertClick(alert)}
 							style="--alert-bg: {colors.hex}20; --alert-border: {colors.hex}80; --alert-text: {colors.hex};"
 						>
@@ -202,13 +258,30 @@
 							<div class="alert-content">
 								<div class="alert-header">
 									<span class="alert-event {colors.text}">{alert.event}</span>
-									<span class="alert-expiry">
-										{formatTimeRemaining(alert.expires)}
-									</span>
+									<div class="alert-meta">
+										{#if trendInfo.label}
+											<span class="trend-badge {trendInfo.color} {trendInfo.bgColor}">
+												{trendInfo.icon} {trendInfo.label}
+											</span>
+										{/if}
+										<span class="alert-expiry">
+											{formatTimeRemaining(alert.expires)}
+										</span>
+									</div>
 								</div>
 								<div class="alert-area">{alert.areaDesc}</div>
+								{#if alert.trend === 'escalated' && alert.previousSeverity}
+									<div class="escalation-detail">
+										Upgraded from {alert.previousSeverity}
+									</div>
+								{/if}
 								{#if alert.headline}
 									<div class="alert-headline">{alert.headline}</div>
+								{/if}
+								{#if alert.firstSeen}
+									<div class="alert-tracking">
+										Tracking for {getTimeSinceFirstSeen(alert.firstSeen)}
+									</div>
 								{/if}
 							</div>
 						</div>
@@ -244,6 +317,33 @@
 						{/each}
 					</div>
 				</div>
+			{/if}
+
+			<!-- Air Quality Summary -->
+			{#if airQualitySummary()}
+				{@const aq = airQualitySummary()}
+				{#if aq}
+					<div class="air-quality-section" class:unhealthy={aq.hasUnhealthy}>
+						<div class="section-title">Air Quality</div>
+						<div class="air-quality-summary">
+							<span class="aq-icon">
+								{#if aq.level === 'good'}🟢
+								{:else if aq.level === 'moderate'}🟡
+								{:else if aq.level === 'unhealthy_sensitive'}🟠
+								{:else if aq.level === 'unhealthy'}🔴
+								{:else if aq.level === 'very_unhealthy'}🟣
+								{:else}⚫{/if}
+							</span>
+							<span class="aq-level">{AIR_QUALITY_DESCRIPTIONS[aq.level]}</span>
+							{#if aq.aqi}
+								<span class="aq-value">AQI {aq.aqi}</span>
+							{/if}
+						</div>
+						<div class="aq-location">
+							Worst: {aq.location} ({aq.count} stations monitored)
+						</div>
+					</div>
+				{/if}
 			{/if}
 		</div>
 	{/if}
@@ -449,6 +549,101 @@
 		overflow: hidden;
 	}
 
+	/* Alert Meta (trend + expiry) */
+	.alert-meta {
+		display: flex;
+		align-items: center;
+		gap: 0.375rem;
+		flex-shrink: 0;
+	}
+
+	/* Trend Badge */
+	.trend-badge {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.125rem;
+		padding: 0.0625rem 0.25rem;
+		font-size: var(--fs-2xs);
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		border-radius: 2px;
+	}
+
+	.trend-badge.text-red-400 { color: rgb(248 113 113); }
+	.trend-badge.text-green-400 { color: rgb(74 222 128); }
+	.trend-badge.text-yellow-400 { color: rgb(250 204 21); }
+	.trend-badge.text-slate-400 { color: rgb(148 163 184); }
+	
+	.trend-badge.bg-red-500\/20 { background: rgb(239 68 68 / 0.2); }
+	.trend-badge.bg-green-500\/20 { background: rgb(34 197 94 / 0.2); }
+	.trend-badge.bg-yellow-500\/20 { background: rgb(234 179 8 / 0.2); }
+
+	/* Escalation Detail */
+	.escalation-detail {
+		font-size: var(--fs-2xs);
+		color: rgb(248 113 113);
+		font-style: italic;
+	}
+
+	/* Alert Tracking */
+	.alert-tracking {
+		font-size: var(--fs-2xs);
+		color: rgb(100 116 139);
+		font-family: 'SF Mono', Monaco, monospace;
+	}
+
+	/* Escalated Alert Styling */
+	.alert-item.escalated {
+		background: rgb(127 29 29 / 0.15) !important;
+		border-left-color: rgb(239 68 68) !important;
+		animation: escalation-pulse 2s ease-in-out 3;
+	}
+
+	.alert-item.new-alert {
+		border-left-color: rgb(234 179 8) !important;
+	}
+
+	@keyframes escalation-pulse {
+		0%, 100% { background: rgb(127 29 29 / 0.15); }
+		50% { background: rgb(127 29 29 / 0.3); }
+	}
+
+	/* Escalation Banner */
+	.escalation-banner {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.375rem 0.5rem;
+		background: rgb(127 29 29 / 0.6);
+		border: 1px solid rgb(239 68 68 / 0.7);
+		border-radius: 2px;
+		animation: escalation-banner-pulse 1.5s ease-in-out infinite;
+	}
+
+	@keyframes escalation-banner-pulse {
+		0%, 100% { 
+			opacity: 1;
+			box-shadow: 0 0 0 0 rgb(239 68 68 / 0.4);
+		}
+		50% { 
+			opacity: 0.9;
+			box-shadow: 0 0 8px 2px rgb(239 68 68 / 0.3);
+		}
+	}
+
+	.escalation-icon {
+		font-size: var(--fs-sm);
+	}
+
+	.escalation-text {
+		font-size: var(--fs-xs);
+		font-weight: 700;
+		color: rgb(248 113 113);
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+	}
+
 	/* View More Button */
 	.view-more-btn {
 		width: 100%;
@@ -529,5 +724,61 @@
 		font-size: var(--fs-xs);
 		font-weight: 600;
 		color: rgb(34 211 238);
+	}
+
+	/* Air Quality Section */
+	.air-quality-section {
+		margin-top: 0.5rem;
+		padding-top: 0.5rem;
+		border-top: 1px solid rgb(51 65 85 / 0.5);
+	}
+
+	.air-quality-section.unhealthy {
+		border-color: rgb(239 68 68 / 0.3);
+	}
+
+	.air-quality-summary {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.375rem 0.5rem;
+		background: rgb(30 41 59 / 0.3);
+		border: 1px solid rgb(51 65 85 / 0.3);
+		border-radius: 2px;
+	}
+
+	.air-quality-section.unhealthy .air-quality-summary {
+		background: rgb(127 29 29 / 0.2);
+		border-color: rgb(239 68 68 / 0.3);
+	}
+
+	.aq-icon {
+		font-size: var(--fs-sm);
+	}
+
+	.aq-level {
+		font-size: var(--fs-xs);
+		font-weight: 600;
+		color: rgb(226 232 240);
+		flex: 1;
+	}
+
+	.air-quality-section.unhealthy .aq-level {
+		color: rgb(248 113 113);
+	}
+
+	.aq-value {
+		font-size: var(--fs-2xs);
+		font-family: 'SF Mono', Monaco, monospace;
+		color: rgb(148 163 184);
+		background: rgb(15 23 42 / 0.5);
+		padding: 0.125rem 0.375rem;
+		border-radius: 2px;
+	}
+
+	.aq-location {
+		margin-top: 0.25rem;
+		font-size: var(--fs-2xs);
+		color: rgb(100 116 139);
 	}
 </style>

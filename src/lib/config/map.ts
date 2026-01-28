@@ -40,6 +40,8 @@ export interface MilitaryBase {
 	lat: number;
 	lon: number;
 	desc: string;
+	country?: string; // ISO 3166-1 alpha-2 country code (e.g., 'US', 'RU', 'CN')
+	type?: 'naval' | 'air' | 'army' | 'joint' | 'strategic' | 'other'; // Base type for filtering
 }
 
 export interface OutageEvent {

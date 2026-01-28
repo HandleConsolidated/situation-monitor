@@ -20,3 +20,15 @@ export {
 	downloadAsHTML,
 	copyToClipboard
 } from './pdf-export';
+
+export {
+	analyzeAlertTrends,
+	getTrendDisplay,
+	getTimeSinceFirstSeen,
+	getRecentEscalations,
+	clearAlertHistory,
+	getAlertTrendStats,
+	type AlertWithTrend,
+	type AlertHistoryEntry,
+	type TrendStatus
+} from './alert-trends';
