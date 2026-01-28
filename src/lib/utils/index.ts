@@ -32,3 +32,10 @@ export {
 	type AlertHistoryEntry,
 	type TrendStatus
 } from './alert-trends';
+
+export {
+	detectMilitaryShips,
+	getShipTypeColor,
+	getShipTypeIcon,
+	type DetectedMilitaryShip
+} from './military-ship-detection';

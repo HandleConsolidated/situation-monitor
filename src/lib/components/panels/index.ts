@@ -30,3 +30,6 @@ export { default as InternationalWeatherPanel } from './InternationalWeatherPane
 export { default as CyberThreatsPanel } from './CyberThreatsPanel.svelte';
 export { default as SupplyChainPanel } from './SupplyChainPanel.svelte';
 export { default as FinancialStressPanel } from './FinancialStressPanel.svelte';
+export { default as DiplomaticActivityPanel } from './DiplomaticActivityPanel.svelte';
+export { default as ResourceScarcityPanel } from './ResourceScarcityPanel.svelte';
+export { default as MaritimeSecurityPanel } from './MaritimeSecurityPanel.svelte';

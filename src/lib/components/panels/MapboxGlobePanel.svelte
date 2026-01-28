@@ -28,6 +28,7 @@
 	import { vesselStore, vesselConnectionStatus, connectVesselStream, disconnectVesselStream } from '$lib/services/vessel-stream';
 	import type { OutageData, VIEWSConflictData, Vessel, RadiationReading } from '$lib/api';
 	import type { CustomMonitor, NewsItem, NewsCategory, Aircraft, VolcanoData, AirQualityReading, DiseaseOutbreak, EarthquakeData } from '$lib/types';
+	import { detectMilitaryShips, getShipTypeColor as getMilitaryShipColor, getShipTypeIcon as getMilitaryShipIcon, type DetectedMilitaryShip } from '$lib/utils';
 
 	// Predefined ADS-B regions for filtering (matching AircraftPanel)
 	const AIRCRAFT_REGIONS: Record<string, { name: string; bounds: [number, number, number, number] }> = {
@@ -153,7 +154,8 @@
 		diseases: { visible: true, paused: false }, // WHO/ReliefWeb disease outbreaks
 		traffic: { visible: false, paused: false }, // Mapbox traffic and roads - off by default
 		spaceWeather: { visible: true, paused: false }, // NOAA space weather activity
-		internationalWeather: { visible: true, paused: false } // International weather alerts
+		internationalWeather: { visible: true, paused: false }, // International weather alerts
+		militaryShips: { visible: true, paused: false } // Military ships detected in news feeds
 	});
 
 	// Individual feed category visibility
@@ -217,6 +219,9 @@
 	// International weather alerts
 	let internationalWeatherData = $state<InternationalAlert[]>([]);
 	let internationalWeatherLoading = $state(false);
+
+	// Detected military ships from news feeds
+	let detectedMilitaryShips = $state<DetectedMilitaryShip[]>([]);
 
 	// VIEWS Conflict Forecast data (Smart Hotspots)
 	let conflictData = $state<VIEWSConflictData | null>(null);
@@ -1210,6 +1215,38 @@
 		return { type: 'FeatureCollection', features };
 	}
 
+	// Generate military ships detected from news GeoJSON
+	function getMilitaryShipsGeoJSON(): GeoJSON.FeatureCollection {
+		if (!dataLayers.militaryShips.visible) {
+			return { type: 'FeatureCollection', features: [] };
+		}
+
+		const features: GeoJSON.Feature[] = [];
+
+		detectedMilitaryShips.forEach((ship) => {
+			if (ship.lat && ship.lon) {
+				features.push({
+					type: 'Feature',
+					geometry: { type: 'Point', coordinates: [ship.lon, ship.lat] },
+					properties: {
+						type: 'military-ship',
+						name: ship.name,
+						shipType: ship.type,
+						country: ship.country,
+						location: ship.location,
+						source: ship.source,
+						context: ship.context,
+						timestamp: ship.timestamp,
+						color: getMilitaryShipColor(ship.type),
+						icon: getMilitaryShipIcon(ship.type)
+					}
+				});
+			}
+		});
+
+		return { type: 'FeatureCollection', features };
+	}
+
 	// Generate circle coordinates for radius visualization
 	function generateCircleCoordinates(
 		centerLon: number,
@@ -1803,6 +1840,10 @@
 			const intlWeatherSource = map.getSource('international-weather') as mapboxgl.GeoJSONSource;
 			if (intlWeatherSource) intlWeatherSource.setData(getInternationalWeatherGeoJSON());
 
+			// Update military ships detected from news
+			const militaryShipsSource = map.getSource('military-ships') as mapboxgl.GeoJSONSource;
+			if (militaryShipsSource) militaryShipsSource.setData(getMilitaryShipsGeoJSON());
+
 			// Update UCDP conflict sources (Smart Hotspots)
 			const conflictHotspotsSource = map.getSource('ucdp-hotspots') as mapboxgl.GeoJSONSource;
 			if (conflictHotspotsSource) conflictHotspotsSource.setData(getConflictHotspotsGeoJSON());
@@ -2316,6 +2357,9 @@
 				// Space weather and international weather sources
 				map.addSource('space-weather', { type: 'geojson', data: getSpaceWeatherGeoJSON() });
 				map.addSource('international-weather', { type: 'geojson', data: getInternationalWeatherGeoJSON() });
+				
+				// Military ships detected from news feeds
+				map.addSource('military-ships', { type: 'geojson', data: getMilitaryShipsGeoJSON() });
 
 				// UCDP Conflict sources (Smart Hotspots)
 				map.addSource('ucdp-hotspots', { type: 'geojson', data: getConflictHotspotsGeoJSON() });
@@ -2924,6 +2968,62 @@
 						'circle-opacity': 0.8,
 						'circle-stroke-color': '#1e1b4b',
 						'circle-stroke-width': 1.5
+					}
+				});
+
+				// ========== MILITARY SHIPS (detected from news) - Ship markers with tactical styling ==========
+				map.addLayer({
+					id: 'military-ships-pulse',
+					type: 'circle',
+					source: 'military-ships',
+					paint: {
+						'circle-radius': 20,
+						'circle-color': ['get', 'color'],
+						'circle-opacity': 0.15,
+						'circle-blur': 1
+					}
+				});
+
+				map.addLayer({
+					id: 'military-ships-glow',
+					type: 'circle',
+					source: 'military-ships',
+					paint: {
+						'circle-radius': 12,
+						'circle-color': ['get', 'color'],
+						'circle-opacity': 0.4,
+						'circle-blur': 0.5
+					}
+				});
+
+				map.addLayer({
+					id: 'military-ships-main',
+					type: 'circle',
+					source: 'military-ships',
+					paint: {
+						'circle-radius': 10,
+						'circle-color': ['get', 'color'],
+						'circle-opacity': 0.9,
+						'circle-stroke-color': '#1e1b4b',
+						'circle-stroke-width': 2
+					}
+				});
+
+				map.addLayer({
+					id: 'military-ships-icons',
+					type: 'symbol',
+					source: 'military-ships',
+					layout: {
+						'text-field': ['get', 'icon'],
+						'text-size': 16,
+						'text-allow-overlap': true,
+						'text-ignore-placement': true,
+						'text-anchor': 'center'
+					},
+					paint: {
+						'text-color': '#ffffff',
+						'text-halo-color': 'rgba(0, 0, 0, 0.8)',
+						'text-halo-width': 1.5
 					}
 				});
 
@@ -5017,6 +5117,23 @@
 		// Avoid running on initial mount with empty data
 		if (radiationCount > 0 || diseaseCount > 0) {
 			updateMapLayers();
+		}
+	});
+
+	// Detect military ships from news feeds
+	$effect(() => {
+		const newsCount = news.length;
+		
+		// Only process if we have news
+		if (newsCount > 0) {
+			// Detect military ships mentioned in news articles
+			const ships = detectMilitaryShips(news);
+			detectedMilitaryShips = ships;
+			
+			// Update map if ready
+			if (map && isInitialized) {
+				updateMapLayers();
+			}
 		}
 	});
 

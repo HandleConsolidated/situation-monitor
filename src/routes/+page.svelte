@@ -33,7 +33,10 @@
 		InternationalWeatherPanel,
 		CyberThreatsPanel,
 		SupplyChainPanel,
-		FinancialStressPanel
+		FinancialStressPanel,
+		DiplomaticActivityPanel,
+		ResourceScarcityPanel,
+		MaritimeSecurityPanel
 	} from '$lib/components/panels';
 	import {
 		news,
@@ -706,6 +709,12 @@
 						<SupplyChainPanel />
 					{:else if panelId === 'financial-stress'}
 						<FinancialStressPanel />
+					{:else if panelId === 'diplomatic-activity'}
+						<DiplomaticActivityPanel />
+					{:else if panelId === 'resource-scarcity'}
+						<ResourceScarcityPanel />
+					{:else if panelId === 'maritime-security'}
+						<MaritimeSecurityPanel />
 					{/if}
 				{/each}
 			</DropZone>
@@ -926,6 +935,12 @@
 						<SupplyChainPanel />
 					{:else if panelId === 'financial-stress'}
 						<FinancialStressPanel />
+					{:else if panelId === 'diplomatic-activity'}
+						<DiplomaticActivityPanel />
+					{:else if panelId === 'resource-scarcity'}
+						<ResourceScarcityPanel />
+					{:else if panelId === 'maritime-security'}
+						<MaritimeSecurityPanel />
 					{/if}
 				{/each}
 			</DropZone>
@@ -1090,6 +1105,12 @@
 				<SupplyChainPanel />
 			{:else if panelId === 'financial-stress'}
 				<FinancialStressPanel />
+			{:else if panelId === 'diplomatic-activity'}
+				<DiplomaticActivityPanel />
+			{:else if panelId === 'resource-scarcity'}
+				<ResourceScarcityPanel />
+			{:else if panelId === 'maritime-security'}
+				<MaritimeSecurityPanel />
 			{/if}
 		{/each}
 	</DropZone>
