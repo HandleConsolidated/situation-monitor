@@ -35,7 +35,16 @@ export {
 
 export {
 	detectMilitaryShips,
+	detectMilitaryShipsWithTracking,
 	getShipTypeColor,
 	getShipTypeIcon,
-	type DetectedMilitaryShip
+	updateShipTracking,
+	getShipTrackingHistory,
+	cleanupTrackingHistory,
+	checkProximityAlerts,
+	getProximityAlertColor,
+	formatProximityAlert,
+	type DetectedMilitaryShip,
+	type ShipPosition,
+	type ProximityAlert
 } from './military-ship-detection';

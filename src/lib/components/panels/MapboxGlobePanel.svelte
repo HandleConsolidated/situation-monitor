@@ -28,7 +28,17 @@
 	import { vesselStore, vesselConnectionStatus, connectVesselStream, disconnectVesselStream } from '$lib/services/vessel-stream';
 	import type { OutageData, VIEWSConflictData, Vessel, RadiationReading } from '$lib/api';
 	import type { CustomMonitor, NewsItem, NewsCategory, Aircraft, VolcanoData, AirQualityReading, DiseaseOutbreak, EarthquakeData } from '$lib/types';
-	import { detectMilitaryShips, getShipTypeColor as getMilitaryShipColor, getShipTypeIcon as getMilitaryShipIcon, type DetectedMilitaryShip } from '$lib/utils';
+	import { 
+		detectMilitaryShipsWithTracking, 
+		getShipTypeColor as getMilitaryShipColor, 
+		getShipTypeIcon as getMilitaryShipIcon, 
+		checkProximityAlerts,
+		getProximityAlertColor,
+		formatProximityAlert,
+		cleanupTrackingHistory,
+		type DetectedMilitaryShip,
+		type ProximityAlert
+	} from '$lib/utils';
 
 	// Predefined ADS-B regions for filtering (matching AircraftPanel)
 	const AIRCRAFT_REGIONS: Record<string, { name: string; bounds: [number, number, number, number] }> = {
@@ -222,6 +232,7 @@
 
 	// Detected military ships from news feeds
 	let detectedMilitaryShips = $state<DetectedMilitaryShip[]>([]);
+	let shipProximityAlerts = $state<ProximityAlert[]>([]);
 
 	// VIEWS Conflict Forecast data (Smart Hotspots)
 	let conflictData = $state<VIEWSConflictData | null>(null);
@@ -1225,6 +1236,11 @@
 
 		detectedMilitaryShips.forEach((ship) => {
 			if (ship.lat && ship.lon) {
+				// Check if ship has proximity alerts
+				const alerts = shipProximityAlerts.filter(a => a.shipId === ship.id);
+				const hasAlert = alerts.length > 0;
+				const highestAlert = alerts.length > 0 ? alerts[0] : null; // Already sorted by severity
+				
 				features.push({
 					type: 'Feature',
 					geometry: { type: 'Point', coordinates: [ship.lon, ship.lat] },
@@ -1237,10 +1253,37 @@
 						source: ship.source,
 						context: ship.context,
 						timestamp: ship.timestamp,
-						color: getMilitaryShipColor(ship.type),
-						icon: getMilitaryShipIcon(ship.type)
+						color: hasAlert && highestAlert 
+							? getProximityAlertColor(highestAlert.severity) 
+							: getMilitaryShipColor(ship.type),
+						icon: getMilitaryShipIcon(ship.type),
+						velocity: ship.velocity || null,
+						heading: ship.heading || null,
+						hasAlert,
+						alertSeverity: highestAlert?.severity || null,
+						nearestHotspot: highestAlert?.hotspot || null,
+						distance: highestAlert?.distance || null,
+						trackLength: ship.previousLocations?.length || 0
 					}
 				});
+				
+				// Add track line if ship has movement history
+				if (ship.previousLocations && ship.previousLocations.length > 1) {
+					const trackCoords = ship.previousLocations.map(pos => [pos.lon, pos.lat]);
+					
+					features.push({
+						type: 'Feature',
+						geometry: { type: 'LineString', coordinates: trackCoords },
+						properties: {
+							type: 'ship-track',
+							shipId: ship.id,
+							shipName: ship.name,
+							color: hasAlert && highestAlert 
+								? getProximityAlertColor(highestAlert.severity) 
+								: getMilitaryShipColor(ship.type)
+						}
+					});
+				}
 			}
 		});
 
@@ -3024,6 +3067,20 @@
 						'text-color': '#ffffff',
 						'text-halo-color': 'rgba(0, 0, 0, 0.8)',
 						'text-halo-width': 1.5
+					}
+				});
+
+				// Ship movement tracks (historical path)
+				map.addLayer({
+					id: 'military-ships-tracks',
+					type: 'line',
+					source: 'military-ships',
+					filter: ['==', ['get', 'type'], 'ship-track'],
+					paint: {
+						'line-color': ['get', 'color'],
+						'line-width': 2,
+						'line-opacity': 0.6,
+						'line-dasharray': [2, 2]
 					}
 				});
 
@@ -5120,21 +5177,36 @@
 		}
 	});
 
-	// Detect military ships from news feeds
+	// Detect military ships from news feeds with tracking
 	$effect(() => {
 		const newsCount = news.length;
 		
 		// Only process if we have news
 		if (newsCount > 0) {
-			// Detect military ships mentioned in news articles
-			const ships = detectMilitaryShips(news);
+			// Detect military ships with enhanced tracking (movement history, velocity, heading)
+			const ships = detectMilitaryShipsWithTracking(news);
 			detectedMilitaryShips = ships;
+			
+			// Check for proximity alerts (ships near hotspots)
+			const hotspotCoords = HOTSPOTS.map(h => ({ name: h.name, lat: h.lat, lon: h.lon }));
+			shipProximityAlerts = checkProximityAlerts(ships, hotspotCoords);
+			
+			// Log critical alerts
+			if (shipProximityAlerts.length > 0) {
+				const criticalAlerts = shipProximityAlerts.filter(a => a.severity === 'critical');
+				if (criticalAlerts.length > 0) {
+					console.warn('[Military Ships] Critical proximity alerts:', criticalAlerts.map(formatProximityAlert));
+				}
+			}
 			
 			// Update map if ready
 			if (map && isInitialized) {
 				updateMapLayers();
 			}
 		}
+		
+		// Periodic cleanup of old tracking history
+		cleanupTrackingHistory();
 	});
 
 	// Watch for selected weather alert changes
