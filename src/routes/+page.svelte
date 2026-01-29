@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { Header } from '$lib/components/layout';
-	import { SettingsModal, MonitorFormModal, MonitorMatchesModal, OnboardingModal, WeatherCommandModal } from '$lib/components/modals';
+	import { SettingsModal, MonitorFormModal, MonitorMatchesModal, OnboardingModal, WeatherCommandModal, ScenarioBuilderModal } from '$lib/components/modals';
+	import { CommandPalette, NetworkGraphView } from '$lib/components/common';
 	import {
 		NewsPanel,
 		MarketsPanel,
@@ -62,6 +63,9 @@
 	import type { EarthquakeData, DiseaseOutbreak, Aircraft } from '$lib/types';
 	import type { CustomMonitor, WorldLeader } from '$lib/types';
 	import type { PanelId } from '$lib/config';
+	import type { Command } from '$lib/types/intelligence';
+	import { classifyNewsItem } from '$lib/utils/signal-classifier';
+	import { buildGraphFromNews } from '$lib/utils/network-graph';
 	import { HOTSPOTS } from '$lib/config/map';
 	import type { ActionHandlers } from '$lib/services/ai-actions';
 
@@ -82,6 +86,13 @@
 	let onboardingOpen = $state(false);
 	let editingMonitor = $state<CustomMonitor | null>(null);
 	let viewingMonitor = $state<CustomMonitor | null>(null);
+	
+	// Advanced intelligence features state
+	let commandPaletteOpen = $state(false);
+	let scenarioBuilderOpen = $state(false);
+	let networkGraphOpen = $state(false);
+	let signalFilterEnabled = $state(false);
+	let signalThreshold = $state(60); // Show Important+ by default
 
 	// Weather command modal is controlled by weather store
 	const weatherModalOpen = $derived($weather.commandModalOpen);
@@ -406,6 +417,117 @@
 	};
 
 	/**
+	 * Build commands for the command palette
+	 */
+	function buildCommands(): Command[] {
+		const commands: Command[] = [
+			// Navigation commands
+			...HOTSPOTS.map((hotspot, idx) => ({
+				id: `nav-hotspot-${idx}`,
+				label: `Show ${hotspot.name} on Map`,
+				description: `Navigate to ${hotspot.name}`,
+				category: 'navigation' as const,
+				icon: '🗺️',
+				keywords: [hotspot.name.toLowerCase(), 'map', 'location', 'navigate'],
+				action: () => {
+					globeFlyToTarget = { lat: hotspot.lat, lon: hotspot.lon, zoom: 5, _ts: Date.now() };
+				},
+				available: true
+			})),
+			
+			// Action commands
+			{
+				id: 'action-refresh',
+				label: 'Refresh All Data',
+				description: 'Force refresh all data sources',
+				category: 'action',
+				icon: '🔄',
+				keywords: ['refresh', 'reload', 'update'],
+				shortcut: 'Cmd+R',
+				action: () => handleRefresh(),
+				available: true
+			},
+			{
+				id: 'action-scenario-builder',
+				label: 'Open Scenario Builder',
+				description: 'Create and analyze "what if" scenarios',
+				category: 'action',
+				icon: '🎯',
+				keywords: ['scenario', 'prediction', 'analysis', 'what if'],
+				action: () => { scenarioBuilderOpen = true; },
+				available: true
+			},
+			{
+				id: 'action-network-graph',
+				label: 'Toggle Network Graph',
+				description: 'Show/hide relationship visualization',
+				category: 'view',
+				icon: '🌐',
+				keywords: ['graph', 'network', 'relationships', 'connections'],
+				action: () => { networkGraphOpen = !networkGraphOpen; },
+				available: true
+			},
+			
+			// Filter commands
+			{
+				id: 'filter-signal-critical',
+				label: 'Show Critical Signals Only',
+				description: 'Filter to critical signals (80+)',
+				category: 'filter',
+				icon: '🚨',
+				keywords: ['filter', 'critical', 'important', 'signal'],
+				action: () => {
+					signalFilterEnabled = true;
+					signalThreshold = 80;
+				},
+				available: true
+			},
+			{
+				id: 'filter-signal-important',
+				label: 'Show Important+ Signals',
+				description: 'Filter to important signals (60+)',
+				category: 'filter',
+				icon: '⚠️',
+				keywords: ['filter', 'important', 'signal'],
+				action: () => {
+					signalFilterEnabled = true;
+					signalThreshold = 60;
+				},
+				available: true
+			},
+			{
+				id: 'filter-signal-all',
+				label: 'Show All Items',
+				description: 'Disable signal filtering',
+				category: 'filter',
+				icon: '👁️',
+				keywords: ['filter', 'all', 'show all', 'no filter'],
+				action: () => {
+					signalFilterEnabled = false;
+				},
+				available: true
+			},
+			
+			// View commands
+			{
+				id: 'view-settings',
+				label: 'Open Settings',
+				description: 'Configure the dashboard',
+				category: 'action',
+				icon: '⚙️',
+				keywords: ['settings', 'preferences', 'config'],
+				shortcut: 'Cmd+,',
+				action: () => { settingsOpen = true; },
+				available: true
+			}
+		];
+		
+		return commands;
+	}
+	
+	const commands = $derived(buildCommands());
+
+	/**
 	 * Handle manual refresh - bypasses cache for fresh data
 	 * This is triggered by the refresh button in the header
 	 */
@@ -546,7 +668,12 @@
 	<div class="noise-overlay"></div>
 	<div class="gradient-overlay"></div>
 
-	<Header onSettingsClick={() => (settingsOpen = true)} onRefreshClick={handleRefresh} />
+	<Header 
+		onSettingsClick={() => (settingsOpen = true)} 
+		onRefreshClick={handleRefresh}
+		onScenarioBuilderClick={() => (scenarioBuilderOpen = true)}
+		onNetworkGraphClick={() => (networkGraphOpen = true)}
+	/>
 
 	<main class="main-layout">
 		<!-- Left Panel Column -->
@@ -1141,6 +1268,37 @@
 			// Globe will auto-fly via selectedAlert effect
 		}}
 	/>
+	
+	<!-- Advanced Intelligence Features -->
+	<CommandPalette bind:open={commandPaletteOpen} {commands} />
+	
+	<!-- Command Palette Hint (bottom-right corner) -->
+	<div class="fixed bottom-4 right-4 text-xs text-slate-500 font-mono flex items-center gap-2 opacity-50 hover:opacity-100 transition-opacity pointer-events-none">
+		<kbd class="px-2 py-1 bg-slate-800 border border-slate-700 rounded">⌘K</kbd>
+		<span>Command Palette</span>
+	</div>
+	
+	<ScenarioBuilderModal bind:open={scenarioBuilderOpen} />
+	
+	{#if networkGraphOpen}
+		<div class="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 flex items-center justify-center p-4" on:click={() => networkGraphOpen = false}>
+			<div class="bg-slate-900 border border-slate-700 rounded-lg shadow-2xl p-6 max-w-6xl w-full" on:click|stopPropagation>
+				<div class="flex items-center justify-between mb-4">
+					<h2 class="text-2xl font-bold text-white">Network Graph</h2>
+					<button on:click={() => networkGraphOpen = false} class="text-slate-400 hover:text-white transition-colors">
+						<svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+						</svg>
+					</button>
+				</div>
+				<NetworkGraphView 
+					graph={buildGraphFromNews($allNewsItems.slice(0, 50))} 
+					width={1000} 
+					height={600} 
+				/>
+			</div>
+		</div>
+	{/if}
 </div>
 
 <style>

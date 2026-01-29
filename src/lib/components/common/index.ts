@@ -10,3 +10,5 @@ export { default as LoadingSpinner } from './LoadingSpinner.svelte';
 export { default as ErrorMessage } from './ErrorMessage.svelte';
 export { default as Badge } from './Badge.svelte';
 export { default as DropZone } from './DropZone.svelte';
+export { default as CommandPalette } from './CommandPalette.svelte';
+export { default as NetworkGraphView } from './NetworkGraphView.svelte';

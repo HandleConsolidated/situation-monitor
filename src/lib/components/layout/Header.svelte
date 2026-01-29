@@ -7,9 +7,11 @@
 	interface Props {
 		onSettingsClick?: () => void;
 		onRefreshClick?: () => void;
+		onScenarioBuilderClick?: () => void;
+		onNetworkGraphClick?: () => void;
 	}
 
-	let { onSettingsClick, onRefreshClick }: Props = $props();
+	let { onSettingsClick, onRefreshClick, onScenarioBuilderClick, onNetworkGraphClick }: Props = $props();
 
 	// Alert playback state
 	let isPlayingAlerts = $state(false);
@@ -311,17 +313,37 @@
 			{/if}
 		</button>
 
+		{#if onNetworkGraphClick}
+			<button
+				class="header-btn"
+				onclick={onNetworkGraphClick}
+				title="Network Graph (Cmd+K → 'graph')"
+			>
+				<span class="btn-icon">🌐</span>
+				<span class="btn-label">GRAPH</span>
+			</button>
+		{/if}
+		{#if onScenarioBuilderClick}
+			<button
+				class="header-btn"
+				onclick={onScenarioBuilderClick}
+				title="Scenario Builder (Cmd+K → 'scenario')"
+			>
+				<span class="btn-icon">🎯</span>
+				<span class="btn-label">SCENARIOS</span>
+			</button>
+		{/if}
 		{#if onRefreshClick}
 			<button
 				class="header-btn refresh-btn"
 				onclick={onRefreshClick}
-				title="Refresh Data"
+				title="Refresh Data (Cmd+R)"
 				disabled={$isRefreshing}
 			>
 				<span class="btn-icon" class:spinning={$isRefreshing}>↻</span>
 			</button>
 		{/if}
-		<button class="header-btn settings-btn" onclick={onSettingsClick} title="Settings">
+		<button class="header-btn settings-btn" onclick={onSettingsClick} title="Settings (Cmd+,)">
 			<span class="btn-icon">⚙</span>
 			<span class="btn-label">CONFIG</span>
 		</button>
