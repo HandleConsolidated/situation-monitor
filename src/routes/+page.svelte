@@ -28,7 +28,8 @@
 		DiseaseOutbreakPanel,
 		AnalysisChatPanel,
 		AircraftPanel,
-		WeatherPanel
+		WeatherPanel,
+		MaritimeIntelPanel
 	} from '$lib/components/panels';
 	import {
 		news,
@@ -663,6 +664,8 @@
 							onRegionsChange={handleAircraftRegionsChange}
 							onAdsbToggle={handleAdsbToggle}
 						/>
+					{:else if panelId === 'maritime'}
+						<MaritimeIntelPanel {predictions} />
 					{:else if panelId === 'analysis'}
 						<AnalysisChatPanel
 							externalData={{
@@ -873,6 +876,8 @@
 							onRegionsChange={handleAircraftRegionsChange}
 							onAdsbToggle={handleAdsbToggle}
 						/>
+					{:else if panelId === 'maritime'}
+						<MaritimeIntelPanel {predictions} />
 					{:else if panelId === 'analysis'}
 						<AnalysisChatPanel
 							externalData={{
@@ -1028,6 +1033,8 @@
 					onRegionsChange={handleAircraftRegionsChange}
 					onAdsbToggle={handleAdsbToggle}
 				/>
+			{:else if panelId === 'maritime'}
+				<MaritimeIntelPanel {predictions} />
 			{:else if panelId === 'analysis'}
 				<AnalysisChatPanel
 					externalData={{

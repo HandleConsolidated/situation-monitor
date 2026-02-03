@@ -19,8 +19,12 @@ const STORAGE_KEYS = {
 	order: 'panelOrder',
 	sizes: 'panelSizes',
 	layout: 'layoutSettings',
-	collapsed: 'panelCollapsed'
+	collapsed: 'panelCollapsed',
+	appSettings: 'appSettings'
 } as const;
+
+// Map provider type
+export type MapProvider = 'mapbox' | 'maplibre';
 
 // Types
 export interface LayoutSettings {
@@ -30,12 +34,18 @@ export interface LayoutSettings {
 	compactMode: boolean;
 }
 
+// App-wide settings
+export interface AppSettings {
+	mapProvider: MapProvider;
+}
+
 export interface PanelSettings {
 	enabled: Record<PanelId, boolean>;
 	order: PanelId[];
 	sizes: Record<PanelId, { width?: number; height?: number }>;
 	collapsed: Record<PanelId, boolean>;
 	layout: LayoutSettings;
+	appSettings: AppSettings;
 }
 
 export interface SettingsState extends PanelSettings {
@@ -50,6 +60,11 @@ const DEFAULT_LAYOUT: LayoutSettings = {
 	compactMode: false
 };
 
+// Default app settings
+const DEFAULT_APP_SETTINGS: AppSettings = {
+	mapProvider: 'mapbox' // Default to Mapbox, user can switch to MapLibre
+};
+
 // Default settings
 function getDefaultSettings(): PanelSettings {
 	const allPanelIds = Object.keys(PANELS) as PanelId[];
@@ -59,7 +74,8 @@ function getDefaultSettings(): PanelSettings {
 		order: allPanelIds,
 		sizes: {} as Record<PanelId, { width?: number; height?: number }>,
 		collapsed: {} as Record<PanelId, boolean>,
-		layout: { ...DEFAULT_LAYOUT }
+		layout: { ...DEFAULT_LAYOUT },
+		appSettings: { ...DEFAULT_APP_SETTINGS }
 	};
 }
 
@@ -73,13 +89,15 @@ function loadFromStorage(): Partial<PanelSettings> {
 		const sizes = localStorage.getItem(STORAGE_KEYS.sizes);
 		const collapsed = localStorage.getItem(STORAGE_KEYS.collapsed);
 		const layout = localStorage.getItem(STORAGE_KEYS.layout);
+		const appSettings = localStorage.getItem(STORAGE_KEYS.appSettings);
 
 		return {
 			enabled: panels ? JSON.parse(panels) : undefined,
 			order: order ? JSON.parse(order) : undefined,
 			sizes: sizes ? JSON.parse(sizes) : undefined,
 			collapsed: collapsed ? JSON.parse(collapsed) : undefined,
-			layout: layout ? JSON.parse(layout) : undefined
+			layout: layout ? JSON.parse(layout) : undefined,
+			appSettings: appSettings ? JSON.parse(appSettings) : undefined
 		};
 	} catch (e) {
 		console.warn('Failed to load settings from localStorage:', e);
@@ -103,12 +121,29 @@ function createSettingsStore() {
 	const defaults = getDefaultSettings();
 	const saved = loadFromStorage();
 
+	// Deduplicate and validate saved order - remove duplicates and add any missing panels
+	let order = saved.order ?? defaults.order;
+	const seen = new Set<PanelId>();
+	const validPanelIds = new Set(Object.keys(PANELS) as PanelId[]);
+	order = order.filter((id) => {
+		if (seen.has(id) || !validPanelIds.has(id)) return false;
+		seen.add(id);
+		return true;
+	});
+	// Add any panels that are in defaults but missing from saved order
+	for (const id of defaults.order) {
+		if (!seen.has(id)) {
+			order.push(id);
+		}
+	}
+
 	const initialState: SettingsState = {
 		enabled: { ...defaults.enabled, ...saved.enabled },
-		order: saved.order ?? defaults.order,
+		order,
 		sizes: { ...defaults.sizes, ...saved.sizes },
 		collapsed: { ...defaults.collapsed, ...saved.collapsed },
 		layout: { ...defaults.layout, ...saved.layout },
+		appSettings: { ...defaults.appSettings, ...saved.appSettings },
 		initialized: false
 	};
 
@@ -266,8 +301,39 @@ function createSettingsStore() {
 				localStorage.removeItem(STORAGE_KEYS.sizes);
 				localStorage.removeItem(STORAGE_KEYS.collapsed);
 				localStorage.removeItem(STORAGE_KEYS.layout);
+				localStorage.removeItem(STORAGE_KEYS.appSettings);
 			}
 			set({ ...defaults, initialized: true });
+		},
+
+		/**
+		 * Get current map provider
+		 */
+		getMapProvider(): MapProvider {
+			const state = get({ subscribe });
+			return state.appSettings.mapProvider;
+		},
+
+		/**
+		 * Set map provider
+		 */
+		setMapProvider(provider: MapProvider) {
+			update((state) => {
+				const newAppSettings = { ...state.appSettings, mapProvider: provider };
+				saveToStorage('appSettings', newAppSettings);
+				return { ...state, appSettings: newAppSettings };
+			});
+		},
+
+		/**
+		 * Update app settings
+		 */
+		updateAppSettings(appUpdate: Partial<AppSettings>) {
+			update((state) => {
+				const newAppSettings = { ...state.appSettings, ...appUpdate };
+				saveToStorage('appSettings', newAppSettings);
+				return { ...state, appSettings: newAppSettings };
+			});
 		},
 
 		/**
@@ -351,3 +417,7 @@ export const draggablePanels = derived(enabledPanels, ($enabled) =>
 );
 
 export const layoutSettings = derived(settings, ($settings) => $settings.layout);
+
+export const appSettings = derived(settings, ($settings) => $settings.appSettings);
+
+export const mapProvider = derived(settings, ($settings) => $settings.appSettings.mapProvider);

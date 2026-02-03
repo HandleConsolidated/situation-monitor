@@ -47,6 +47,7 @@ const DEFAULT_POSITIONS: Record<PanelId, PanelPosition> = {
 	radiation: { zone: 'right', index: 8 },
 	outbreaks: { zone: 'right', index: 9 },
 	aircraft: { zone: 'right', index: 10 },
+	maritime: { zone: 'right', index: 11 },
 
 	// Bottom row - Financial panels (Money Printer, Whale Watch, Markets, Sector Heatmap, Crypto, Commodities)
 	printer: { zone: 'bottom', index: 0 },
@@ -65,8 +66,8 @@ const DEFAULT_POSITIONS: Record<PanelId, PanelPosition> = {
 	mainchar: { zone: 'left', index: -1 },
 
 	// AI Analysis panel - right column
-	analysis: { zone: 'right', index: 11 },
-	weather: { zone: 'right', index: 12 }
+	analysis: { zone: 'right', index: 12 },
+	weather: { zone: 'right', index: 13 }
 };
 
 // Load from localStorage

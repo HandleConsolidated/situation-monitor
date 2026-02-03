@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Modal from './Modal.svelte';
 	import { settings, llmPreferences } from '$lib/stores';
+	import { type MapProvider } from '$lib/stores/settings';
 	import { PANELS, type PanelId } from '$lib/config';
 	import { storeApiKey, getStoredApiKey, removeApiKey, hasApiKey } from '$lib/services';
 	import { autoAnalysis, type AlertSeverity } from '$lib/services/auto-analysis';
@@ -48,6 +49,9 @@
 	let openaiTtsKey = $state(getTTSApiKey('openai') || '');
 	let showTtsApiKeys = $state(false);
 	let ttsTesting = $state(false);
+
+	// Map provider state
+	let currentMapProvider = $state<MapProvider>($settings.appSettings?.mapProvider || 'mapbox');
 
 	// Track which provider has keys
 	let hasAnthropicKey = $derived(hasApiKey('anthropic'));
@@ -141,6 +145,11 @@
 			panels: ['correlation', 'narrative', 'mainchar', 'contracts', 'layoffs']
 		},
 		{
+			name: 'Tracking & Surveillance',
+			icon: '📡',
+			panels: ['aircraft', 'maritime']
+		},
+		{
 			name: 'Geopolitical Situations',
 			icon: '🌍',
 			panels: ['leaders', 'venezuela', 'greenland', 'iran']
@@ -151,6 +160,21 @@
 			panels: ['gridstress', 'earthquakes', 'radiation', 'outbreaks', 'weather', 'aircraft']
 		}
 	];
+
+	// Collapsible section state
+	let collapsedSections = $state<Record<string, boolean>>({
+		ai: false,
+		autoAnalysis: true,
+		tts: true,
+		map: false,
+		layout: true,
+		panels: false,
+		dashboard: true
+	});
+
+	function toggleSection(section: string) {
+		collapsedSections[section] = !collapsedSections[section];
+	}
 
 	function handleTogglePanel(panelId: PanelId) {
 		settings.togglePanel(panelId);
@@ -289,7 +313,12 @@
 	<div class="settings-sections">
 		<!-- AI Analysis Section -->
 		<section class="settings-section">
-			<h3 class="section-title">AI Analysis Configuration</h3>
+			<button class="section-header-btn" onclick={() => toggleSection('ai')}>
+				<span class="collapse-icon">{collapsedSections.ai ? '▶' : '▼'}</span>
+				<h3 class="section-title">AI Analysis Configuration</h3>
+				<span class="section-badge">API Keys</span>
+			</button>
+			{#if !collapsedSections.ai}
 			<p class="section-desc">Configure your LLM provider for intelligence analysis</p>
 
 			<div class="api-config">
@@ -429,11 +458,19 @@
 					</div>
 				</div>
 			</div>
+			{/if}
 		</section>
 
 		<!-- Auto Analysis Section -->
 		<section class="settings-section">
-			<h3 class="section-title">Automatic Analysis</h3>
+			<button class="section-header-btn" onclick={() => toggleSection('autoAnalysis')}>
+				<span class="collapse-icon">{collapsedSections.autoAnalysis ? '▶' : '▼'}</span>
+				<h3 class="section-title">Automatic Analysis</h3>
+				{#if autoEnabled}
+					<span class="section-badge active">ON</span>
+				{/if}
+			</button>
+			{#if !collapsedSections.autoAnalysis}
 			<p class="section-desc">Configure periodic AI analysis with alerts</p>
 
 			<div class="auto-analysis-config">
@@ -485,11 +522,19 @@
 					{/if}
 				{/if}
 			</div>
+			{/if}
 		</section>
 
 		<!-- TTS Provider Configuration Section -->
 		<section class="settings-section">
-			<h3 class="section-title">Text-to-Speech (Read Aloud)</h3>
+			<button class="section-header-btn" onclick={() => toggleSection('tts')}>
+				<span class="collapse-icon">{collapsedSections.tts ? '▶' : '▼'}</span>
+				<h3 class="section-title">Text-to-Speech</h3>
+				{#if ttsProvider !== 'none'}
+					<span class="section-badge active">{ttsProvider.toUpperCase()}</span>
+				{/if}
+			</button>
+			{#if !collapsedSections.tts}
 			<p class="section-desc">Configure TTS for reading AI responses aloud</p>
 
 			<div class="tts-provider-config">
@@ -634,11 +679,73 @@
 					</button>
 				{/if}
 			</div>
+			{/if}
+		</section>
+
+		<!-- Map Provider Section -->
+		<section class="settings-section">
+			<button class="section-header-btn" onclick={() => toggleSection('map')}>
+				<span class="collapse-icon">{collapsedSections.map ? '▶' : '▼'}</span>
+				<h3 class="section-title">Map Provider</h3>
+				<span class="section-badge">{currentMapProvider === 'mapbox' ? 'MAPBOX' : 'MAPLIBRE'}</span>
+			</button>
+			{#if !collapsedSections.map}
+			<p class="section-desc">Choose between Mapbox GL (default) or MapLibre GL (open-source)</p>
+
+			<div class="provider-toggle">
+				<label class="toggle-option" class:active={currentMapProvider === 'mapbox'}>
+					<input
+						type="radio"
+						name="mapProvider"
+						value="mapbox"
+						checked={currentMapProvider === 'mapbox'}
+						onchange={() => {
+							currentMapProvider = 'mapbox';
+							settings.setMapProvider('mapbox');
+						}}
+					/>
+					<div class="toggle-content">
+						<span class="toggle-title">Mapbox GL</span>
+						<span class="toggle-desc">Commercial provider with high-quality maps and satellite imagery</span>
+					</div>
+				</label>
+				<label class="toggle-option" class:active={currentMapProvider === 'maplibre'}>
+					<input
+						type="radio"
+						name="mapProvider"
+						value="maplibre"
+						checked={currentMapProvider === 'maplibre'}
+						onchange={() => {
+							currentMapProvider = 'maplibre';
+							settings.setMapProvider('maplibre');
+						}}
+					/>
+					<div class="toggle-content">
+						<span class="toggle-title">MapLibre GL</span>
+						<span class="toggle-desc">Open-source alternative (no API key required, experimental)</span>
+					</div>
+				</label>
+			</div>
+
+			{#if currentMapProvider === 'maplibre'}
+				<div class="warning-box">
+					<span class="warning-icon">⚠</span>
+					<span class="warning-text">MapLibre is experimental. Some features may not work as expected. Refresh the page after changing providers.</span>
+				</div>
+			{/if}
+			{/if}
 		</section>
 
 		<!-- Layout Section -->
 		<section class="settings-section">
-			<h3 class="section-title">Layout</h3>
+			<button class="section-header-btn" onclick={() => toggleSection('layout')}>
+				<span class="collapse-icon">{collapsedSections.layout ? '▶' : '▼'}</span>
+				<h3 class="section-title">Layout</h3>
+				{#if $settings.layout.compactMode}
+					<span class="section-badge">COMPACT</span>
+				{/if}
+			</button>
+			{#if !collapsedSections.layout}
 			<p class="section-desc">Adjust column widths and panel sizes</p>
 
 			<div class="layout-controls">
@@ -699,11 +806,17 @@
 					<span class="toggle-hint">Smaller panel headers, reduced padding and spacing for more content density</span>
 				</label>
 			</div>
+			{/if}
 		</section>
 
 		<!-- Panels Section -->
 		<section class="settings-section">
-			<h3 class="section-title">Enabled Panels</h3>
+			<button class="section-header-btn" onclick={() => toggleSection('panels')}>
+				<span class="collapse-icon">{collapsedSections.panels ? '▶' : '▼'}</span>
+				<h3 class="section-title">Enabled Panels</h3>
+				<span class="section-badge">{Object.values($settings.enabled).filter(Boolean).length} active</span>
+			</button>
+			{#if !collapsedSections.panels}
 			<p class="section-desc">Toggle panels on/off to customize your dashboard</p>
 
 			<div class="panels-categories">
@@ -730,15 +843,22 @@
 					</div>
 				{/each}
 			</div>
+			{/if}
 		</section>
 
+		<!-- Dashboard Section -->
 		<section class="settings-section">
-			<h3 class="section-title">Dashboard</h3>
+			<button class="section-header-btn" onclick={() => toggleSection('dashboard')}>
+				<span class="collapse-icon">{collapsedSections.dashboard ? '▶' : '▼'}</span>
+				<h3 class="section-title">Dashboard</h3>
+			</button>
+			{#if !collapsedSections.dashboard}
 			{#if onReconfigure}
 				<button class="reconfigure-btn" onclick={onReconfigure}> RECONFIGURE DASHBOARD </button>
 				<p class="btn-hint">Choose a preset profile for your panels</p>
 			{/if}
 			<button class="reset-btn" onclick={handleResetPanels}> RESET ALL SETTINGS </button>
+			{/if}
 		</section>
 	</div>
 </Modal>
@@ -756,7 +876,34 @@
 		gap: 0.5rem;
 	}
 
+	.section-header-btn {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		width: 100%;
+		padding: 0.5rem;
+		background: var(--card-bg);
+		border: 1px solid var(--border);
+		border-radius: 2px;
+		cursor: pointer;
+		transition: all 0.15s ease;
+		text-align: left;
+	}
+
+	.section-header-btn:hover {
+		background: var(--surface-hover);
+		border-color: var(--accent-border);
+	}
+
+	.collapse-icon {
+		font-size: 0.5rem;
+		color: var(--text-muted);
+		width: 0.75rem;
+		text-align: center;
+	}
+
 	.section-title {
+		flex: 1;
 		font-size: 0.625rem;
 		font-weight: 700;
 		font-family: 'SF Mono', Monaco, monospace;
@@ -766,10 +913,102 @@
 		margin: 0;
 	}
 
+	.section-badge {
+		font-size: 0.5rem;
+		font-family: 'SF Mono', Monaco, monospace;
+		padding: 0.15rem 0.35rem;
+		background: rgba(100, 116, 139, 0.2);
+		border: 1px solid var(--border);
+		border-radius: 2px;
+		color: var(--text-muted);
+	}
+
+	.section-badge.active {
+		background: rgba(16, 185, 129, 0.1);
+		border-color: rgba(16, 185, 129, 0.3);
+		color: var(--success);
+	}
+
 	.section-desc {
 		font-size: 0.625rem;
 		color: var(--text-muted);
-		margin: 0;
+		margin: 0.25rem 0 0 0;
+		padding-left: 1.25rem;
+	}
+
+	/* Map Provider Toggle */
+	.provider-toggle {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		margin-top: 0.5rem;
+	}
+
+	.toggle-option {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.5rem;
+		padding: 0.5rem 0.75rem;
+		background: rgba(30, 41, 59, 0.5);
+		border: 1px solid var(--border);
+		border-radius: 4px;
+		cursor: pointer;
+		transition: all 0.15s ease;
+	}
+
+	.toggle-option:hover {
+		border-color: var(--accent);
+		background: rgba(30, 41, 59, 0.8);
+	}
+
+	.toggle-option.active {
+		border-color: var(--accent);
+		background: rgba(6, 182, 212, 0.1);
+	}
+
+	.toggle-option input[type="radio"] {
+		margin-top: 0.125rem;
+		accent-color: var(--accent);
+	}
+
+	.toggle-content {
+		display: flex;
+		flex-direction: column;
+		gap: 0.125rem;
+	}
+
+	.toggle-title {
+		font-size: 0.6875rem;
+		font-weight: 600;
+		color: var(--text);
+	}
+
+	.toggle-desc {
+		font-size: 0.5625rem;
+		color: var(--text-muted);
+		line-height: 1.3;
+	}
+
+	.warning-box {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.5rem;
+		padding: 0.5rem 0.75rem;
+		margin-top: 0.5rem;
+		background: rgba(234, 179, 8, 0.1);
+		border: 1px solid rgba(234, 179, 8, 0.3);
+		border-radius: 4px;
+	}
+
+	.warning-icon {
+		font-size: 0.75rem;
+		flex-shrink: 0;
+	}
+
+	.warning-text {
+		font-size: 0.5625rem;
+		color: rgb(234, 179, 8);
+		line-height: 1.4;
 	}
 
 	/* Layout Controls */

@@ -4,17 +4,25 @@
  * Deploy this to your Cloudflare Workers account at:
  * https://dash.cloudflare.com/
  *
- * Usage: https://your-worker.workers.dev/?url=https://api.example.com/endpoint
+ * Usage:
+ * - HTTP Proxy: https://your-worker.workers.dev/?url=https://api.example.com/endpoint
+ * - WebSocket Proxy: wss://your-worker.workers.dev/ws/aisstream (for AIS Stream)
  */
 
 export default {
   async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+
+    // Handle WebSocket upgrade for AIS Stream
+    if (url.pathname === '/ws/aisstream') {
+      return handleAISStreamWebSocket(request);
+    }
+
     // Handle CORS preflight requests
     if (request.method === 'OPTIONS') {
       return handleCORS(request);
     }
 
-    const url = new URL(request.url);
     const targetUrl = url.searchParams.get('url');
 
     // Validate target URL
@@ -139,4 +147,115 @@ function corsHeaders() {
     'access-control-max-age': '86400',  // Cache preflight for 24 hours
     'access-control-expose-headers': 'Content-Type, Content-Length'
   });
+}
+
+/**
+ * Handle WebSocket proxy for AIS Stream
+ * Proxies WebSocket connections to wss://stream.aisstream.io/v0/stream
+ *
+ * Cloudflare Workers require using https:// with Upgrade header for outbound WebSockets
+ */
+async function handleAISStreamWebSocket(request) {
+  // Check for WebSocket upgrade
+  const upgradeHeader = request.headers.get('Upgrade');
+  if (!upgradeHeader || upgradeHeader.toLowerCase() !== 'websocket') {
+    return new Response('Expected WebSocket upgrade', { status: 426 });
+  }
+
+  // Connect to AIS Stream using https:// with Upgrade header (Cloudflare Workers requirement)
+  // This must be done BEFORE creating the WebSocketPair
+  const aisStreamUrl = 'https://stream.aisstream.io/v0/stream';
+
+  try {
+    const aisResponse = await fetch(aisStreamUrl, {
+      headers: {
+        'Upgrade': 'websocket',
+      },
+    });
+
+    const aisStream = aisResponse.webSocket;
+
+    if (!aisStream) {
+      return new Response(JSON.stringify({
+        error: 'Failed to connect to AIS Stream',
+        status: aisResponse.status,
+        statusText: aisResponse.statusText
+      }), {
+        status: 502,
+        headers: corsHeaders()
+      });
+    }
+
+    // Accept the upstream connection
+    aisStream.accept();
+
+    // Create WebSocket pair for client connection
+    const [client, server] = Object.values(new WebSocketPair());
+
+    // Accept the client connection
+    server.accept();
+
+    // Forward messages from client to AIS Stream
+    server.addEventListener('message', (event) => {
+      try {
+        if (aisStream.readyState === 1) { // WebSocket.OPEN = 1
+          aisStream.send(event.data);
+        }
+      } catch (e) {
+        console.error('Error forwarding to AIS Stream:', e);
+      }
+    });
+
+    // Forward messages from AIS Stream to client
+    aisStream.addEventListener('message', (event) => {
+      try {
+        if (server.readyState === 1) { // WebSocket.OPEN = 1
+          server.send(event.data);
+        }
+      } catch (e) {
+        console.error('Error forwarding to client:', e);
+      }
+    });
+
+    // Handle client disconnect
+    server.addEventListener('close', (event) => {
+      try {
+        aisStream.close(event.code, event.reason);
+      } catch (e) {
+        // Already closed
+      }
+    });
+
+    // Handle AIS Stream disconnect
+    aisStream.addEventListener('close', (event) => {
+      try {
+        server.close(event.code, event.reason);
+      } catch (e) {
+        // Already closed
+      }
+    });
+
+    // Handle errors
+    server.addEventListener('error', () => {
+      try { aisStream.close(); } catch (e) { /* ignore */ }
+    });
+
+    aisStream.addEventListener('error', () => {
+      try { server.close(); } catch (e) { /* ignore */ }
+    });
+
+    return new Response(null, {
+      status: 101,
+      webSocket: client
+    });
+
+  } catch (error) {
+    return new Response(JSON.stringify({
+      error: 'WebSocket proxy error',
+      message: error.message
+    }), {
+      status: 502,
+      headers: corsHeaders()
+    });
+  }
 }

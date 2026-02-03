@@ -20,6 +20,9 @@
 	import { vesselStore, vesselConnectionStatus, connectVesselStream, disconnectVesselStream } from '$lib/services/vessel-stream';
 	import type { OutageData, VIEWSConflictData, Vessel, RadiationReading } from '$lib/api';
 	import type { CustomMonitor, NewsItem, NewsCategory, Aircraft, VolcanoData, AirQualityReading, DiseaseOutbreak, EarthquakeData } from '$lib/types';
+	import { webcamWindows } from '$lib/stores/webcam';
+	import { isoAlpha3ToAlpha2 } from '$lib/types/webcam';
+	import WebcamWindowsContainer from '$lib/components/webcam/WebcamWindowsContainer.svelte';
 
 	// Predefined ADS-B regions for filtering (matching AircraftPanel)
 	const AIRCRAFT_REGIONS: Record<string, { name: string; bounds: [number, number, number, number] }> = {
@@ -166,6 +169,9 @@
 	let isRotating = $state(false); // Current rotation state
 	let userEnabledRotation = $state(false); // Track if user explicitly enabled rotation
 	let rotationAnimationId: number | null = null;
+
+	// Country hover state for webcam feature
+	let hoveredCountryId = $state<string | number | null>(null);
 
 	// Tooltip state
 	let tooltipVisible = $state(false);
@@ -2187,7 +2193,50 @@
 					url: 'mapbox://mapbox.mapbox-traffic-v1'
 				});
 
+				// Country boundaries source for webcam feature (click to view webcams)
+				map.addSource('country-boundaries', {
+					type: 'vector',
+					url: 'mapbox://mapbox.country-boundaries-v1',
+					promoteId: 'iso_3166_1'
+				});
+
 				// Add layers
+
+				// ========== COUNTRY FILL LAYER - Hover highlight for webcam feature ==========
+				// Invisible by default, highlighted cyan on hover to indicate clickability
+				map.addLayer({
+					id: 'country-fill',
+					type: 'fill',
+					source: 'country-boundaries',
+					'source-layer': 'country_boundaries',
+					paint: {
+						'fill-color': 'rgba(6, 182, 212, 0.15)', // Subtle cyan
+						'fill-opacity': [
+							'case',
+							['boolean', ['feature-state', 'hover'], false],
+							0.35, // Visible on hover
+							0 // Invisible otherwise
+						]
+					}
+				}, 'admin-0-boundary'); // Insert below admin boundaries
+
+				// Country outline on hover (subtle glow effect)
+				map.addLayer({
+					id: 'country-outline-hover',
+					type: 'line',
+					source: 'country-boundaries',
+					'source-layer': 'country_boundaries',
+					paint: {
+						'line-color': 'rgba(6, 182, 212, 0.6)',
+						'line-width': [
+							'case',
+							['boolean', ['feature-state', 'hover'], false],
+							2,
+							0
+						],
+						'line-blur': 1
+					}
+				}, 'admin-0-boundary');
 
 				// ========== ROAD LAYERS - Always visible, progressively shown at different zoom levels ==========
 				// These layers show major roadways to provide geographic context
@@ -4091,6 +4140,79 @@
 		map.on('click', 'diseases-layer', (e) => handleDiseaseClick(e));
 		map.on('click', 'earthquakes-layer', (e) => handleEarthquakeClick(e));
 		map.on('click', 'weather-alerts-fill', (e) => handleWeatherAlertClick(e));
+
+		// ========== COUNTRY WEBCAM HANDLERS ==========
+		// Hover effect - highlight country on mouseover
+		map.on('mousemove', 'country-fill', (e) => {
+			if (!map || !e.features || e.features.length === 0) return;
+
+			// Change cursor to indicate clickability
+			map.getCanvas().style.cursor = 'pointer';
+
+			// Get the country feature
+			const feature = e.features[0];
+			const featureId = feature.id;
+
+			// Clear previous hover state
+			if (hoveredCountryId !== null && hoveredCountryId !== featureId) {
+				map.setFeatureState(
+					{ source: 'country-boundaries', sourceLayer: 'country_boundaries', id: hoveredCountryId },
+					{ hover: false }
+				);
+			}
+
+			// Set new hover state
+			if (featureId !== undefined) {
+				hoveredCountryId = featureId;
+				map.setFeatureState(
+					{ source: 'country-boundaries', sourceLayer: 'country_boundaries', id: featureId },
+					{ hover: true }
+				);
+			}
+		});
+
+		map.on('mouseleave', 'country-fill', () => {
+			if (!map) return;
+
+			// Reset cursor
+			map.getCanvas().style.cursor = '';
+
+			// Clear hover state
+			if (hoveredCountryId !== null) {
+				map.setFeatureState(
+					{ source: 'country-boundaries', sourceLayer: 'country_boundaries', id: hoveredCountryId },
+					{ hover: false }
+				);
+				hoveredCountryId = null;
+			}
+		});
+
+		// Click handler - open webcam window for clicked country
+		map.on('click', 'country-fill', (e) => {
+			if (!e.features || e.features.length === 0) return;
+
+			const feature = e.features[0];
+			const props = feature.properties;
+
+			// Extract country info
+			const iso3 = props?.iso_3166_1_alpha_3 || props?.iso_3166_1 || '';
+			const iso2 = isoAlpha3ToAlpha2(iso3) || props?.iso_3166_1 || '';
+			const countryName = props?.name_en || props?.name || 'Unknown Country';
+
+			// Get click coordinates
+			const coordinates = e.lngLat;
+
+			// Open webcam window for this country
+			webcamWindows.openWindow({
+				iso3,
+				iso2,
+				name: countryName,
+				coordinates: { lat: coordinates.lat, lon: coordinates.lng }
+			});
+
+			// Prevent propagation to other layers
+			e.preventDefault?.();
+		});
 
 		// Cluster click handler - zoom in to expand cluster
 		map.on('click', 'news-clusters', (e) => {
@@ -6189,6 +6311,13 @@
 			>
 				<span class="control-icon">{isRotating ? '⏸' : '▶'}</span>
 			</button>
+			<button
+				class="control-btn strategic-webcams-btn"
+				onclick={() => webcamWindows.openStrategicWebcamsPanel()}
+				title="Open strategic live webcams"
+			>
+				<span class="control-icon">📡</span>
+			</button>
 		</div>
 	{/if}
 
@@ -6261,11 +6390,6 @@
 								<span class="loading-indicator">...</span>
 							{:else if layer === 'aircraft' && aircraftData.length > 0}
 								<span class="data-count">{aircraftData.length}</span>
-							{/if}
-							{#if layer === 'vessels' && vesselDataLoading}
-								<span class="loading-indicator">...</span>
-							{:else if layer === 'vessels' && vesselData.length > 0}
-								<span class="data-count">{vesselData.length}</span>
 							{/if}
 							{#if layer === 'news' || layer === 'hotspots'}
 								<button
@@ -6478,7 +6602,7 @@
 						</div>
 					</div>
 					<div class="legend-hint">
-						Click gear icon for data controls. Click markers for details.
+						Click gear icon for data controls. Click markers for details. Click any country to view live webcams.
 					</div>
 				</div>
 			{/if}
@@ -6576,6 +6700,9 @@
 		</div>
 	{/if}
 </div>
+
+<!-- Webcam Windows Container - renders draggable webcam windows for country clicks -->
+<WebcamWindowsContainer />
 
 <style>
 	.globe-container {
@@ -6814,6 +6941,12 @@
 
 	.convective-btn.loading .control-icon {
 		animation: pulse 1s ease-in-out infinite;
+	}
+
+	/* Strategic Webcams Button */
+	.strategic-webcams-btn:hover {
+		border-color: rgb(234 179 8 / 0.6);
+		color: rgb(250 204 21);
 	}
 
 	/* Data Controls Panel */

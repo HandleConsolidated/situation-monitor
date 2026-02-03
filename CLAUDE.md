@@ -50,7 +50,8 @@ src/lib/
 │   ├── common/     # Reusable: Panel, Badge, NewsItem, MarketItem, CommodityItem
 │   ├── layout/     # Dashboard, Header, PanelGrid
 │   ├── modals/     # MonitorModal, SearchModal
-│   └── panels/     # 20 data panels + MapboxGlobePanel
+│   ├── panels/     # 20 data panels + MapboxGlobePanel
+│   └── webcam/     # Live webcam windows (WebcamWindow, WebcamWindowsContainer)
 ├── config/         # Centralized configuration (feeds, keywords, analysis, map hotspots)
 ├── services/       # Resilience: CacheManager, CircuitBreaker, RequestDeduplicator
 ├── stores/         # Svelte stores: settings, news, markets, monitors, refresh
