@@ -10,9 +10,6 @@
 
 	let { windowState, zIndex }: Props = $props();
 
-	// Check if this is a strategic webcams panel
-	const isStrategicPanel = $derived(windowState.countryCode === 'STRATEGIC');
-
 	// Check if a webcam is a strategic webcam
 	function isStrategicWebcam(webcam: Webcam): webcam is StrategicWebcam {
 		return 'strategicCategory' in webcam && 'threatLevel' in webcam;
@@ -59,12 +56,32 @@
 	let windowStartX = 0;
 	let windowStartY = 0;
 
+	// Resize state
+	let isResizing = $state(false);
+	let resizeDirection = $state<string>('');
+	let resizeStartX = 0;
+	let resizeStartY = 0;
+	let windowStartWidth = 0;
+	let windowStartHeight = 0;
+	let windowStartPosX = 0;
+	let windowStartPosY = 0;
+
+	// Minimum window dimensions
+	const MIN_WIDTH = 400;
+	const MIN_HEIGHT = 300;
+	const MAX_WIDTH = 1200;
+	const MAX_HEIGHT = 900;
+
 	// Track which feeds failed to load
 	let failedFeeds = $state<Set<string>>(new Set());
+
+	// Track iframe load state for better error handling
+	let loadingFeeds = $state<Set<string>>(new Set());
 
 	// Handle drag start
 	function handleDragStart(e: MouseEvent) {
 		if ((e.target as HTMLElement).closest('.window-actions')) return;
+		if ((e.target as HTMLElement).closest('.resize-handle')) return;
 
 		isDragging = true;
 		dragStartX = e.clientX;
@@ -104,6 +121,96 @@
 		document.body.style.userSelect = '';
 	}
 
+	// Handle resize start
+	function handleResizeStart(e: MouseEvent, direction: string) {
+		e.preventDefault();
+		e.stopPropagation();
+
+		isResizing = true;
+		resizeDirection = direction;
+		resizeStartX = e.clientX;
+		resizeStartY = e.clientY;
+		windowStartWidth = windowState.size.width;
+		windowStartHeight = windowState.size.height;
+		windowStartPosX = windowState.position.x;
+		windowStartPosY = windowState.position.y;
+
+		webcamWindows.bringToFront(windowState.id);
+
+		document.addEventListener('mousemove', handleResizeMove);
+		document.addEventListener('mouseup', handleResizeEnd);
+		document.body.style.cursor = getResizeCursor(direction);
+		document.body.style.userSelect = 'none';
+	}
+
+	function handleResizeMove(e: MouseEvent) {
+		if (!isResizing) return;
+
+		const deltaX = e.clientX - resizeStartX;
+		const deltaY = e.clientY - resizeStartY;
+
+		let newWidth = windowStartWidth;
+		let newHeight = windowStartHeight;
+		let newX = windowStartPosX;
+		let newY = windowStartPosY;
+
+		// Handle horizontal resize
+		if (resizeDirection.includes('e')) {
+			newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, windowStartWidth + deltaX));
+		}
+		if (resizeDirection.includes('w')) {
+			const proposedWidth = windowStartWidth - deltaX;
+			if (proposedWidth >= MIN_WIDTH && proposedWidth <= MAX_WIDTH) {
+				newWidth = proposedWidth;
+				newX = windowStartPosX + deltaX;
+			}
+		}
+
+		// Handle vertical resize
+		if (resizeDirection.includes('s')) {
+			newHeight = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, windowStartHeight + deltaY));
+		}
+		if (resizeDirection.includes('n')) {
+			const proposedHeight = windowStartHeight - deltaY;
+			if (proposedHeight >= MIN_HEIGHT && proposedHeight <= MAX_HEIGHT) {
+				newHeight = proposedHeight;
+				newY = windowStartPosY + deltaY;
+			}
+		}
+
+		// Keep window within viewport
+		const maxX = window.innerWidth - 100;
+		const maxY = window.innerHeight - 50;
+		newX = Math.max(0, Math.min(maxX, newX));
+		newY = Math.max(0, Math.min(maxY, newY));
+
+		webcamWindows.updateSize(windowState.id, { width: newWidth, height: newHeight });
+		webcamWindows.updatePosition(windowState.id, { x: newX, y: newY });
+	}
+
+	function handleResizeEnd() {
+		isResizing = false;
+		resizeDirection = '';
+		document.removeEventListener('mousemove', handleResizeMove);
+		document.removeEventListener('mouseup', handleResizeEnd);
+		document.body.style.cursor = '';
+		document.body.style.userSelect = '';
+	}
+
+	function getResizeCursor(direction: string): string {
+		const cursors: Record<string, string> = {
+			'n': 'ns-resize',
+			's': 'ns-resize',
+			'e': 'ew-resize',
+			'w': 'ew-resize',
+			'ne': 'nesw-resize',
+			'nw': 'nwse-resize',
+			'se': 'nwse-resize',
+			'sw': 'nesw-resize'
+		};
+		return cursors[direction] || 'default';
+	}
+
 	// Handle window close
 	function handleClose() {
 		webcamWindows.closeWindow(windowState.id);
@@ -117,12 +224,21 @@
 	// Handle refresh
 	function handleRefresh() {
 		failedFeeds = new Set();
+		loadingFeeds = new Set();
 		webcamWindows.refreshWebcams(windowState.id);
 	}
 
 	// Handle feed load error
 	function handleFeedError(webcamId: string) {
+		loadingFeeds = new Set([...loadingFeeds].filter(id => id !== webcamId));
 		failedFeeds = new Set([...failedFeeds, webcamId]);
+	}
+
+	// Handle feed load success
+	function handleFeedLoadSuccess(webcamId: string) {
+		loadingFeeds = new Set([...loadingFeeds].filter(id => id !== webcamId));
+		// Remove from failed if it was there (retry succeeded)
+		failedFeeds = new Set([...failedFeeds].filter(id => id !== webcamId));
 	}
 
 	// Add Windy player parameters for autoplay and hiding logo
@@ -142,40 +258,106 @@
 		}
 	}
 
+	// Format YouTube embed URL with proper parameters
+	function formatYouTubeEmbed(url: string): string {
+		if (!url.includes('youtube.com/embed') && !url.includes('youtu.be')) return url;
+
+		try {
+			let videoId = '';
+
+			// Extract video ID from various YouTube URL formats
+			if (url.includes('youtube.com/embed/')) {
+				const match = url.match(/youtube\.com\/embed\/([^?&]+)/);
+				videoId = match ? match[1] : '';
+			} else if (url.includes('youtu.be/')) {
+				const match = url.match(/youtu\.be\/([^?&]+)/);
+				videoId = match ? match[1] : '';
+			} else if (url.includes('youtube.com/watch')) {
+				const urlObj = new URL(url);
+				videoId = urlObj.searchParams.get('v') || '';
+			} else if (url.includes('youtube.com/live_stream')) {
+				// Handle live_stream URLs
+				const match = url.match(/channel=([^&]+)/);
+				if (match) {
+					return `https://www.youtube.com/embed/live_stream?channel=${match[1]}&autoplay=1&mute=1&enablejsapi=1`;
+				}
+			}
+
+			if (videoId) {
+				// Build clean embed URL with proper parameters
+				return `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&enablejsapi=1&rel=0&modestbranding=1`;
+			}
+		} catch {
+			// If parsing fails, return original with basic params
+		}
+
+		// Fallback: add params if not present
+		if (!url.includes('autoplay=')) {
+			const separator = url.includes('?') ? '&' : '?';
+			return `${url}${separator}autoplay=1&mute=1`;
+		}
+		return url;
+	}
+
 	// Get embed URL for webcam
 	function getEmbedUrl(webcam: Webcam): string {
 		if (!webcam) return '';
+
+		// For strategic webcams with YouTube URLs in the detail field, use that directly
+		if (webcam.urls?.detail && (webcam.urls.detail.includes('youtube.com') || webcam.urls.detail.includes('youtu.be'))) {
+			return formatYouTubeEmbed(webcam.urls.detail);
+		}
 
 		// Windy API v3 returns player URLs as direct strings
 		// e.g. player.live = "https://webcams.windy.com/webcams/public/embed/player/123/live"
 		if (webcam.player) {
 			// Check if player.live is a string URL (Windy API v3 format)
 			if (typeof webcam.player.live === 'string' && webcam.player.live) {
-				return addWindyPlayerParams(webcam.player.live);
+				const url = webcam.player.live;
+				if (url.includes('youtube.com') || url.includes('youtu.be')) {
+					return formatYouTubeEmbed(url);
+				}
+				return addWindyPlayerParams(url);
 			}
 			// Check if player.day is a string URL (fallback if no live)
 			if (typeof webcam.player.day === 'string' && webcam.player.day) {
-				return addWindyPlayerParams(webcam.player.day);
+				const url = webcam.player.day;
+				if (url.includes('youtube.com') || url.includes('youtu.be')) {
+					return formatYouTubeEmbed(url);
+				}
+				return addWindyPlayerParams(url);
 			}
 			// Legacy/fallback format: player.live is an object with available/embed properties
 			const livePlayer = webcam.player.live;
 			if (typeof livePlayer === 'object' && livePlayer !== null) {
 				const liveObj = livePlayer as { available?: boolean; embed?: string };
 				if (liveObj.available && liveObj.embed) {
-					return addWindyPlayerParams(liveObj.embed);
+					const url = liveObj.embed;
+					if (url.includes('youtube.com') || url.includes('youtu.be')) {
+						return formatYouTubeEmbed(url);
+					}
+					return addWindyPlayerParams(url);
 				}
 			}
 			const dayPlayer = webcam.player.day;
 			if (typeof dayPlayer === 'object' && dayPlayer !== null) {
 				const dayObj = dayPlayer as { available?: boolean; embed?: string };
 				if (dayObj.available && dayObj.embed) {
-					return addWindyPlayerParams(dayObj.embed);
+					const url = dayObj.embed;
+					if (url.includes('youtube.com') || url.includes('youtu.be')) {
+						return formatYouTubeEmbed(url);
+					}
+					return addWindyPlayerParams(url);
 				}
 			}
 		}
 
 		// For fallback/strategic webcams, use the detail URL (often contains YouTube embed)
-		return webcam.urls?.detail || '';
+		const detailUrl = webcam.urls?.detail || '';
+		if (detailUrl.includes('youtube.com') || detailUrl.includes('youtu.be')) {
+			return formatYouTubeEmbed(detailUrl);
+		}
+		return detailUrl;
 	}
 
 	// Check if a webcam can be embedded in an iframe
@@ -228,9 +410,6 @@
 		return windowState.webcams.slice(start, start + feedsPerPage);
 	});
 
-	// For backwards compatibility
-	const maxDisplayedFeeds = feedsPerPage;
-
 	// Navigation functions
 	function nextPage() {
 		if (currentPage < totalPages - 1) {
@@ -242,10 +421,6 @@
 		if (currentPage > 0) {
 			currentPage--;
 		}
-	}
-
-	function goToPage(page: number) {
-		currentPage = Math.max(0, Math.min(page, totalPages - 1));
 	}
 
 	function toggleShowAll() {
@@ -260,14 +435,36 @@
 	class="webcam-window"
 	class:minimized={windowState.isMinimized}
 	class:dragging={isDragging}
+	class:resizing={isResizing}
 	style="
 		left: {windowState.position.x}px;
 		top: {windowState.position.y}px;
+		width: {windowState.size.width}px;
 		z-index: {1000 + zIndex};
 	"
 	role="dialog"
 	aria-label="Webcam viewer for {windowState.countryName}"
 >
+	<!-- Resize Handles -->
+	{#if !windowState.isMinimized}
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div class="resize-handle resize-n" onmousedown={(e) => handleResizeStart(e, 'n')}></div>
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div class="resize-handle resize-s" onmousedown={(e) => handleResizeStart(e, 's')}></div>
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div class="resize-handle resize-e" onmousedown={(e) => handleResizeStart(e, 'e')}></div>
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div class="resize-handle resize-w" onmousedown={(e) => handleResizeStart(e, 'w')}></div>
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div class="resize-handle resize-ne" onmousedown={(e) => handleResizeStart(e, 'ne')}></div>
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div class="resize-handle resize-nw" onmousedown={(e) => handleResizeStart(e, 'nw')}></div>
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div class="resize-handle resize-se" onmousedown={(e) => handleResizeStart(e, 'se')}></div>
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div class="resize-handle resize-sw" onmousedown={(e) => handleResizeStart(e, 'sw')}></div>
+	{/if}
+
 	<!-- Tech Corner Decorations -->
 	<div class="tech-corner top-left"></div>
 	<div class="tech-corner top-right"></div>
@@ -391,36 +588,60 @@
 												<span class="down-icon">⚠</span>
 												<span class="down-label">SIGNAL LOST</span>
 												<span class="down-sublabel">{webcam.title}</span>
+												<button
+													class="retry-feed-btn"
+													onclick={() => {
+														failedFeeds = new Set([...failedFeeds].filter(id => id !== webcam.webcamId));
+													}}
+												>
+													RETRY
+												</button>
 											</div>
 										</div>
 									</div>
 								{:else if isEmbeddable(webcam, embedUrl)}
 									<!-- Embedded Feed -->
 									<div class="embed-wrapper">
+										{#if loadingFeeds.has(webcam.webcamId)}
+											<div class="feed-loading">
+												<div class="feed-loading-spinner"></div>
+												<span>ACQUIRING SIGNAL...</span>
+											</div>
+										{/if}
 										{#if embedUrl.includes('youtube.com') || embedUrl.includes('youtu.be')}
 											<iframe
 												src={embedUrl}
 												title={webcam.title}
-												allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+												allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
 												allowfullscreen
 												class="feed-iframe"
+												referrerpolicy="no-referrer-when-downgrade"
+												onload={() => handleFeedLoadSuccess(webcam.webcamId)}
 												onerror={() => handleFeedError(webcam.webcamId)}
 											></iframe>
 										{:else}
 											<!--
-												Sandbox intentionally blocks top-navigation for security.
-												Console errors about "allow-top-navigation" are expected -
-												embedded sites (EarthCam, etc.) try to redirect the parent
-												window for ads/tracking but our sandbox prevents this.
-												The webcam video streams still play correctly.
+												Sandbox permissions for Windy and other webcam embeds:
+												- allow-scripts: Required for video playback
+												- allow-same-origin: Required for some embed authentication
+												- allow-presentation: For fullscreen/presentation mode
+												- allow-forms: For any UI interactions
+												- allow-popups: Required for Windy livestream mode links
+												- allow-popups-to-escape-sandbox: Allows popups to work normally
+
+												Note: Console errors about "allow-top-navigation" are expected -
+												embedded sites try to redirect the parent window for ads/tracking
+												but our sandbox prevents this. The webcam video streams still play.
 											-->
 											<iframe
 												src={embedUrl}
 												title={webcam.title}
-												allow="autoplay"
+												allow="autoplay; fullscreen"
 												allowfullscreen
-												sandbox="allow-scripts allow-same-origin allow-presentation allow-forms"
+												sandbox="allow-scripts allow-same-origin allow-presentation allow-forms allow-popups allow-popups-to-escape-sandbox"
 												class="feed-iframe"
+												referrerpolicy="no-referrer-when-downgrade"
+												onload={() => handleFeedLoadSuccess(webcam.webcamId)}
 												onerror={() => handleFeedError(webcam.webcamId)}
 											></iframe>
 										{/if}
@@ -434,28 +655,36 @@
 										</div>
 									</div>
 								{:else}
-									<!-- External Link Feed -->
+									<!-- External Link Feed - Non-embeddable webcam -->
 									<div class="external-feed">
 										<div class="external-preview">
-											{#if webcam.images?.current?.thumbnail}
+											{#if webcam.images?.current?.preview || webcam.images?.current?.thumbnail}
 												<img
-													src={webcam.images.current.thumbnail}
+													src={webcam.images.current.preview || webcam.images.current.thumbnail}
 													alt={webcam.title}
 													class="preview-image"
 												/>
 											{:else}
 												<div class="placeholder-preview">
-													<span class="placeholder-icon">📹</span>
+													<div class="placeholder-grid"></div>
+													<span class="placeholder-icon">📡</span>
+													<span class="placeholder-text">EXTERNAL STREAM</span>
 												</div>
 											{/if}
 											<div class="external-overlay">
+												<div class="external-info">
+													<span class="external-icon">🔗</span>
+													<span class="external-label">IFRAME BLOCKED</span>
+													<span class="external-sublabel">{webcam.title}</span>
+												</div>
 												<a
-													href={embedUrl}
+													href={embedUrl || webcam.urls?.detail}
 													target="_blank"
 													rel="noopener noreferrer"
-													class="open-link"
+													class="open-external-btn"
 												>
-													OPEN STREAM →
+													<span class="btn-icon">↗</span>
+													OPEN IN NEW TAB
 												</a>
 											</div>
 										</div>
@@ -532,7 +761,8 @@
 <style>
 	.webcam-window {
 		position: fixed;
-		width: 640px;
+		min-width: 400px;
+		max-width: 1200px;
 		background: rgb(2 6 23 / 0.95);
 		backdrop-filter: blur(16px);
 		-webkit-backdrop-filter: blur(16px);
@@ -555,17 +785,143 @@
 			0 0 40px rgb(6 182 212 / 0.15);
 	}
 
-	.webcam-window.dragging {
-		cursor: grabbing;
+	.webcam-window.dragging,
+	.webcam-window.resizing {
 		box-shadow:
 			0 30px 60px -15px rgb(0 0 0 / 0.6),
 			0 0 0 2px rgb(6 182 212 / 0.4),
 			0 0 50px rgb(6 182 212 / 0.2);
 	}
 
+	.webcam-window.dragging {
+		cursor: grabbing;
+	}
+
 	.webcam-window.minimized {
-		width: 340px;
+		width: 340px !important;
+		min-width: 340px;
 		height: auto !important;
+	}
+
+	/* Resize Handles */
+	.resize-handle {
+		position: absolute;
+		z-index: 20;
+		background: transparent;
+	}
+
+	.resize-handle:hover {
+		background: rgb(6 182 212 / 0.2);
+	}
+
+	.resize-n {
+		top: 0;
+		left: 8px;
+		right: 8px;
+		height: 6px;
+		cursor: ns-resize;
+	}
+
+	.resize-s {
+		bottom: 0;
+		left: 8px;
+		right: 8px;
+		height: 6px;
+		cursor: ns-resize;
+	}
+
+	.resize-e {
+		top: 8px;
+		right: 0;
+		bottom: 8px;
+		width: 6px;
+		cursor: ew-resize;
+	}
+
+	.resize-w {
+		top: 8px;
+		left: 0;
+		bottom: 8px;
+		width: 6px;
+		cursor: ew-resize;
+	}
+
+	.resize-ne {
+		top: 0;
+		right: 0;
+		width: 12px;
+		height: 12px;
+		cursor: nesw-resize;
+	}
+
+	.resize-nw {
+		top: 0;
+		left: 0;
+		width: 12px;
+		height: 12px;
+		cursor: nwse-resize;
+	}
+
+	.resize-se {
+		bottom: 0;
+		right: 0;
+		width: 12px;
+		height: 12px;
+		cursor: nwse-resize;
+	}
+
+	.resize-sw {
+		bottom: 0;
+		left: 0;
+		width: 12px;
+		height: 12px;
+		cursor: nesw-resize;
+	}
+
+	/* Corner resize indicators */
+	.resize-se::after,
+	.resize-sw::after,
+	.resize-ne::after,
+	.resize-nw::after {
+		content: '';
+		position: absolute;
+		width: 8px;
+		height: 8px;
+		border-color: rgb(6 182 212 / 0.4);
+		border-style: solid;
+		border-width: 0;
+	}
+
+	.resize-se::after {
+		bottom: 2px;
+		right: 2px;
+		border-right-width: 2px;
+		border-bottom-width: 2px;
+	}
+
+	.resize-sw::after {
+		bottom: 2px;
+		left: 2px;
+		border-left-width: 2px;
+		border-bottom-width: 2px;
+	}
+
+	.resize-ne::after {
+		top: 2px;
+		right: 2px;
+		border-right-width: 2px;
+		border-top-width: 2px;
+	}
+
+	.resize-nw::after {
+		top: 2px;
+		left: 2px;
+		border-left-width: 2px;
+		border-top-width: 2px;
+	}
+
+	.resize-handle:hover::after {
+		border-color: rgb(6 182 212 / 0.8);
 	}
 
 	/* Tech Corners */
@@ -1074,10 +1430,61 @@
 		text-overflow: ellipsis;
 	}
 
+	.retry-feed-btn {
+		margin-top: 0.5rem;
+		padding: 0.25rem 0.5rem;
+		font-size: 0.5rem;
+		font-weight: 700;
+		font-family: 'SF Mono', Monaco, monospace;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		color: rgb(34 211 238);
+		background: rgb(34 211 238 / 0.1);
+		border: 1px solid rgb(34 211 238 / 0.3);
+		border-radius: 2px;
+		cursor: pointer;
+		transition: all 0.15s ease;
+	}
+
+	.retry-feed-btn:hover {
+		background: rgb(34 211 238 / 0.2);
+		border-color: rgb(34 211 238 / 0.5);
+	}
+
 	/* Embed Wrapper */
 	.embed-wrapper {
 		position: absolute;
 		inset: 0;
+	}
+
+	/* Feed Loading State */
+	.feed-loading {
+		position: absolute;
+		inset: 0;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		background: rgb(0 0 0 / 0.8);
+		z-index: 5;
+	}
+
+	.feed-loading span {
+		font-size: 0.5rem;
+		font-weight: 700;
+		font-family: 'SF Mono', Monaco, monospace;
+		color: rgb(34 211 238);
+		letter-spacing: 0.1em;
+	}
+
+	.feed-loading-spinner {
+		width: 24px;
+		height: 24px;
+		border: 2px solid rgb(51 65 85);
+		border-top-color: rgb(34 211 238);
+		border-radius: 50%;
+		animation: spin 1s linear infinite;
 	}
 
 	.feed-iframe {
@@ -1151,7 +1558,7 @@
 		text-overflow: ellipsis;
 	}
 
-	/* External Feed */
+	/* External Feed - Non-embeddable webcams */
 	.external-feed {
 		position: absolute;
 		inset: 0;
@@ -1167,40 +1574,98 @@
 		width: 100%;
 		height: 100%;
 		object-fit: cover;
-		filter: brightness(0.7);
+		filter: brightness(0.5) saturate(0.8);
 	}
 
 	.placeholder-preview {
 		width: 100%;
 		height: 100%;
 		display: flex;
+		flex-direction: column;
 		align-items: center;
 		justify-content: center;
+		gap: 0.5rem;
 		background: rgb(15 23 42);
+		position: relative;
+		overflow: hidden;
+	}
+
+	.placeholder-grid {
+		position: absolute;
+		inset: 0;
+		background:
+			linear-gradient(90deg, rgb(51 65 85 / 0.1) 1px, transparent 1px),
+			linear-gradient(rgb(51 65 85 / 0.1) 1px, transparent 1px);
+		background-size: 20px 20px;
 	}
 
 	.placeholder-icon {
-		font-size: 2rem;
-		opacity: 0.3;
+		font-size: 1.5rem;
+		opacity: 0.4;
+		z-index: 1;
+	}
+
+	.placeholder-text {
+		font-size: 0.5rem;
+		font-weight: 700;
+		font-family: 'SF Mono', Monaco, monospace;
+		color: rgb(100 116 139);
+		letter-spacing: 0.1em;
+		z-index: 1;
 	}
 
 	.external-overlay {
 		position: absolute;
 		inset: 0;
 		display: flex;
+		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		background: rgb(0 0 0 / 0.4);
-		opacity: 0;
-		transition: opacity 0.2s ease;
+		gap: 0.75rem;
+		background: rgb(0 0 0 / 0.7);
+		opacity: 1;
+		transition: all 0.2s ease;
 	}
 
 	.external-preview:hover .external-overlay {
-		opacity: 1;
+		background: rgb(0 0 0 / 0.8);
 	}
 
-	.open-link {
-		padding: 0.375rem 0.75rem;
+	.external-info {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.25rem;
+		text-align: center;
+	}
+
+	.external-icon {
+		font-size: 1.25rem;
+		opacity: 0.7;
+	}
+
+	.external-label {
+		font-size: 0.5rem;
+		font-weight: 700;
+		font-family: 'SF Mono', Monaco, monospace;
+		color: rgb(251 191 36);
+		letter-spacing: 0.1em;
+	}
+
+	.external-sublabel {
+		font-size: 0.5rem;
+		color: rgb(148 163 184);
+		max-width: 140px;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.open-external-btn {
+		display: flex;
+		align-items: center;
+		gap: 0.375rem;
+		padding: 0.5rem 0.75rem;
 		font-size: 0.5rem;
 		font-weight: 700;
 		font-family: 'SF Mono', Monaco, monospace;
@@ -1212,11 +1677,17 @@
 		border-radius: 2px;
 		text-decoration: none;
 		transition: all 0.15s ease;
+		cursor: pointer;
 	}
 
-	.open-link:hover {
+	.open-external-btn:hover {
 		background: rgb(34 211 238);
 		transform: scale(1.05);
+		box-shadow: 0 0 20px rgb(34 211 238 / 0.4);
+	}
+
+	.btn-icon {
+		font-size: 0.625rem;
 	}
 
 	/* More Feeds Indicator */

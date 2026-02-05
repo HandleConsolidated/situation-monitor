@@ -123,3 +123,23 @@ export {
 	type PredefinedRegion,
 	type WeatherConfig
 } from './weather';
+
+// Map marker design system configuration
+export {
+	PALETTE,
+	MARKER_SIZES,
+	MARKER_CONFIGS,
+	ARC_STYLES,
+	LEGEND_SECTIONS,
+	getMarkerConfig,
+	getHotspotMarkerConfig,
+	getOutageMarkerConfig,
+	getVolcanoMarkerConfig,
+	getEarthquakeMarkerConfig,
+	getRadiationMarkerConfig,
+	getDiseaseMarkerConfig,
+	getVesselMarkerConfig,
+	getNewsMarkerConfig,
+	getConflictMarkerConfig,
+	type MarkerConfig
+} from './markers';

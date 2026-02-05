@@ -2,7 +2,7 @@
 	import { settings } from '$lib/stores';
 	import MapboxGlobePanel from './MapboxGlobePanel.svelte';
 	import MapLibreGlobePanel from './MapLibreGlobePanel.svelte';
-	import type { CustomMonitor, NewsItem, NewsCategory, Aircraft, RadiationReading, DiseaseOutbreak, EarthquakeData } from '$lib/types';
+	import type { CustomMonitor, NewsItem, Aircraft, RadiationReading, DiseaseOutbreak, EarthquakeData } from '$lib/types';
 
 	interface CategorizedNews {
 		politics: NewsItem[];
@@ -23,6 +23,7 @@
 	interface AircraftSnapshot {
 		timestamp: number;
 		aircraft: Aircraft[];
+		region: string;
 	}
 
 	interface AircraftTrackPoint {

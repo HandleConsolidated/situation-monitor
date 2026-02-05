@@ -5,19 +5,18 @@
 		vesselConnectionStatus,
 		streamPaused,
 		streamUpdateInterval,
-		vesselTracks,
-		pauseVesselStream,
-		resumeVesselStream,
+		streamStats,
 		toggleVesselStreamPause,
 		setUpdateInterval,
 		searchVessels,
 		getVesselTrack,
+		clearVesselData,
+		UPDATE_INTERVAL_OPTIONS,
 		type VesselTrackPoint
 	} from '$lib/services/vessel-stream';
 	import type { Vessel } from '$lib/services/vessel-stream';
-	import { HOTSPOTS, CHOKEPOINTS, type Hotspot, type Chokepoint, CONFLICT_ZONES, type ConflictZone } from '$lib/config/map';
-	import { allNewsItems, correlationResults, narrativeResults } from '$lib/stores';
-	import { getRelativeTime } from '$lib/utils';
+	import { HOTSPOTS, CHOKEPOINTS, CONFLICT_ZONES } from '$lib/config/map';
+	import { allNewsItems, correlationResults, narrativeResults, setSelectedVesselTrack, clearSelectedVesselTrack } from '$lib/stores';
 	import type { CorrelationResult, NarrativeResult } from '$lib/types';
 
 	// Props for external data
@@ -34,12 +33,11 @@
 	let selectedVessel = $state<Vessel | null>(null);
 	let selectedVesselTrack = $state<VesselTrackPoint[]>([]);
 	let showStreamControls = $state(false);
-	let showConflictZones = $state(true);
-	let showVesselSearch = $state(false);
 
 	// Stream control state
 	const isPaused = $derived($streamPaused);
 	const updateIntervalMs = $derived($streamUpdateInterval);
+	const stats = $derived($streamStats);
 
 	// Handle search
 	function handleSearch(query: string) {
@@ -55,9 +53,10 @@
 	function selectVessel(vessel: Vessel) {
 		selectedVessel = vessel;
 		selectedVesselTrack = getVesselTrack(vessel.mmsi);
-		showVesselSearch = false;
 		searchQuery = '';
 		searchResults = [];
+		// Push to global store for map visualization
+		setSelectedVesselTrack(vessel, selectedVesselTrack);
 	}
 
 	// Navigate to vessel on map
@@ -71,15 +70,18 @@
 	function clearSelectedVessel() {
 		selectedVessel = null;
 		selectedVesselTrack = [];
+		// Clear from global store
+		clearSelectedVesselTrack();
 	}
 
-	// Update interval options
-	const intervalOptions = [
-		{ label: '0.5s', value: 500 },
-		{ label: '1s', value: 1000 },
-		{ label: '2s', value: 2000 },
-		{ label: '5s', value: 5000 }
-	];
+	// Handle clearing all vessel data
+	function handleClearVessels() {
+		clearVesselData();
+		selectedVessel = null;
+		selectedVesselTrack = [];
+		// Clear from global store
+		clearSelectedVesselTrack();
+	}
 
 	// Maritime zones to monitor - combining hotspots and chokepoints
 	interface MonitoredZone {
@@ -151,27 +153,6 @@
 		'Black Sea': ['russia-ukraine', 'military-deployment']
 	};
 
-	// Zone-to-narrative mapping
-	const ZONE_NARRATIVE_MAP: Record<string, string[]> = {
-		'Taipei': ['china-threat', 'world-war'],
-		'Kyiv': ['nato-russia', 'world-war'],
-		'Tel Aviv': ['world-war'],
-		'Tehran': ['world-war'],
-		'Pyongyang': ['world-war'],
-		'Hormuz': ['energy-crisis'],
-		'Singapore': ['china-threat']
-	};
-
-	// Prediction keywords to zone mapping
-	const PREDICTION_ZONE_KEYWORDS: Record<string, string[]> = {
-		'Taipei': ['taiwan', 'china invade', 'china attack', 'taiwan strait'],
-		'Kyiv': ['ukraine', 'russia', 'nato', 'kyiv'],
-		'Tel Aviv': ['israel', 'gaza', 'iran attack'],
-		'Tehran': ['iran', 'nuclear', 'strike iran'],
-		'Hormuz': ['oil', 'strait of hormuz', 'iran blockade'],
-		'Suez': ['suez', 'red sea', 'houthi']
-	};
-
 	// Calculate distance between two points (Haversine)
 	function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
 		const R = 6371;
@@ -214,8 +195,8 @@
 		for (const corr of correlations) {
 			const topicId = corr.topic?.toLowerCase().replace(/\s+/g, '-') || '';
 			if (militaryTopics.some(t => topicId.includes(t) || corr.topic?.toLowerCase().includes(t.replace('-', ' ')))) {
-				const strength = corr.momentum === 'surging' ? 'critical' :
-					corr.momentum === 'rising' ? 'high' : 'medium';
+				// Map momentum to strength: rising = high, stable/falling = medium
+				const strength: 'critical' | 'high' | 'medium' = corr.momentum === 'rising' ? 'high' : 'medium';
 				signals.push({
 					source: 'correlation',
 					id: topicId,
@@ -236,8 +217,8 @@
 		for (const narr of narratives) {
 			const narrId = narr.narrative?.toLowerCase().replace(/\s+/g, '-') || '';
 			if (threatNarratives.some(t => narrId.includes(t) || narr.narrative?.toLowerCase().includes(t.replace('-', ' ')))) {
-				const strength = narr.trend === 'spreading' ? 'critical' :
-					narr.trend === 'emerging' ? 'high' : 'medium';
+				// Map trend to strength: emerging = high, established/fading = medium
+				const strength: 'critical' | 'high' | 'medium' = narr.trend === 'emerging' ? 'high' : 'medium';
 				signals.push({
 					source: 'narrative',
 					id: narrId,
@@ -544,14 +525,6 @@
 		return counts;
 	});
 
-	// Get alert badge variant
-	function getAlertBadgeVariant(priority: string): 'danger' | 'warning' | 'info' | 'default' {
-		if (priority === 'critical') return 'danger';
-		if (priority === 'high') return 'warning';
-		if (priority === 'medium') return 'info';
-		return 'default';
-	}
-
 	// Format vessel speed
 	function formatSpeed(speed: number | undefined): string {
 		if (!speed || speed < 0.5) return 'Stationary';
@@ -569,12 +542,6 @@
 		}
 	});
 
-	const statusVariant = $derived.by(() => {
-		if (connectionStatus === 'connected') return 'success';
-		if (connectionStatus === 'connecting') return 'warning';
-		return 'danger';
-	});
-
 	// Threat level colors
 	function getThreatLevelColor(level: string): string {
 		switch (level) {
@@ -586,13 +553,44 @@
 	}
 </script>
 
-<Panel id="maritime-intel" title="Maritime Intel" count={vesselAlerts.length} loading={connectionStatus === 'connecting'}>
-	<svelte:fragment slot="header-extra">
-		<Badge text={statusText} variant={statusVariant} />
+<Panel id="maritime" title="Maritime Intel" count={vesselAlerts.length} loading={connectionStatus === 'connecting'} status={statusText} statusClass={connectionStatus === 'connected' ? 'status-live' : connectionStatus === 'connecting' ? 'status-connecting' : 'status-error'}>
+	{#snippet actions()}
 		<button class="stream-toggle" class:paused={isPaused} onclick={() => toggleVesselStreamPause()} title={isPaused ? 'Resume stream' : 'Pause stream'}>
 			{isPaused ? '▶' : '⏸'}
 		</button>
-	</svelte:fragment>
+		<button class="controls-toggle" class:active={showStreamControls} onclick={() => showStreamControls = !showStreamControls} title="Stream controls">
+			⚙
+		</button>
+	{/snippet}
+
+	<!-- Stream Controls Panel -->
+	{#if showStreamControls}
+		<div class="stream-controls">
+			<div class="control-row">
+				<span class="control-label">Update:</span>
+				<div class="interval-btns">
+					{#each UPDATE_INTERVAL_OPTIONS as opt}
+						<button
+							class="interval-btn"
+							class:active={updateIntervalMs === opt.value}
+							onclick={() => setUpdateInterval(opt.value)}
+						>
+							{opt.label}
+						</button>
+					{/each}
+				</div>
+			</div>
+			<div class="control-row">
+				<span class="control-label">Status:</span>
+				<span class="control-value">{isPaused ? 'PAUSED' : 'LIVE'}</span>
+				<span class="control-sep">|</span>
+				<span class="control-value">{stats.totalMessages} msgs</span>
+				<button class="clear-btn" onclick={handleClearVessels} title="Clear all vessel data">
+					Clear
+				</button>
+			</div>
+		</div>
+	{/if}
 
 	<!-- Conflict Zones - Compact at top -->
 	<div class="conflict-zones-compact">
@@ -610,6 +608,9 @@
 		<span class="stat"><b>{vesselCounts.lawEnforcement}</b> LAW</span>
 		<span class="stat"><b>{vesselCounts.tankers}</b> TNK</span>
 		<span class="stat-total"><b>{vesselCounts.total}</b> TOTAL</span>
+		{#if isPaused}
+			<span class="paused-indicator">PAUSED</span>
+		{/if}
 	</div>
 
 	<!-- Vessel Search - Always visible -->
@@ -712,7 +713,8 @@
 
 <style>
 	/* Stream toggle in header */
-	.stream-toggle {
+	.stream-toggle,
+	.controls-toggle {
 		padding: 0.125rem 0.375rem;
 		background: var(--accent-bg, rgba(6, 182, 212, 0.15));
 		border: 1px solid var(--accent);
@@ -725,6 +727,93 @@
 		background: var(--warning-bg, rgba(245, 158, 11, 0.15));
 		border-color: var(--warning);
 		color: var(--warning);
+	}
+	.controls-toggle.active {
+		background: var(--accent);
+		color: var(--panel-bg, #0f172a);
+	}
+
+	/* Stream controls panel */
+	.stream-controls {
+		display: flex;
+		flex-direction: column;
+		gap: 0.375rem;
+		padding: 0.375rem;
+		margin-bottom: 0.375rem;
+		background: var(--panel-bg-alt, rgba(15, 23, 42, 0.7));
+		border: 1px solid var(--accent);
+		border-radius: 2px;
+	}
+	.control-row {
+		display: flex;
+		align-items: center;
+		gap: 0.375rem;
+		font-size: 0.5rem;
+		font-family: 'SF Mono', Monaco, monospace;
+	}
+	.control-label {
+		color: var(--text-dim);
+		min-width: 3rem;
+	}
+	.control-value {
+		color: var(--text);
+	}
+	.control-sep {
+		color: var(--border-subtle);
+	}
+	.interval-btns {
+		display: flex;
+		gap: 0.25rem;
+	}
+	.interval-btn {
+		padding: 0.125rem 0.375rem;
+		background: var(--panel-bg-alt, rgba(15, 23, 42, 0.5));
+		border: 1px solid var(--border-subtle);
+		border-radius: 2px;
+		color: var(--text-dim);
+		cursor: pointer;
+		font-size: 0.5rem;
+		font-family: 'SF Mono', Monaco, monospace;
+	}
+	.interval-btn:hover {
+		border-color: var(--accent);
+		color: var(--accent);
+	}
+	.interval-btn.active {
+		background: var(--accent-bg, rgba(6, 182, 212, 0.2));
+		border-color: var(--accent);
+		color: var(--accent);
+	}
+	.clear-btn {
+		margin-left: auto;
+		padding: 0.125rem 0.375rem;
+		background: var(--danger-bg, rgba(239, 68, 68, 0.15));
+		border: 1px solid var(--danger, rgb(239 68 68));
+		border-radius: 2px;
+		color: var(--danger, rgb(239 68 68));
+		cursor: pointer;
+		font-size: 0.5rem;
+		font-family: 'SF Mono', Monaco, monospace;
+	}
+	.clear-btn:hover {
+		background: var(--danger, rgb(239 68 68));
+		color: white;
+	}
+
+	/* Paused indicator in stats bar */
+	.paused-indicator {
+		padding: 0.0625rem 0.25rem;
+		background: var(--warning-bg, rgba(245, 158, 11, 0.2));
+		border: 1px solid var(--warning);
+		border-radius: 2px;
+		color: var(--warning);
+		font-weight: 700;
+		font-size: 0.4375rem;
+		animation: pulse-warning 1.5s ease-in-out infinite;
+	}
+	@keyframes pulse-warning {
+		0%, 100% { opacity: 1; }
+		50% { opacity: 0.6; }
 	}
 
 	/* Conflict zones - compact chips at top */

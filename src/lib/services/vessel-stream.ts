@@ -41,11 +41,17 @@ export interface Vessel {
 
 // Message counter for debug logging
 let messageCount = 0;
+let messagesInCurrentBatch = 0;
+let lastLogTime = Date.now();
 
-// Throttle store updates for performance (update UI every 1s, not every message)
+// Throttle store updates for performance (update UI every N seconds, not every message)
 let pendingVessels: Map<string, Vessel> = new Map();
 let updateScheduled = false;
-const UPDATE_INTERVAL = 1000; // ms - longer interval to reduce UI thrashing
+const DEFAULT_UPDATE_INTERVAL = 5000; // 5 seconds default - much longer to reduce UI thrashing
+
+// Message rate limiting - skip messages if coming too fast
+let lastMessageTime = 0;
+const MIN_MESSAGE_INTERVAL = 100; // Minimum 100ms between processing messages
 
 function scheduleStoreUpdate(): void {
 	if (updateScheduled) return;
@@ -58,9 +64,26 @@ function scheduleStoreUpdate(): void {
 		// Skip update if paused
 		if (!get(streamPaused) && pendingVessels.size > 0) {
 			vesselStore.set(new Map(pendingVessels));
+			// Update stats
+			streamStats.update(s => ({
+				...s,
+				lastBatchSize: messagesInCurrentBatch,
+				lastUpdateTime: Date.now()
+			}));
+			messagesInCurrentBatch = 0;
 		}
 		updateScheduled = false;
 	}, currentInterval);
+}
+
+// Log statistics every 30 seconds (not every 500 messages)
+function logStatsIfNeeded(): void {
+	const now = Date.now();
+	if (now - lastLogTime >= 30000) {
+		const currentVessels = get(vesselStore);
+		console.log(`AIS Stream: ${messageCount} total messages, ${currentVessels.size} strategic vessels tracked`);
+		lastLogTime = now;
+	}
 }
 
 // AIS Ship Type mapping
@@ -134,7 +157,21 @@ export const vesselError = writable<string | null>(null);
 
 // Stream control state
 export const streamPaused = writable<boolean>(false);
-export const streamUpdateInterval = writable<number>(UPDATE_INTERVAL);
+export const streamUpdateInterval = writable<number>(DEFAULT_UPDATE_INTERVAL);
+
+// Stream statistics for UI display
+export interface StreamStats {
+	totalMessages: number;
+	lastBatchSize: number;
+	lastUpdateTime: number;
+	stagedVessels: number;
+}
+export const streamStats = writable<StreamStats>({
+	totalMessages: 0,
+	lastBatchSize: 0,
+	lastUpdateTime: 0,
+	stagedVessels: 0
+});
 
 // Vessel track history (last N positions per vessel)
 export interface VesselTrackPoint {
@@ -318,6 +355,18 @@ export function connectVesselStream(): void {
 
 		ws.onmessage = async (event) => {
 			try {
+				// Skip processing if paused
+				if (get(streamPaused)) {
+					return;
+				}
+
+				// Rate limiting - skip messages that come too fast
+				const now = Date.now();
+				if (now - lastMessageTime < MIN_MESSAGE_INTERVAL) {
+					return; // Skip this message
+				}
+				lastMessageTime = now;
+
 				let jsonString: string;
 
 				// Handle binary messages (ArrayBuffer or Blob)
@@ -331,6 +380,10 @@ export function connectVesselStream(): void {
 
 				const data = JSON.parse(jsonString);
 				messageCount++;
+				messagesInCurrentBatch++;
+
+				// Update stats
+				streamStats.update(s => ({ ...s, totalMessages: messageCount }));
 
 				// Check for proxy error messages
 				if (data.error) {
@@ -346,11 +399,8 @@ export function connectVesselStream(): void {
 
 				processAISMessage(data);
 
-				// Debug logging: show stats every 500 messages
-				if (messageCount % 500 === 0) {
-					const currentVessels = get(vesselStore);
-					console.log(`AIS Stream: ${messageCount} messages, ${currentVessels.size} strategic vessels (military, tankers, cargo, law enforcement)`);
-				}
+				// Log stats periodically (every 30 seconds, not every N messages)
+				logStatsIfNeeded();
 			} catch (error) {
 				console.warn('Failed to parse AIS message:', error);
 			}
@@ -604,13 +654,16 @@ function processAISMessage(data: AISStreamMessage): void {
 
 		vesselStagingArea.set(mmsi, stagedVessel);
 
-		// Clean up old staged vessels (older than 5 minutes) to prevent memory bloat
-		const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+		// Clean up old staged vessels (older than 2 minutes) to prevent memory bloat
+		const twoMinutesAgo = Date.now() - 2 * 60 * 1000;
 		for (const [key, v] of vesselStagingArea.entries()) {
-			if (v.lastUpdate < fiveMinutesAgo) {
+			if (v.lastUpdate < twoMinutesAgo) {
 				vesselStagingArea.delete(key);
 			}
 		}
+
+		// Update staging area stats
+		streamStats.update(s => ({ ...s, stagedVessels: vesselStagingArea.size }));
 	}
 }
 
@@ -634,14 +687,22 @@ export function getVesselPositions(): Vessel[] {
 }
 
 /**
- * Clear all vessel data
+ * Clear all vessel data and reset counters
  */
 export function clearVesselData(): void {
 	pendingVessels = new Map();
 	vesselStagingArea.clear();
 	updateScheduled = false;
+	messageCount = 0;
+	messagesInCurrentBatch = 0;
 	vesselStore.set(new Map());
 	vesselTracks.set(new Map());
+	streamStats.set({
+		totalMessages: 0,
+		lastBatchSize: 0,
+		lastUpdateTime: 0,
+		stagedVessels: 0
+	});
 }
 
 /**
@@ -667,10 +728,21 @@ export function toggleVesselStreamPause(): void {
 
 /**
  * Set the UI update interval (in ms)
+ * Valid range: 1000ms (1s) to 60000ms (60s)
  */
 export function setUpdateInterval(intervalMs: number): void {
-	streamUpdateInterval.set(Math.max(500, Math.min(5000, intervalMs)));
+	streamUpdateInterval.set(Math.max(1000, Math.min(60000, intervalMs)));
 }
+
+/**
+ * Available update interval options for the UI
+ */
+export const UPDATE_INTERVAL_OPTIONS = [
+	{ label: '5s', value: 5000 },
+	{ label: '10s', value: 10000 },
+	{ label: '30s', value: 30000 },
+	{ label: '60s', value: 60000 }
+] as const;
 
 /**
  * Search vessels by name, MMSI, or callsign

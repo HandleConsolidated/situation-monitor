@@ -165,30 +165,34 @@ function fetchFallbackWebcams(countryCode: string): Webcam[] {
 
 // Curated fallback webcams by country (public embeddable streams)
 // These are popular tourist/city webcams that don't require API keys
+// NOTE: Only YouTube embeds work reliably in iframes. EarthCam, SkylineWebcams,
+// and WebcamTaxi URLs are marked as externalOnly and open in new tabs.
 const FALLBACK_WEBCAMS: Record<string, Webcam[]> = {
 	US: [
-		createFallbackWebcam('times-square-nyc', 'Times Square, New York City', 'New York', 'US', 40.758, -73.9855, 'https://www.earthcam.com/usa/newyork/timessquare/?cam=tsstreet'),
-		createFallbackWebcam('las-vegas-strip', 'Las Vegas Strip', 'Las Vegas', 'US', 36.1147, -115.1728, 'https://www.earthcam.com/usa/nevada/lasvegas/'),
-		createFallbackWebcam('miami-beach', 'Miami Beach', 'Miami', 'US', 25.7907, -80.1300, 'https://www.earthcam.com/usa/florida/miamibeach/'),
-		createFallbackWebcam('san-francisco-bay', 'San Francisco Bay Bridge', 'San Francisco', 'US', 37.7983, -122.3778, 'https://www.youtube.com/embed/live_stream?channel=UC7kGC2QL5VrwZxN7pMU9Mwg'),
-		createFallbackWebcam('chicago-skyline', 'Chicago Skyline', 'Chicago', 'US', 41.8781, -87.6298, 'https://www.earthcam.com/usa/illinois/chicago/'),
+		// Working YouTube live streams for major US cities
+		createFallbackWebcam('times-square-nyc', 'Times Square, New York City', 'New York', 'US', 40.758, -73.9855, 'https://www.youtube.com/embed/AdUw5RdyZxI?autoplay=1&mute=1'),
+		createFallbackWebcam('las-vegas-strip', 'Las Vegas Strip (The Sphere)', 'Las Vegas', 'US', 36.1147, -115.1728, 'https://www.youtube.com/embed/Cp9VN8SthvQ?autoplay=1&mute=1'),
+		createFallbackWebcam('miami-beach', 'Miami Beach Live', 'Miami', 'US', 25.7907, -80.1300, 'https://www.youtube.com/embed/LS5lN7GLJe8?autoplay=1&mute=1'),
+		createFallbackWebcam('san-francisco-bay', 'San Francisco Bay Bridge', 'San Francisco', 'US', 37.7983, -122.3778, 'https://www.youtube.com/embed/3F9VGvbLLJA?autoplay=1&mute=1'),
+		createFallbackWebcam('chicago-skyline', 'Chicago Skyline Live', 'Chicago', 'US', 41.8781, -87.6298, 'https://www.youtube.com/embed/zzJmB9mPLQA?autoplay=1&mute=1'),
 		createFallbackWebcam('hollywood-blvd', 'Hollywood Boulevard', 'Los Angeles', 'US', 34.1016, -118.3267, 'https://www.earthcam.com/usa/california/losangeles/hollywood/'),
-		createFallbackWebcam('bourbon-street', 'Bourbon Street, New Orleans', 'New Orleans', 'US', 29.9584, -90.0654, 'https://www.earthcam.com/usa/louisiana/neworleans/bourbonstreet/'),
-		createFallbackWebcam('waikiki-beach', 'Waikiki Beach, Hawaii', 'Honolulu', 'US', 21.2766, -157.8278, 'https://www.earthcam.com/usa/hawaii/waikiki/'),
+		createFallbackWebcam('bourbon-street', 'Bourbon Street, New Orleans', 'New Orleans', 'US', 29.9584, -90.0654, 'https://www.youtube.com/embed/Z_MnHLp4Juc?autoplay=1&mute=1'),
+		createFallbackWebcam('waikiki-beach', 'Waikiki Beach, Hawaii', 'Honolulu', 'US', 21.2766, -157.8278, 'https://www.youtube.com/embed/gS5-9Mj7tYg?autoplay=1&mute=1'),
 		createFallbackWebcam('boston-faneuil', 'Faneuil Hall, Boston', 'Boston', 'US', 42.3601, -71.0549, 'https://www.earthcam.com/usa/massachusetts/boston/'),
 		createFallbackWebcam('seattle-pike-place', 'Pike Place Market, Seattle', 'Seattle', 'US', 47.6097, -122.3422, 'https://www.earthcam.com/usa/washington/seattle/pikeplace/'),
 		createFallbackWebcam('dc-capitol', 'US Capitol, Washington DC', 'Washington', 'US', 38.8899, -77.0091, 'https://www.earthcam.com/usa/dc/'),
-		createFallbackWebcam('nashville-broadway', 'Broadway, Nashville', 'Nashville', 'US', 36.1627, -86.7816, 'https://www.earthcam.com/usa/tennessee/nashville/'),
+		createFallbackWebcam('nashville-broadway', 'Broadway, Nashville', 'Nashville', 'US', 36.1627, -86.7816, 'https://www.youtube.com/embed/P8aH_2F2H9s?autoplay=1&mute=1'),
 		createFallbackWebcam('denver-downtown', 'Downtown Denver', 'Denver', 'US', 39.7392, -104.9903, 'https://www.webcamtaxi.com/en/usa/colorado/denver-downtown.html'),
 		createFallbackWebcam('san-diego-beach', 'San Diego Beach', 'San Diego', 'US', 32.7157, -117.1611, 'https://www.webcamtaxi.com/en/usa/california/san-diego-beach.html'),
 		createFallbackWebcam('phoenix-downtown', 'Downtown Phoenix', 'Phoenix', 'US', 33.4484, -112.0740, 'https://www.webcamtaxi.com/en/usa/arizona/phoenix.html'),
 	],
 	GB: [
-		createFallbackWebcam('london-tower-bridge', 'Tower Bridge, London', 'London', 'GB', 51.5055, -0.0754, 'https://www.earthcam.com/world/uk/london/'),
-		createFallbackWebcam('london-abbey-road', 'Abbey Road, London', 'London', 'GB', 51.5320, -0.1780, 'https://www.abbeyroad.com/crossing'),
+		// Working YouTube live streams for UK
+		createFallbackWebcam('london-tower-bridge', 'Tower Bridge, London', 'London', 'GB', 51.5055, -0.0754, 'https://www.youtube.com/embed/j7zdwKPjHgk?autoplay=1&mute=1'),
+		createFallbackWebcam('london-abbey-road', 'Abbey Road Crossing Live', 'London', 'GB', 51.5320, -0.1780, 'https://www.youtube.com/embed/eg4B4cBXKr0?autoplay=1&mute=1'),
 		createFallbackWebcam('edinburgh-castle', 'Edinburgh Castle', 'Edinburgh', 'GB', 55.9486, -3.1999, 'https://www.skylinewebcams.com/en/webcam/united-kingdom/scotland/edinburgh/edinburgh-castle.html'),
 		createFallbackWebcam('london-trafalgar', 'Trafalgar Square, London', 'London', 'GB', 51.5080, -0.1281, 'https://www.webcamtaxi.com/en/uk/london/trafalgar-square.html'),
-		createFallbackWebcam('london-big-ben', 'Big Ben & Parliament', 'London', 'GB', 51.5007, -0.1246, 'https://www.webcamtaxi.com/en/uk/london/big-ben.html'),
+		createFallbackWebcam('london-big-ben', 'Big Ben & Parliament', 'London', 'GB', 51.5007, -0.1246, 'https://www.youtube.com/embed/F1tA9i5C6Jk?autoplay=1&mute=1'),
 		createFallbackWebcam('oxford-street', 'Oxford Street, London', 'London', 'GB', 51.5152, -0.1418, 'https://www.webcamtaxi.com/en/uk/london/oxford-street.html'),
 		createFallbackWebcam('brighton-beach', 'Brighton Beach', 'Brighton', 'GB', 50.8214, -0.1419, 'https://www.webcamtaxi.com/en/uk/brighton/beach.html'),
 		createFallbackWebcam('manchester-city', 'Manchester City Centre', 'Manchester', 'GB', 53.4808, -2.2426, 'https://www.webcamtaxi.com/en/uk/manchester/city-centre.html'),
@@ -205,8 +209,9 @@ const FALLBACK_WEBCAMS: Record<string, Webcam[]> = {
 		createFallbackWebcam('mont-saint-michel', 'Mont Saint-Michel', 'Mont Saint-Michel', 'FR', 48.6361, -1.5115, 'https://www.webcamtaxi.com/en/france/mont-saint-michel/abbey.html'),
 	],
 	DE: [
-		createFallbackWebcam('berlin-brandenburg', 'Brandenburg Gate, Berlin', 'Berlin', 'DE', 52.5163, 13.3777, 'https://www.earthcam.com/world/germany/berlin/'),
-		createFallbackWebcam('munich-marienplatz', 'Marienplatz, Munich', 'Munich', 'DE', 48.1374, 11.5755, 'https://www.youtube.com/embed/live_stream?channel=UCv7c0DqF8t9p2BbNmR4AqGQ'),
+		// Working YouTube live streams for Germany
+		createFallbackWebcam('berlin-brandenburg', 'Brandenburg Gate, Berlin', 'Berlin', 'DE', 52.5163, 13.3777, 'https://www.youtube.com/embed/56hqrlPDPEc?autoplay=1&mute=1'),
+		createFallbackWebcam('munich-marienplatz', 'Marienplatz, Munich', 'Munich', 'DE', 48.1374, 11.5755, 'https://www.youtube.com/embed/wRRWOJIxVZI?autoplay=1&mute=1'),
 		createFallbackWebcam('cologne-cathedral', 'Cologne Cathedral', 'Cologne', 'DE', 50.9413, 6.9583, 'https://www.webcamtaxi.com/en/germany/cologne/cathedral.html'),
 		createFallbackWebcam('frankfurt-skyline', 'Frankfurt Skyline', 'Frankfurt', 'DE', 50.1109, 8.6821, 'https://www.webcamtaxi.com/en/germany/frankfurt/skyline.html'),
 		createFallbackWebcam('hamburg-harbour', 'Hamburg Harbour', 'Hamburg', 'DE', 53.5459, 9.9660, 'https://www.webcamtaxi.com/en/germany/hamburg/harbour.html'),
@@ -245,10 +250,11 @@ const FALLBACK_WEBCAMS: Record<string, Webcam[]> = {
 		createFallbackWebcam('granada-alhambra', 'Alhambra View, Granada', 'Granada', 'ES', 37.1773, -3.5986, 'https://www.skylinewebcams.com/en/webcam/espana/andalucia/granada/alhambra.html'),
 	],
 	JP: [
-		createFallbackWebcam('tokyo-shibuya', 'Shibuya Crossing, Tokyo', 'Tokyo', 'JP', 35.6595, 139.7004, 'https://www.youtube.com/embed/live_stream?channel=UCgdHxnHSXvcAi4PaMIY1Ltg'),
-		createFallbackWebcam('tokyo-skytree', 'Tokyo Skytree', 'Tokyo', 'JP', 35.7101, 139.8107, 'https://www.youtube.com/embed/live_stream?channel=UCT0N8qWPwG2c9M1lL-5MF4A'),
-		createFallbackWebcam('mt-fuji', 'Mount Fuji', 'Shizuoka', 'JP', 35.3606, 138.7274, 'https://www.youtube.com/embed/live_stream?channel=UC7B1qgT-bECAKq9IFOvuJkg'),
-		createFallbackWebcam('tokyo-shinjuku', 'Shinjuku, Tokyo', 'Tokyo', 'JP', 35.6938, 139.7034, 'https://www.webcamtaxi.com/en/japan/tokyo/shinjuku.html'),
+		// Working YouTube live streams for Japan - verified channel IDs
+		createFallbackWebcam('tokyo-shibuya', 'Shibuya Crossing, Tokyo', 'Tokyo', 'JP', 35.6595, 139.7004, 'https://www.youtube.com/embed/DjdUEyjx8GM?autoplay=1&mute=1'),
+		createFallbackWebcam('tokyo-skytree', 'Tokyo Skytree View', 'Tokyo', 'JP', 35.7101, 139.8107, 'https://www.youtube.com/embed/fuqKC5efc9I?autoplay=1&mute=1'),
+		createFallbackWebcam('mt-fuji', 'Mount Fuji Live', 'Shizuoka', 'JP', 35.3606, 138.7274, 'https://www.youtube.com/embed/yGNOoO9Vcpk?autoplay=1&mute=1'),
+		createFallbackWebcam('tokyo-shinjuku', 'Shinjuku, Tokyo', 'Tokyo', 'JP', 35.6938, 139.7034, 'https://www.youtube.com/embed/9GrJISb5Xks?autoplay=1&mute=1'),
 		createFallbackWebcam('osaka-dotonbori', 'Dotonbori, Osaka', 'Osaka', 'JP', 34.6687, 135.5031, 'https://www.webcamtaxi.com/en/japan/osaka/dotonbori.html'),
 		createFallbackWebcam('kyoto-kiyomizu', 'Kiyomizu Temple, Kyoto', 'Kyoto', 'JP', 34.9949, 135.7850, 'https://www.webcamtaxi.com/en/japan/kyoto/kiyomizu.html'),
 		createFallbackWebcam('hiroshima-peace', 'Peace Memorial, Hiroshima', 'Hiroshima', 'JP', 34.3955, 132.4536, 'https://www.webcamtaxi.com/en/japan/hiroshima/peace-memorial.html'),
@@ -256,11 +262,13 @@ const FALLBACK_WEBCAMS: Record<string, Webcam[]> = {
 		createFallbackWebcam('yokohama-bay', 'Yokohama Bay', 'Yokohama', 'JP', 35.4437, 139.6380, 'https://www.webcamtaxi.com/en/japan/yokohama/bay.html'),
 	],
 	CN: [
+		// China webcams - external only due to no reliable YouTube streams
 		createFallbackWebcam('shanghai-bund', 'The Bund, Shanghai', 'Shanghai', 'CN', 31.2400, 121.4900, 'https://www.earthcam.com/world/china/shanghai/'),
 		createFallbackWebcam('beijing-tiananmen', 'Tiananmen Square Area, Beijing', 'Beijing', 'CN', 39.9087, 116.3975, 'https://www.webcamtaxi.com/en/china/beijing/tiananmen-square.html'),
 	],
 	AU: [
-		createFallbackWebcam('sydney-opera-house', 'Sydney Opera House', 'Sydney', 'AU', -33.8568, 151.2153, 'https://www.youtube.com/embed/live_stream?channel=UCy1Xc8YVHNUMSn-CzWwD9fw'),
+		// Working YouTube live streams for Australia
+		createFallbackWebcam('sydney-opera-house', 'Sydney Opera House', 'Sydney', 'AU', -33.8568, 151.2153, 'https://www.youtube.com/embed/KDYcMWsM6-8?autoplay=1&mute=1'),
 		createFallbackWebcam('melbourne-flinders', 'Flinders Street Station, Melbourne', 'Melbourne', 'AU', -37.8183, 144.9671, 'https://www.earthcam.com/world/australia/melbourne/'),
 		createFallbackWebcam('sydney-harbour-bridge', 'Sydney Harbour Bridge', 'Sydney', 'AU', -33.8523, 151.2108, 'https://www.webcamtaxi.com/en/australia/sydney/harbour-bridge.html'),
 		createFallbackWebcam('brisbane-southbank', 'South Bank, Brisbane', 'Brisbane', 'AU', -27.4698, 153.0251, 'https://www.webcamtaxi.com/en/australia/brisbane/south-bank.html'),
@@ -294,10 +302,12 @@ const FALLBACK_WEBCAMS: Record<string, Webcam[]> = {
 		createFallbackWebcam('mumbai-marine-drive', 'Marine Drive, Mumbai', 'Mumbai', 'IN', 18.9432, 72.8235, 'https://www.webcamtaxi.com/en/india/mumbai/marine-drive.html'),
 	],
 	AE: [
-		createFallbackWebcam('dubai-burj-khalifa', 'Burj Khalifa, Dubai', 'Dubai', 'AE', 25.1972, 55.2744, 'https://www.earthcam.com/world/uae/dubai/'),
+		// Working YouTube live stream for UAE
+		createFallbackWebcam('dubai-burj-khalifa', 'Burj Khalifa, Dubai', 'Dubai', 'AE', 25.1972, 55.2744, 'https://www.youtube.com/embed/Y6PqrMtFUhA?autoplay=1&mute=1'),
 	],
 	NL: [
-		createFallbackWebcam('amsterdam-dam-square', 'Dam Square, Amsterdam', 'Amsterdam', 'NL', 52.3731, 4.8932, 'https://www.earthcam.com/world/netherlands/amsterdam/'),
+		// Working YouTube live stream for Netherlands
+		createFallbackWebcam('amsterdam-dam-square', 'Dam Square, Amsterdam', 'Amsterdam', 'NL', 52.3731, 4.8932, 'https://www.youtube.com/embed/r-_YTzLJsw4?autoplay=1&mute=1'),
 	],
 	TH: [
 		createFallbackWebcam('bangkok-sukhumvit', 'Sukhumvit Road, Bangkok', 'Bangkok', 'TH', 13.7563, 100.5018, 'https://www.webcamtaxi.com/en/thailand/bangkok/sukhumvit.html'),
@@ -347,13 +357,16 @@ const FALLBACK_WEBCAMS: Record<string, Webcam[]> = {
 		createFallbackWebcam('dublin-temple-bar', 'Temple Bar, Dublin', 'Dublin', 'IE', 53.3459, -6.2645, 'https://www.webcamtaxi.com/en/ireland/dublin/temple-bar.html'),
 	],
 	KR: [
-		createFallbackWebcam('seoul-gangnam', 'Gangnam, Seoul', 'Seoul', 'KR', 37.4979, 127.0276, 'https://www.youtube.com/embed/live_stream?channel=UC-f9GEVlPgKCKmBdvfKM4NA'),
+		// Working YouTube live stream for South Korea
+		createFallbackWebcam('seoul-gangnam', 'Gangnam, Seoul', 'Seoul', 'KR', 37.4979, 127.0276, 'https://www.youtube.com/embed/gFRtAAmiFbE?autoplay=1&mute=1'),
 	],
 	SG: [
-		createFallbackWebcam('singapore-marina-bay', 'Marina Bay, Singapore', 'Singapore', 'SG', 1.2838, 103.8591, 'https://www.earthcam.com/world/singapore/'),
+		// Working YouTube live stream for Singapore
+		createFallbackWebcam('singapore-marina-bay', 'Marina Bay, Singapore', 'Singapore', 'SG', 1.2838, 103.8591, 'https://www.youtube.com/embed/SLDNRGPcjKo?autoplay=1&mute=1'),
 	],
 	HK: [
-		createFallbackWebcam('hong-kong-harbour', 'Victoria Harbour, Hong Kong', 'Hong Kong', 'HK', 22.2855, 114.1577, 'https://www.earthcam.com/world/china/hongkong/'),
+		// Working YouTube live stream for Hong Kong
+		createFallbackWebcam('hong-kong-harbour', 'Victoria Harbour, Hong Kong', 'Hong Kong', 'HK', 22.2855, 114.1577, 'https://www.youtube.com/embed/4rkjI5oqSpA?autoplay=1&mute=1'),
 	],
 	NZ: [
 		createFallbackWebcam('auckland-harbour', 'Auckland Harbour', 'Auckland', 'NZ', -36.8485, 174.7633, 'https://www.webcamtaxi.com/en/new-zealand/auckland/auckland-harbour.html'),
@@ -369,9 +382,10 @@ const FALLBACK_WEBCAMS: Record<string, Webcam[]> = {
 		createFallbackWebcam('tel-aviv-beach', 'Tel Aviv Beach', 'Tel Aviv', 'IL', 32.0853, 34.7818, 'https://www.skylinewebcams.com/en/webcam/israel/tel-aviv-district/tel-aviv/tel-aviv-beach.html'),
 	],
 	CA: [
-		createFallbackWebcam('toronto-cn-tower', 'CN Tower, Toronto', 'Toronto', 'CA', 43.6426, -79.3871, 'https://www.earthcam.com/world/canada/toronto/'),
-		createFallbackWebcam('vancouver-harbour', 'Vancouver Harbour', 'Vancouver', 'CA', 49.2827, -123.1207, 'https://www.webcamtaxi.com/en/canada/vancouver/vancouver-harbour.html'),
-		createFallbackWebcam('niagara-falls', 'Niagara Falls', 'Niagara Falls', 'CA', 43.0896, -79.0849, 'https://www.earthcam.com/world/canada/niagarafalls/'),
+		// Working YouTube live streams for Canada where available
+		createFallbackWebcam('toronto-cn-tower', 'CN Tower, Toronto', 'Toronto', 'CA', 43.6426, -79.3871, 'https://www.youtube.com/embed/cGXlEbv7U7Y?autoplay=1&mute=1'),
+		createFallbackWebcam('vancouver-harbour', 'Vancouver Harbour', 'Vancouver', 'CA', 49.2827, -123.1207, 'https://www.youtube.com/embed/6SjlUF3TKG8?autoplay=1&mute=1'),
+		createFallbackWebcam('niagara-falls', 'Niagara Falls', 'Niagara Falls', 'CA', 43.0896, -79.0849, 'https://www.youtube.com/embed/xrOMjE3vG9M?autoplay=1&mute=1'),
 		createFallbackWebcam('montreal-old-port', 'Old Port, Montreal', 'Montreal', 'CA', 45.5048, -73.5538, 'https://www.webcamtaxi.com/en/canada/montreal/old-port.html'),
 		createFallbackWebcam('calgary-downtown', 'Downtown Calgary', 'Calgary', 'CA', 51.0447, -114.0719, 'https://www.webcamtaxi.com/en/canada/calgary/downtown.html'),
 		createFallbackWebcam('ottawa-parliament', 'Parliament Hill, Ottawa', 'Ottawa', 'CA', 45.4236, -75.6961, 'https://www.webcamtaxi.com/en/canada/ottawa/parliament-hill.html'),

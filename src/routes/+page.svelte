@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { Header } from '$lib/components/layout';
-	import { SettingsModal, MonitorFormModal, MonitorMatchesModal, OnboardingModal, WeatherCommandModal } from '$lib/components/modals';
+	import { SettingsModal, MonitorFormModal, MonitorMatchesModal, OnboardingModal, WeatherCommandModal, CrisisWatchConfigModal } from '$lib/components/modals';
 	import {
 		NewsPanel,
 		MarketsPanel,
@@ -46,7 +46,10 @@
 		correlationResults,
 		narrativeResults,
 		mainCharacterResults,
-		weather
+		weather,
+		crisisWatchConfigs,
+		getConfigByPanelId,
+		type CrisisWatchConfig
 	} from '$lib/stores';
 	import { seenItems } from '$lib/services/seen-items';
 	import { DropZone } from '$lib/components/common';
@@ -75,6 +78,8 @@
 	let onboardingOpen = $state(false);
 	let editingMonitor = $state<CustomMonitor | null>(null);
 	let viewingMonitor = $state<CustomMonitor | null>(null);
+	let crisisWatchModalOpen = $state(false);
+	let editingCrisisWatchId = $state<CrisisWatchConfig['id'] | null>(null);
 
 	// Weather command modal is controlled by weather store
 	const weatherModalOpen = $derived($weather.commandModalOpen);
@@ -101,6 +106,7 @@
 	let fedLoading = $state(false);
 
 	// Aircraft tracker state (data comes from GlobePanel)
+	// Note: AircraftSnapshot matches the interface in MapLibreGlobePanel and MapboxGlobePanel
 	interface AircraftSnapshot {
 		timestamp: number;
 		aircraft: Aircraft[];
@@ -162,6 +168,11 @@
 	// Handler for disease outbreak clicks - navigates globe to the outbreak location
 	function handleOutbreakClick(lat: number, lon: number, _disease: string) {
 		globeFlyToTarget = { lat, lon, zoom: 4, _ts: Date.now() };
+	}
+
+	// Handler for vessel navigation from MaritimeIntelPanel
+	function handleFlyToVessel(lat: number, lon: number, zoom?: number) {
+		globeFlyToTarget = { lat, lon, zoom: zoom ?? 6, _ts: Date.now() };
 	}
 
 	// Handler for aircraft data changes from GlobePanel
@@ -447,6 +458,26 @@
 		monitorMatchesOpen = true;
 	}
 
+	function handleEditCrisisWatch(panelId: 'venezuela' | 'iran' | 'greenland') {
+		editingCrisisWatchId = getConfigByPanelId(panelId);
+		crisisWatchModalOpen = true;
+	}
+
+	// Get crisis watch config by panel ID
+	function getCrisisConfig(panelId: 'venezuela' | 'iran' | 'greenland') {
+		const configId = getConfigByPanelId(panelId);
+		return $crisisWatchConfigs.find((c) => c.id === configId);
+	}
+
+	// Filter news by crisis watch keywords
+	function filterNewsByKeywords(newsItems: typeof $allNewsItems, keywords: string[]) {
+		if (keywords.length === 0) return [];
+		return newsItems.filter((n) => {
+			const text = n.title.toLowerCase();
+			return keywords.some((k) => text.includes(k.toLowerCase()));
+		});
+	}
+
 	function isPanelVisible(id: PanelId): boolean {
 		return $settings.enabled[id] !== false;
 	}
@@ -593,59 +624,47 @@
 							onViewMatches={handleViewMatches}
 						/>
 					{:else if panelId === 'venezuela'}
-						<SituationPanel
-							panelId="venezuela"
-							config={{
-								title: 'Venezuela Watch',
-								subtitle: 'Humanitarian crisis monitoring',
-								criticalKeywords: ['maduro', 'caracas', 'venezuela', 'guaido']
-							}}
-							news={$allNewsItems.filter(
-								(n) =>
-									n.title.toLowerCase().includes('venezuela') ||
-									n.title.toLowerCase().includes('maduro')
-							)}
-						/>
+						{@const crisisConfig = getCrisisConfig('venezuela')}
+						{#if crisisConfig}
+							<SituationPanel
+								panelId="venezuela"
+								config={{
+									title: crisisConfig.title,
+									subtitle: crisisConfig.subtitle,
+									criticalKeywords: crisisConfig.keywords
+								}}
+								news={filterNewsByKeywords($allNewsItems, crisisConfig.keywords)}
+								onEdit={() => handleEditCrisisWatch('venezuela')}
+							/>
+						{/if}
 					{:else if panelId === 'greenland'}
-						<SituationPanel
-							panelId="greenland"
-							config={{
-								title: 'Greenland Watch',
-								subtitle: 'Arctic geopolitics monitoring',
-								criticalKeywords: ['greenland', 'arctic', 'nuuk', 'denmark']
-							}}
-							news={$allNewsItems.filter(
-								(n) =>
-									n.title.toLowerCase().includes('greenland') ||
-									n.title.toLowerCase().includes('arctic')
-							)}
-						/>
+						{@const crisisConfig = getCrisisConfig('greenland')}
+						{#if crisisConfig}
+							<SituationPanel
+								panelId="greenland"
+								config={{
+									title: crisisConfig.title,
+									subtitle: crisisConfig.subtitle,
+									criticalKeywords: crisisConfig.keywords
+								}}
+								news={filterNewsByKeywords($allNewsItems, crisisConfig.keywords)}
+								onEdit={() => handleEditCrisisWatch('greenland')}
+							/>
+						{/if}
 					{:else if panelId === 'iran'}
-						<SituationPanel
-							panelId="iran"
-							config={{
-								title: 'Iran Crisis',
-								subtitle: 'Revolution protests, regime instability & nuclear program',
-								criticalKeywords: [
-									'protest',
-									'uprising',
-									'revolution',
-									'crackdown',
-									'killed',
-									'nuclear',
-									'strike',
-									'attack',
-									'irgc',
-									'khamenei'
-								]
-							}}
-							news={$allNewsItems.filter(
-								(n) =>
-									n.title.toLowerCase().includes('iran') ||
-									n.title.toLowerCase().includes('tehran') ||
-									n.title.toLowerCase().includes('irgc')
-							)}
-						/>
+						{@const crisisConfig = getCrisisConfig('iran')}
+						{#if crisisConfig}
+							<SituationPanel
+								panelId="iran"
+								config={{
+									title: crisisConfig.title,
+									subtitle: crisisConfig.subtitle,
+									criticalKeywords: crisisConfig.keywords
+								}}
+								news={filterNewsByKeywords($allNewsItems, crisisConfig.keywords)}
+								onEdit={() => handleEditCrisisWatch('iran')}
+							/>
+						{/if}
 					{:else if panelId === 'gridstress'}
 						<GridStressPanel gridData={gridStress} loading={gridStressLoading} onRegionClick={handleGridRegionClick} />
 					{:else if panelId === 'earthquakes'}
@@ -665,7 +684,7 @@
 							onAdsbToggle={handleAdsbToggle}
 						/>
 					{:else if panelId === 'maritime'}
-						<MaritimeIntelPanel {predictions} />
+						<MaritimeIntelPanel {predictions} onFlyToVessel={handleFlyToVessel} />
 					{:else if panelId === 'analysis'}
 						<AnalysisChatPanel
 							externalData={{
@@ -805,59 +824,47 @@
 							onViewMatches={handleViewMatches}
 						/>
 					{:else if panelId === 'venezuela'}
-						<SituationPanel
-							panelId="venezuela"
-							config={{
-								title: 'Venezuela Watch',
-								subtitle: 'Humanitarian crisis monitoring',
-								criticalKeywords: ['maduro', 'caracas', 'venezuela', 'guaido']
-							}}
-							news={$allNewsItems.filter(
-								(n) =>
-									n.title.toLowerCase().includes('venezuela') ||
-									n.title.toLowerCase().includes('maduro')
-							)}
-						/>
+						{@const crisisConfig = getCrisisConfig('venezuela')}
+						{#if crisisConfig}
+							<SituationPanel
+								panelId="venezuela"
+								config={{
+									title: crisisConfig.title,
+									subtitle: crisisConfig.subtitle,
+									criticalKeywords: crisisConfig.keywords
+								}}
+								news={filterNewsByKeywords($allNewsItems, crisisConfig.keywords)}
+								onEdit={() => handleEditCrisisWatch('venezuela')}
+							/>
+						{/if}
 					{:else if panelId === 'greenland'}
-						<SituationPanel
-							panelId="greenland"
-							config={{
-								title: 'Greenland Watch',
-								subtitle: 'Arctic geopolitics monitoring',
-								criticalKeywords: ['greenland', 'arctic', 'nuuk', 'denmark']
-							}}
-							news={$allNewsItems.filter(
-								(n) =>
-									n.title.toLowerCase().includes('greenland') ||
-									n.title.toLowerCase().includes('arctic')
-							)}
-						/>
+						{@const crisisConfig = getCrisisConfig('greenland')}
+						{#if crisisConfig}
+							<SituationPanel
+								panelId="greenland"
+								config={{
+									title: crisisConfig.title,
+									subtitle: crisisConfig.subtitle,
+									criticalKeywords: crisisConfig.keywords
+								}}
+								news={filterNewsByKeywords($allNewsItems, crisisConfig.keywords)}
+								onEdit={() => handleEditCrisisWatch('greenland')}
+							/>
+						{/if}
 					{:else if panelId === 'iran'}
-						<SituationPanel
-							panelId="iran"
-							config={{
-								title: 'Iran Crisis',
-								subtitle: 'Revolution protests, regime instability & nuclear program',
-								criticalKeywords: [
-									'protest',
-									'uprising',
-									'revolution',
-									'crackdown',
-									'killed',
-									'nuclear',
-									'strike',
-									'attack',
-									'irgc',
-									'khamenei'
-								]
-							}}
-							news={$allNewsItems.filter(
-								(n) =>
-									n.title.toLowerCase().includes('iran') ||
-									n.title.toLowerCase().includes('tehran') ||
-									n.title.toLowerCase().includes('irgc')
-							)}
-						/>
+						{@const crisisConfig = getCrisisConfig('iran')}
+						{#if crisisConfig}
+							<SituationPanel
+								panelId="iran"
+								config={{
+									title: crisisConfig.title,
+									subtitle: crisisConfig.subtitle,
+									criticalKeywords: crisisConfig.keywords
+								}}
+								news={filterNewsByKeywords($allNewsItems, crisisConfig.keywords)}
+								onEdit={() => handleEditCrisisWatch('iran')}
+							/>
+						{/if}
 					{:else if panelId === 'gridstress'}
 						<GridStressPanel gridData={gridStress} loading={gridStressLoading} onRegionClick={handleGridRegionClick} />
 					{:else if panelId === 'earthquakes'}
@@ -877,7 +884,7 @@
 							onAdsbToggle={handleAdsbToggle}
 						/>
 					{:else if panelId === 'maritime'}
-						<MaritimeIntelPanel {predictions} />
+						<MaritimeIntelPanel {predictions} onFlyToVessel={handleFlyToVessel} />
 					{:else if panelId === 'analysis'}
 						<AnalysisChatPanel
 							externalData={{
@@ -962,59 +969,47 @@
 					onViewMatches={handleViewMatches}
 				/>
 			{:else if panelId === 'venezuela'}
-				<SituationPanel
-					panelId="venezuela"
-					config={{
-						title: 'Venezuela Watch',
-						subtitle: 'Humanitarian crisis monitoring',
-						criticalKeywords: ['maduro', 'caracas', 'venezuela', 'guaido']
-					}}
-					news={$allNewsItems.filter(
-						(n) =>
-							n.title.toLowerCase().includes('venezuela') ||
-							n.title.toLowerCase().includes('maduro')
-					)}
-				/>
+				{@const crisisConfig = getCrisisConfig('venezuela')}
+				{#if crisisConfig}
+					<SituationPanel
+						panelId="venezuela"
+						config={{
+							title: crisisConfig.title,
+							subtitle: crisisConfig.subtitle,
+							criticalKeywords: crisisConfig.keywords
+						}}
+						news={filterNewsByKeywords($allNewsItems, crisisConfig.keywords)}
+						onEdit={() => handleEditCrisisWatch('venezuela')}
+					/>
+				{/if}
 			{:else if panelId === 'greenland'}
-				<SituationPanel
-					panelId="greenland"
-					config={{
-						title: 'Greenland Watch',
-						subtitle: 'Arctic geopolitics monitoring',
-						criticalKeywords: ['greenland', 'arctic', 'nuuk', 'denmark']
-					}}
-					news={$allNewsItems.filter(
-						(n) =>
-							n.title.toLowerCase().includes('greenland') ||
-							n.title.toLowerCase().includes('arctic')
-					)}
-				/>
+				{@const crisisConfig = getCrisisConfig('greenland')}
+				{#if crisisConfig}
+					<SituationPanel
+						panelId="greenland"
+						config={{
+							title: crisisConfig.title,
+							subtitle: crisisConfig.subtitle,
+							criticalKeywords: crisisConfig.keywords
+						}}
+						news={filterNewsByKeywords($allNewsItems, crisisConfig.keywords)}
+						onEdit={() => handleEditCrisisWatch('greenland')}
+					/>
+				{/if}
 			{:else if panelId === 'iran'}
-				<SituationPanel
-					panelId="iran"
-					config={{
-						title: 'Iran Crisis',
-						subtitle: 'Revolution protests, regime instability & nuclear program',
-						criticalKeywords: [
-							'protest',
-							'uprising',
-							'revolution',
-							'crackdown',
-							'killed',
-							'nuclear',
-							'strike',
-							'attack',
-							'irgc',
-							'khamenei'
-						]
-					}}
-					news={$allNewsItems.filter(
-						(n) =>
-							n.title.toLowerCase().includes('iran') ||
-							n.title.toLowerCase().includes('tehran') ||
-							n.title.toLowerCase().includes('irgc')
-					)}
-				/>
+				{@const crisisConfig = getCrisisConfig('iran')}
+				{#if crisisConfig}
+					<SituationPanel
+						panelId="iran"
+						config={{
+							title: crisisConfig.title,
+							subtitle: crisisConfig.subtitle,
+							criticalKeywords: crisisConfig.keywords
+						}}
+						news={filterNewsByKeywords($allNewsItems, crisisConfig.keywords)}
+						onEdit={() => handleEditCrisisWatch('iran')}
+					/>
+				{/if}
 			{:else if panelId === 'gridstress'}
 				<GridStressPanel gridData={gridStress} loading={gridStressLoading} onRegionClick={handleGridRegionClick} />
 			{:else if panelId === 'earthquakes'}
@@ -1034,7 +1029,7 @@
 					onAdsbToggle={handleAdsbToggle}
 				/>
 			{:else if panelId === 'maritime'}
-				<MaritimeIntelPanel {predictions} />
+				<MaritimeIntelPanel {predictions} onFlyToVessel={handleFlyToVessel} />
 			{:else if panelId === 'analysis'}
 				<AnalysisChatPanel
 					externalData={{
@@ -1091,6 +1086,12 @@
 		onAlertSelect={() => {
 			// Globe will auto-fly via selectedAlert effect
 		}}
+	/>
+	<CrisisWatchConfigModal
+		open={crisisWatchModalOpen}
+		onClose={() => (crisisWatchModalOpen = false)}
+		configId={editingCrisisWatchId}
+		allNews={$allNewsItems}
 	/>
 </div>
 

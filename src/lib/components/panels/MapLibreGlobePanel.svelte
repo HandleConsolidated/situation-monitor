@@ -11,8 +11,25 @@
 		THREAT_COLORS,
 		HOTSPOT_KEYWORDS
 	} from '$lib/config/map';
+	import {
+		MARKER_CONFIGS,
+		MARKER_SIZES,
+		PALETTE,
+		getHotspotMarkerConfig,
+		getOutageMarkerConfig,
+		getVolcanoMarkerConfig,
+		getEarthquakeMarkerConfig,
+		getRadiationMarkerConfig,
+		getDiseaseMarkerConfig,
+		getVesselMarkerConfig,
+		getNewsMarkerConfig,
+		getConflictMarkerConfig,
+		ARC_STYLES,
+		LEGEND_SECTIONS
+	} from '$lib/config/markers';
 	import { fetchOutageData, fetchUCDPConflicts, fetchAircraftPositions, OpenSkyRateLimitError, getAltitudeColor, formatAltitude, formatVelocity, formatHeading, fetchElevatedVolcanoes, VOLCANO_ALERT_COLORS, VOLCANO_ALERT_DESCRIPTIONS, getShipTypeColor, formatVesselSpeed, formatVesselCourse, getFlagEmoji, fetchAirQualityData, AIR_QUALITY_COLORS, AIR_QUALITY_DESCRIPTIONS, RADIATION_LEVEL_COLORS } from '$lib/api';
-	import { vesselStore, vesselConnectionStatus, connectVesselStream, disconnectVesselStream } from '$lib/services/vessel-stream';
+	import { vesselStore, vesselConnectionStatus, connectVesselStream, disconnectVesselStream, type VesselTrackPoint } from '$lib/services/vessel-stream';
+	import { selectedVesselTrack } from '$lib/stores/vesselTrack';
 	import type { OutageData, VIEWSConflictData, Vessel, RadiationReading } from '$lib/api';
 	import type { CustomMonitor, NewsItem, NewsCategory, Aircraft, VolcanoData, AirQualityReading, DiseaseOutbreak, EarthquakeData } from '$lib/types';
 	import { webcamWindows } from '$lib/stores/webcam';
@@ -220,6 +237,10 @@
 	let airQualityData = $state<AirQualityReading[]>([]);
 	let airQualityDataLoading = $state(false);
 
+	// Selected vessel track from store (for map visualization)
+	let currentVesselTrack = $state<{ vessel: { mmsi: string; name?: string } | null; track: VesselTrackPoint[] }>({ vessel: null, track: [] });
+	let vesselTrackUnsubscribe: (() => void) | null = null;
+
 	// Arc particle animation positions
 	const arcParticlePositions = [
 		{ arcIndex: 0, progress: 0 },
@@ -379,6 +400,7 @@
 		const features: GeoJSON.Feature[] = HOTSPOTS.map((h) => {
 			const activity = getHotspotActivityLevel(h.name, h.level);
 			const hotspotNews = getNewsForHotspot(h.name);
+			const markerConfig = getHotspotMarkerConfig(activity.level as 'critical' | 'high' | 'elevated' | 'low');
 			return {
 				type: 'Feature',
 				geometry: { type: 'Point', coordinates: [h.lon, h.lat] },
@@ -387,10 +409,18 @@
 					type: 'hotspot',
 					desc: h.desc,
 					level: activity.level,
-					color: THREAT_COLORS[activity.level as keyof typeof THREAT_COLORS],
-					size: activity.level === 'critical' ? 10 : activity.level === 'high' ? 8 : 6,
+					color: markerConfig.color,
+					glowColor: markerConfig.glowColor,
+					strokeColor: markerConfig.strokeColor,
+					size: markerConfig.size.base,
+					glowSize: markerConfig.size.base * markerConfig.size.glow,
+					opacity: markerConfig.opacity,
+					glowOpacity: markerConfig.glowOpacity,
+					strokeWidth: markerConfig.size.stroke,
+					strokeOpacity: markerConfig.strokeOpacity,
 					newsCount: activity.newsCount,
 					hasAlert: activity.hasAlert,
+					isPulsing: markerConfig.style === 'pulsing',
 					recentNews: JSON.stringify(hotspotNews.slice(0, 3).map((n) => ({ title: n.title, link: n.link })))
 				}
 			};
@@ -400,52 +430,122 @@
 
 	function getChokepointsGeoJSON(): GeoJSON.FeatureCollection {
 		if (!dataLayers.chokepoints.visible) return { type: 'FeatureCollection', features: [] };
+		const config = MARKER_CONFIGS.chokepoint;
 		const features: GeoJSON.Feature[] = CHOKEPOINTS.map((cp) => ({
 			type: 'Feature',
 			geometry: { type: 'Point', coordinates: [cp.lon, cp.lat] },
-			properties: { label: cp.name, type: 'chokepoint', desc: cp.desc, color: '#06b6d4', size: 9 }
+			properties: {
+				label: cp.name,
+				type: 'chokepoint',
+				desc: cp.desc,
+				color: config.color,
+				glowColor: config.glowColor,
+				strokeColor: config.strokeColor,
+				size: config.size.base,
+				glowSize: config.size.base * config.size.glow,
+				opacity: config.opacity,
+				glowOpacity: config.glowOpacity,
+				strokeWidth: config.size.stroke,
+				strokeOpacity: config.strokeOpacity
+			}
 		}));
 		return { type: 'FeatureCollection', features };
 	}
 
 	function getCablesGeoJSON(): GeoJSON.FeatureCollection {
 		if (!dataLayers.cables.visible) return { type: 'FeatureCollection', features: [] };
+		const config = MARKER_CONFIGS.cable;
 		const features: GeoJSON.Feature[] = CABLE_LANDINGS.map((cl) => ({
 			type: 'Feature',
 			geometry: { type: 'Point', coordinates: [cl.lon, cl.lat] },
-			properties: { label: cl.name, type: 'cable', desc: cl.desc, color: '#10b981', size: 6 }
+			properties: {
+				label: cl.name,
+				type: 'cable',
+				desc: cl.desc,
+				color: config.color,
+				glowColor: config.glowColor,
+				strokeColor: config.strokeColor,
+				size: config.size.base,
+				glowSize: config.size.base * config.size.glow,
+				opacity: config.opacity,
+				glowOpacity: config.glowOpacity,
+				strokeWidth: config.size.stroke,
+				strokeOpacity: config.strokeOpacity
+			}
 		}));
 		return { type: 'FeatureCollection', features };
 	}
 
 	function getNuclearGeoJSON(): GeoJSON.FeatureCollection {
 		if (!dataLayers.nuclear.visible) return { type: 'FeatureCollection', features: [] };
+		const config = MARKER_CONFIGS.nuclear;
 		const features: GeoJSON.Feature[] = NUCLEAR_SITES.map((ns) => ({
 			type: 'Feature',
 			geometry: { type: 'Point', coordinates: [ns.lon, ns.lat] },
-			properties: { label: ns.name, type: 'nuclear', desc: ns.desc, color: '#f97316', size: 10 }
+			properties: {
+				label: ns.name,
+				type: 'nuclear',
+				desc: ns.desc,
+				color: config.color,
+				glowColor: config.glowColor,
+				strokeColor: config.strokeColor,
+				size: config.size.base,
+				glowSize: config.size.base * config.size.glow,
+				opacity: config.opacity,
+				glowOpacity: config.glowOpacity,
+				strokeWidth: config.size.stroke,
+				strokeOpacity: config.strokeOpacity
+			}
 		}));
 		return { type: 'FeatureCollection', features };
 	}
 
 	function getMilitaryGeoJSON(): GeoJSON.FeatureCollection {
 		if (!dataLayers.military.visible) return { type: 'FeatureCollection', features: [] };
+		const config = MARKER_CONFIGS.military;
 		const features: GeoJSON.Feature[] = MILITARY_BASES.map((mb) => ({
 			type: 'Feature',
 			geometry: { type: 'Point', coordinates: [mb.lon, mb.lat] },
-			properties: { label: mb.name, type: 'military', desc: mb.desc, color: '#3b82f6', size: 8 }
+			properties: {
+				label: mb.name,
+				type: 'military',
+				desc: mb.desc,
+				color: config.color,
+				glowColor: config.glowColor,
+				strokeColor: config.strokeColor,
+				size: config.size.base,
+				glowSize: config.size.base * config.size.glow,
+				opacity: config.opacity,
+				glowOpacity: config.glowOpacity,
+				strokeWidth: config.size.stroke,
+				strokeOpacity: config.strokeOpacity
+			}
 		}));
 		return { type: 'FeatureCollection', features };
 	}
 
 	function getMonitorsGeoJSON(): GeoJSON.FeatureCollection {
 		if (!dataLayers.monitors.visible) return { type: 'FeatureCollection', features: [] };
+		const config = MARKER_CONFIGS.monitor;
 		const features: GeoJSON.Feature[] = monitors
 			.filter((m) => m.enabled && m.location)
 			.map((m) => ({
 				type: 'Feature',
 				geometry: { type: 'Point', coordinates: [m.location!.lon, m.location!.lat] },
-				properties: { label: m.name, type: 'monitor', desc: `Custom monitor: ${m.keywords?.join(', ') || 'No keywords'}`, color: m.color || '#06b6d4', size: 10 }
+				properties: {
+					label: m.name,
+					type: 'monitor',
+					desc: `Custom monitor: ${m.keywords?.join(', ') || 'No keywords'}`,
+					color: m.color || config.color,
+					glowColor: m.color || config.glowColor,
+					strokeColor: config.strokeColor,
+					size: config.size.base,
+					glowSize: config.size.base * config.size.glow,
+					opacity: config.opacity,
+					glowOpacity: config.glowOpacity,
+					strokeWidth: config.size.stroke,
+					strokeOpacity: config.strokeOpacity
+				}
 			}));
 		return { type: 'FeatureCollection', features };
 	}
@@ -499,11 +599,15 @@
 				if (!hotspot) return;
 				const hasAlerts = newsItems.some((n) => n.isAlert);
 				const age = now - Math.max(...newsItems.map((n) => n.timestamp));
-				const opacity = Math.max(0.4, 1 - age / ttlMs);
+				const ageOpacity = Math.max(0.4, 1 - age / ttlMs);
 				const angle = (categoryIndex / categories.length) * 2 * Math.PI;
 				const offsetDistance = 0.8;
 				const offsetLon = Math.cos(angle) * offsetDistance;
 				const offsetLat = Math.sin(angle) * offsetDistance;
+
+				const config = getNewsMarkerConfig(category, hasAlerts);
+				// Scale size based on news count (min 5, max 10)
+				const scaledSize = Math.min(config.size.base + 4, config.size.base + newsItems.length - 1);
 
 				features.push({
 					type: 'Feature',
@@ -515,9 +619,15 @@
 						categoryLabel: FEED_LABELS[category],
 						count: newsItems.length,
 						hasAlerts,
-						opacity,
-						color: hasAlerts ? '#ef4444' : FEED_COLORS[category],
-						size: Math.min(10, 5 + newsItems.length),
+						opacity: ageOpacity * config.opacity,
+						glowOpacity: ageOpacity * config.glowOpacity,
+						color: config.color,
+						glowColor: config.glowColor,
+						strokeColor: config.strokeColor,
+						size: scaledSize,
+						glowSize: scaledSize * config.size.glow,
+						strokeWidth: config.size.stroke,
+						strokeOpacity: config.strokeOpacity,
 						hotspotName
 					}
 				});
@@ -529,13 +639,27 @@
 	function getOutagesGeoJSON(): GeoJSON.FeatureCollection {
 		if (!dataLayers.outages.visible) return { type: 'FeatureCollection', features: [] };
 		const features: GeoJSON.Feature[] = outageData.filter((e) => e.active).map((event) => {
-			const severityColors = { total: '#dc2626', major: '#ea580c', partial: '#ca8a04' };
-			const markerColor = severityColors[event.severity];
-			const size = event.severity === 'total' ? 14 : event.severity === 'major' ? 12 : 10;
+			const config = getOutageMarkerConfig(event.severity as 'total' | 'major' | 'partial');
 			return {
 				type: 'Feature',
 				geometry: { type: 'Point', coordinates: [event.lon, event.lat] },
-				properties: { id: event.id, label: event.country, type: 'outage', severity: event.severity, desc: event.description, color: markerColor, size, source: event.source }
+				properties: {
+					id: event.id,
+					label: event.country,
+					type: 'outage',
+					severity: event.severity,
+					desc: event.description,
+					color: config.color,
+					glowColor: config.glowColor,
+					strokeColor: config.strokeColor,
+					size: config.size.base,
+					glowSize: config.size.base * config.size.glow,
+					opacity: config.opacity,
+					glowOpacity: config.glowOpacity,
+					strokeWidth: config.size.stroke,
+					strokeOpacity: config.strokeOpacity,
+					source: event.source
+				}
 			};
 		});
 		return { type: 'FeatureCollection', features };
@@ -544,13 +668,13 @@
 	function getOutageRadiusGeoJSON(): GeoJSON.FeatureCollection {
 		if (!dataLayers.outages.visible) return { type: 'FeatureCollection', features: [] };
 		const features: GeoJSON.Feature[] = [];
-		const severityColors = { total: '#dc2626', major: '#ea580c', partial: '#ca8a04' };
 		outageData.filter((e) => e.active).forEach((event) => {
+			const config = getOutageMarkerConfig(event.severity as 'total' | 'major' | 'partial');
 			if (event.boundaryCoords && event.boundaryCoords.length > 0) {
 				features.push({
 					type: 'Feature',
 					geometry: { type: 'Polygon', coordinates: event.boundaryCoords },
-					properties: { id: `${event.id}-boundary`, severity: event.severity, color: severityColors[event.severity] }
+					properties: { id: `${event.id}-boundary`, severity: event.severity, color: config.color }
 				});
 			} else {
 				const radiusKm = event.radiusKm || 100;
@@ -558,7 +682,7 @@
 				features.push({
 					type: 'Feature',
 					geometry: { type: 'Polygon', coordinates: [circleCoords] },
-					properties: { id: `${event.id}-radius`, severity: event.severity, color: severityColors[event.severity] }
+					properties: { id: `${event.id}-radius`, severity: event.severity, color: config.color }
 				});
 			}
 		});
@@ -569,6 +693,7 @@
 		if (!dataLayers.aircraft.visible || aircraftData.length === 0) return { type: 'FeatureCollection', features: [] };
 		// Filter out aircraft with invalid coordinates to prevent GeoJSON errors
 		const validAircraft = aircraftData.filter((a) => a.longitude != null && a.latitude != null);
+		const config = MARKER_CONFIGS.aircraft;
 		const features: GeoJSON.Feature[] = validAircraft.map((aircraft) => {
 			const altitude = aircraft.geoAltitude ?? aircraft.baroAltitude;
 			const color = getAltitudeColor(altitude, aircraft.onGround);
@@ -587,6 +712,12 @@
 					headingFormatted: formatHeading(aircraft.trueTrack),
 					onGround: aircraft.onGround,
 					color,
+					glowColor: color,
+					strokeColor: config.strokeColor,
+					size: config.size.base,
+					opacity: config.opacity,
+					strokeWidth: config.size.stroke,
+					strokeOpacity: config.strokeOpacity,
 					type: 'aircraft',
 					rotation: aircraft.trueTrack ?? 0
 				}
@@ -598,14 +729,25 @@
 	function getVolcanoGeoJSON(): GeoJSON.FeatureCollection {
 		if (!dataLayers.volcanoes.visible || volcanoData.length === 0) return { type: 'FeatureCollection', features: [] };
 		const features: GeoJSON.Feature[] = volcanoData.map((volcano) => {
-			const color = VOLCANO_ALERT_COLORS[volcano.colorCode] || '#f97316';
-			let size = 8;
-			if (volcano.alertLevel === 'WARNING') size = 14;
-			else if (volcano.alertLevel === 'WATCH') size = 11;
+			const config = getVolcanoMarkerConfig(volcano.alertLevel);
 			return {
 				type: 'Feature',
 				geometry: { type: 'Point', coordinates: [volcano.lon, volcano.lat] },
-				properties: { id: volcano.id, name: volcano.name, type: 'volcano', alertLevel: volcano.alertLevel, color, size }
+				properties: {
+					id: volcano.id,
+					name: volcano.name,
+					type: 'volcano',
+					alertLevel: volcano.alertLevel,
+					color: config.color,
+					glowColor: config.glowColor,
+					strokeColor: config.strokeColor,
+					size: config.size.base,
+					glowSize: config.size.base * config.size.glow,
+					opacity: config.opacity,
+					glowOpacity: config.glowOpacity,
+					strokeWidth: config.size.stroke,
+					strokeOpacity: config.strokeOpacity
+				}
 			};
 		});
 		return { type: 'FeatureCollection', features };
@@ -616,7 +758,7 @@
 		// Filter out vessels with invalid coordinates to prevent GeoJSON errors
 		const validVessels = vesselData.filter((v) => v.lon != null && v.lat != null);
 		const features: GeoJSON.Feature[] = validVessels.map((vessel) => {
-			const color = getShipTypeColor(vessel.shipType);
+			const config = getVesselMarkerConfig(vessel.shipType);
 			return {
 				type: 'Feature',
 				geometry: { type: 'Point', coordinates: [vessel.lon, vessel.lat] },
@@ -627,8 +769,15 @@
 					shipTypeName: vessel.shipTypeName || 'Unknown',
 					destination: vessel.destination || 'Not reported',
 					speedFormatted: formatVesselSpeed(vessel.speed),
-					color,
-					size: 8,
+					color: config.color,
+					glowColor: config.glowColor,
+					strokeColor: config.strokeColor,
+					size: config.size.base,
+					glowSize: config.size.base * config.size.glow,
+					opacity: config.opacity,
+					glowOpacity: config.glowOpacity,
+					strokeWidth: config.size.stroke,
+					strokeOpacity: config.strokeOpacity,
 					rotation: vessel.heading ?? vessel.course ?? 0
 				}
 			};
@@ -639,15 +788,26 @@
 	function getRadiationGeoJSON(): GeoJSON.FeatureCollection {
 		if (!dataLayers.radiation.visible || radiationReadings.length === 0) return { type: 'FeatureCollection', features: [] };
 		const features: GeoJSON.Feature[] = radiationReadings.map((reading) => {
-			const color = RADIATION_LEVEL_COLORS[reading.level] || '#22c55e';
-			let size = 6;
-			if (reading.level === 'dangerous') size = 14;
-			else if (reading.level === 'high') size = 11;
-			else if (reading.level === 'elevated') size = 8;
+			const config = getRadiationMarkerConfig(reading.level);
 			return {
 				type: 'Feature',
 				geometry: { type: 'Point', coordinates: [reading.lon, reading.lat] },
-				properties: { id: reading.id, type: 'radiation', value: reading.value, unit: reading.unit, level: reading.level, color, size }
+				properties: {
+					id: reading.id,
+					type: 'radiation',
+					value: reading.value,
+					unit: reading.unit,
+					level: reading.level,
+					color: config.color,
+					glowColor: config.glowColor,
+					strokeColor: config.strokeColor,
+					size: config.size.base,
+					glowSize: config.size.base * config.size.glow,
+					opacity: config.opacity,
+					glowOpacity: config.glowOpacity,
+					strokeWidth: config.size.stroke,
+					strokeOpacity: config.strokeOpacity
+				}
 			};
 		});
 		return { type: 'FeatureCollection', features };
@@ -655,16 +815,27 @@
 
 	function getDiseaseGeoJSON(): GeoJSON.FeatureCollection {
 		if (!dataLayers.diseases.visible || diseaseOutbreaks.length === 0) return { type: 'FeatureCollection', features: [] };
-		const DISEASE_COLORS: Record<string, string> = { critical: '#ef4444', high: '#f97316', moderate: '#eab308', low: '#22c55e' };
 		const features: GeoJSON.Feature[] = diseaseOutbreaks.map((outbreak) => {
-			const color = DISEASE_COLORS[outbreak.severity] || '#eab308';
-			let size = 8;
-			if (outbreak.severity === 'critical') size = 14;
-			else if (outbreak.severity === 'high') size = 11;
+			const config = getDiseaseMarkerConfig(outbreak.severity);
 			return {
 				type: 'Feature',
 				geometry: { type: 'Point', coordinates: [outbreak.lon, outbreak.lat] },
-				properties: { id: outbreak.id, type: 'disease', disease: outbreak.disease, country: outbreak.country, severity: outbreak.severity, color, size }
+				properties: {
+					id: outbreak.id,
+					type: 'disease',
+					disease: outbreak.disease,
+					country: outbreak.country,
+					severity: outbreak.severity,
+					color: config.color,
+					glowColor: config.glowColor,
+					strokeColor: config.strokeColor,
+					size: config.size.base,
+					glowSize: config.size.base * config.size.glow,
+					opacity: config.opacity,
+					glowOpacity: config.glowOpacity,
+					strokeWidth: config.size.stroke,
+					strokeOpacity: config.strokeOpacity
+				}
 			};
 		});
 		return { type: 'FeatureCollection', features };
@@ -672,15 +843,27 @@
 
 	function getEarthquakesGeoJSON(): GeoJSON.FeatureCollection {
 		if (!dataLayers.earthquakes.visible || earthquakes.length === 0) return { type: 'FeatureCollection', features: [] };
-		const QUAKE_COLORS: Record<string, string> = { major: '#dc2626', strong: '#ef4444', moderate: '#f97316', light: '#eab308' };
 		const features: GeoJSON.Feature[] = earthquakes.map((quake) => {
-			let category = quake.magnitude >= 7.0 ? 'major' : quake.magnitude >= 6.0 ? 'strong' : quake.magnitude >= 5.0 ? 'moderate' : 'light';
-			const color = QUAKE_COLORS[category];
-			const size = Math.max(3, Math.min(8, 2 + (quake.magnitude - 4) * 1.5));
+			const config = getEarthquakeMarkerConfig(quake.magnitude);
 			return {
 				type: 'Feature',
 				geometry: { type: 'Point', coordinates: [quake.lon, quake.lat] },
-				properties: { id: quake.id, type: 'earthquake', magnitude: quake.magnitude, place: quake.place, depth: quake.depth, color, size }
+				properties: {
+					id: quake.id,
+					type: 'earthquake',
+					magnitude: quake.magnitude,
+					place: quake.place,
+					depth: quake.depth,
+					color: config.color,
+					glowColor: config.glowColor,
+					strokeColor: config.strokeColor,
+					size: config.size.base,
+					glowSize: config.size.base * config.size.glow,
+					opacity: config.opacity,
+					glowOpacity: config.glowOpacity,
+					strokeWidth: config.size.stroke,
+					strokeOpacity: config.strokeOpacity
+				}
 			};
 		});
 		return { type: 'FeatureCollection', features };
@@ -693,12 +876,15 @@
 		HOTSPOTS.forEach((h) => {
 			const activity = getHotspotActivityLevel(h.name, h.level);
 			if (activity.level === 'critical' || activity.hasAlert) {
+				const config = getHotspotMarkerConfig(activity.hasAlert ? 'critical' : (activity.level as 'critical' | 'high' | 'elevated' | 'low'));
 				features.push({
 					type: 'Feature',
 					geometry: { type: 'Point', coordinates: [h.lon, h.lat] },
 					properties: {
 						label: h.name,
-						color: activity.hasAlert ? '#ef4444' : THREAT_COLORS[h.level as keyof typeof THREAT_COLORS]
+						color: config.color,
+						outerRadius: config.size.base * 2.5,
+						innerRadius: config.size.base * 1.5
 					}
 				});
 			}
@@ -714,12 +900,13 @@
 			return activity.level === 'critical' || activity.level === 'high';
 		}).map((h) => {
 			const activity = getHotspotActivityLevel(h.name, h.level);
+			const config = getHotspotMarkerConfig(activity.level as 'critical' | 'high' | 'elevated' | 'low');
 			return {
 				type: 'Feature',
 				geometry: { type: 'Point', coordinates: [h.lon, h.lat] },
 				properties: {
 					label: activity.newsCount > 0 ? `${h.name} (${activity.newsCount})` : h.name,
-					color: THREAT_COLORS[activity.level as keyof typeof THREAT_COLORS],
+					color: config.color,
 					level: activity.level
 				}
 			};
@@ -727,31 +914,99 @@
 		return { type: 'FeatureCollection', features };
 	}
 
-	// VIEWS Conflict intensity colors
-	const CONFLICT_INTENSITY_COLORS: Record<string, string> = {
-		critical: '#dc2626',
-		high: '#ef4444',
-		elevated: '#f97316',
-		low: '#fbbf24'
-	};
+	// Generate GeoJSON for selected vessel track line
+	function getVesselTrackGeoJSON(): GeoJSON.FeatureCollection {
+		if (!currentVesselTrack.vessel || currentVesselTrack.track.length < 2) {
+			return { type: 'FeatureCollection', features: [] };
+		}
+		// Create LineString from track points
+		const coordinates: [number, number][] = currentVesselTrack.track.map((pt) => [pt.lon, pt.lat]);
+		const features: GeoJSON.Feature[] = [
+			{
+				type: 'Feature',
+				geometry: { type: 'LineString', coordinates },
+				properties: {
+					mmsi: currentVesselTrack.vessel.mmsi,
+					name: currentVesselTrack.vessel.name || currentVesselTrack.vessel.mmsi,
+					pointCount: currentVesselTrack.track.length
+				}
+			}
+		];
+		return { type: 'FeatureCollection', features };
+	}
+
+	// Generate GeoJSON for vessel track direction markers (arrows along the path)
+	function getVesselTrackMarkersGeoJSON(): GeoJSON.FeatureCollection {
+		if (!currentVesselTrack.vessel || currentVesselTrack.track.length < 2) {
+			return { type: 'FeatureCollection', features: [] };
+		}
+		const features: GeoJSON.Feature[] = [];
+		const track = currentVesselTrack.track;
+		// Add markers at intervals along the track (every 5th point, plus start and end)
+		const interval = Math.max(1, Math.floor(track.length / 8));
+		for (let i = 0; i < track.length; i += interval) {
+			const pt = track[i];
+			const isStart = i === 0;
+			const isEnd = i >= track.length - interval;
+			features.push({
+				type: 'Feature',
+				geometry: { type: 'Point', coordinates: [pt.lon, pt.lat] },
+				properties: {
+					isStart,
+					isEnd: isEnd && i > 0,
+					index: i,
+					timestamp: pt.timestamp,
+					speed: pt.speed,
+					course: pt.course
+				}
+			});
+		}
+		// Always include the last point
+		const lastPt = track[track.length - 1];
+		if (features.length === 0 || features[features.length - 1].properties?.index !== track.length - 1) {
+			features.push({
+				type: 'Feature',
+				geometry: { type: 'Point', coordinates: [lastPt.lon, lastPt.lat] },
+				properties: {
+					isStart: false,
+					isEnd: true,
+					index: track.length - 1,
+					timestamp: lastPt.timestamp,
+					speed: lastPt.speed,
+					course: lastPt.course
+				}
+			});
+		}
+		return { type: 'FeatureCollection', features };
+	}
 
 	// Generate GeoJSON for VIEWS conflict forecast hotspots (Smart Hotspots)
 	function getConflictHotspotsGeoJSON(): GeoJSON.FeatureCollection {
 		if (!dataLayers.smartHotspots.visible || !conflictData) return { type: 'FeatureCollection', features: [] };
-		const features: GeoJSON.Feature[] = conflictData.hotspots.map((hotspot) => ({
-			type: 'Feature',
-			geometry: { type: 'Point', coordinates: [hotspot.lon, hotspot.lat] },
-			properties: {
-				id: hotspot.id,
-				label: hotspot.label,
-				name: hotspot.name,
-				type: 'views-conflict',
-				intensity: hotspot.intensity,
-				color: CONFLICT_INTENSITY_COLORS[hotspot.intensity as keyof typeof CONFLICT_INTENSITY_COLORS] || '#fbbf24',
-				size: hotspot.intensity === 'critical' ? 12 : hotspot.intensity === 'high' ? 10 : 8,
-				desc: hotspot.riskDescription
-			}
-		}));
+		const features: GeoJSON.Feature[] = conflictData.hotspots.map((hotspot) => {
+			const config = getConflictMarkerConfig(hotspot.intensity);
+			return {
+				type: 'Feature',
+				geometry: { type: 'Point', coordinates: [hotspot.lon, hotspot.lat] },
+				properties: {
+					id: hotspot.id,
+					label: hotspot.label,
+					name: hotspot.name,
+					type: 'views-conflict',
+					intensity: hotspot.intensity,
+					color: config.color,
+					glowColor: config.glowColor,
+					strokeColor: config.strokeColor,
+					size: config.size.base,
+					glowSize: config.size.base * config.size.glow,
+					opacity: config.opacity,
+					glowOpacity: config.glowOpacity,
+					strokeWidth: config.size.stroke,
+					strokeOpacity: config.strokeOpacity,
+					desc: hotspot.riskDescription
+				}
+			};
+		});
 		return { type: 'FeatureCollection', features };
 	}
 
@@ -761,6 +1016,7 @@
 		const features: GeoJSON.Feature[] = [];
 		for (const arc of conflictData.arcs) {
 			const coords = generateArcCoordinates([arc.from.lon, arc.from.lat], [arc.to.lon, arc.to.lat], 40);
+			const arcStyle = ARC_STYLES.conflict;
 			features.push({
 				type: 'Feature',
 				geometry: { type: 'LineString', coordinates: coords },
@@ -769,7 +1025,11 @@
 					type: 'views-arc',
 					from: arc.from.name,
 					to: arc.to.name,
-					color: arc.color,
+					color: arc.color || arcStyle.color,
+					width: arcStyle.width,
+					glowWidth: arcStyle.glowWidth,
+					opacity: arcStyle.opacity,
+					glowOpacity: arcStyle.glowOpacity,
 					intensity: arc.intensity,
 					description: arc.description
 				}
@@ -906,7 +1166,9 @@
 				{ name: 'pulsing-rings', getData: getPulsingRingsGeoJSON },
 				{ name: 'labels', getData: getLabelsGeoJSON },
 				{ name: 'ucdp-hotspots', getData: getConflictHotspotsGeoJSON },
-				{ name: 'ucdp-arcs', getData: getConflictArcsGeoJSON }
+				{ name: 'ucdp-arcs', getData: getConflictArcsGeoJSON },
+				{ name: 'vessel-track', getData: getVesselTrackGeoJSON },
+				{ name: 'vessel-track-markers', getData: getVesselTrackMarkersGeoJSON }
 			];
 			sources.forEach(({ name, getData }) => {
 				const source = map!.getSource(name) as maplibregl.GeoJSONSource;
@@ -1107,6 +1369,8 @@
 					map.addSource('labels', { type: 'geojson', data: getLabelsGeoJSON() });
 					map.addSource('ucdp-hotspots', { type: 'geojson', data: getConflictHotspotsGeoJSON() });
 					map.addSource('ucdp-arcs', { type: 'geojson', data: getConflictArcsGeoJSON() });
+					map.addSource('vessel-track', { type: 'geojson', data: getVesselTrackGeoJSON() });
+					map.addSource('vessel-track-markers', { type: 'geojson', data: getVesselTrackMarkersGeoJSON() });
 					console.log('[MapLibre] All sources added successfully');
 				} catch (e) {
 					console.error('[MapLibre] Error adding sources:', e);
@@ -1115,80 +1379,94 @@
 				// Add all layers with try-catch for debugging
 				console.log('[MapLibre] Adding layers...');
 				try {
-					// Outage radius layer
-					map.addLayer({ id: 'outage-radius-fill', type: 'fill', source: 'outage-radius', paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.08 } });
-					map.addLayer({ id: 'outage-radius-border', type: 'line', source: 'outage-radius', paint: { 'line-color': ['get', 'color'], 'line-width': 1.5, 'line-opacity': 0.4, 'line-dasharray': [4, 2] } });
+					// Outage radius layer - area effects
+					map.addLayer({ id: 'outage-radius-fill', type: 'fill', source: 'outage-radius', paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.06 } });
+					map.addLayer({ id: 'outage-radius-border', type: 'line', source: 'outage-radius', paint: { 'line-color': ['get', 'color'], 'line-width': 1.5, 'line-opacity': 0.35, 'line-dasharray': [4, 2] } });
 
-					// Arc layers
-					map.addLayer({ id: 'arcs-glow', type: 'line', source: 'arcs', paint: { 'line-color': ['get', 'color'], 'line-width': 10, 'line-opacity': 0.15, 'line-blur': 3 } });
-					map.addLayer({ id: 'arcs-main', type: 'line', source: 'arcs', paint: { 'line-color': ['get', 'color'], 'line-width': 2, 'line-opacity': 0.8 } });
+					// Arc layers - threat corridors with glow effect
+					map.addLayer({ id: 'arcs-glow', type: 'line', source: 'arcs', paint: { 'line-color': ['get', 'color'], 'line-width': ARC_STYLES.threat.glowWidth, 'line-opacity': ARC_STYLES.threat.glowOpacity, 'line-blur': 3 } });
+					map.addLayer({ id: 'arcs-main', type: 'line', source: 'arcs', paint: { 'line-color': ['get', 'color'], 'line-width': ARC_STYLES.threat.width, 'line-opacity': ARC_STYLES.threat.opacity } });
 
-					// Cable layers
-					map.addLayer({ id: 'cables-glow', type: 'circle', source: 'cables', paint: { 'circle-radius': 10, 'circle-color': ['get', 'color'], 'circle-opacity': 0.15, 'circle-blur': 1 } });
-					map.addLayer({ id: 'cables-layer', type: 'circle', source: 'cables', paint: { 'circle-radius': ['get', 'size'], 'circle-color': ['get', 'color'], 'circle-opacity': 0.7, 'circle-stroke-width': 1.5, 'circle-stroke-color': ['get', 'color'], 'circle-stroke-opacity': 0.3 } });
+					// Cable layers - small emerald markers
+					map.addLayer({ id: 'cables-glow', type: 'circle', source: 'cables', paint: { 'circle-radius': ['get', 'glowSize'], 'circle-color': ['get', 'glowColor'], 'circle-opacity': ['get', 'glowOpacity'], 'circle-blur': 1 } });
+					map.addLayer({ id: 'cables-layer', type: 'circle', source: 'cables', paint: { 'circle-radius': ['get', 'size'], 'circle-color': ['get', 'color'], 'circle-opacity': ['get', 'opacity'], 'circle-stroke-width': ['get', 'strokeWidth'], 'circle-stroke-color': ['get', 'strokeColor'], 'circle-stroke-opacity': ['get', 'strokeOpacity'] } });
 
-					// Military layers
-					map.addLayer({ id: 'military-glow', type: 'circle', source: 'military', paint: { 'circle-radius': 14, 'circle-color': ['get', 'color'], 'circle-opacity': 0.15, 'circle-blur': 1 } });
-					map.addLayer({ id: 'military-layer', type: 'circle', source: 'military', paint: { 'circle-radius': ['get', 'size'], 'circle-color': ['get', 'color'], 'circle-opacity': 0.7, 'circle-stroke-width': 1.5, 'circle-stroke-color': '#ffffff', 'circle-stroke-opacity': 0.5 } });
+					// Military layers - blue with white stroke
+					map.addLayer({ id: 'military-glow', type: 'circle', source: 'military', paint: { 'circle-radius': ['get', 'glowSize'], 'circle-color': ['get', 'glowColor'], 'circle-opacity': ['get', 'glowOpacity'], 'circle-blur': 1 } });
+					map.addLayer({ id: 'military-layer', type: 'circle', source: 'military', paint: { 'circle-radius': ['get', 'size'], 'circle-color': ['get', 'color'], 'circle-opacity': ['get', 'opacity'], 'circle-stroke-width': ['get', 'strokeWidth'], 'circle-stroke-color': ['get', 'strokeColor'], 'circle-stroke-opacity': ['get', 'strokeOpacity'] } });
 
-					// Chokepoint layers
-					map.addLayer({ id: 'chokepoints-glow', type: 'circle', source: 'chokepoints', paint: { 'circle-radius': 16, 'circle-color': ['get', 'color'], 'circle-opacity': 0.2, 'circle-blur': 1 } });
-					map.addLayer({ id: 'chokepoints-layer', type: 'circle', source: 'chokepoints', paint: { 'circle-radius': ['get', 'size'], 'circle-color': 'rgba(6, 182, 212, 0.15)', 'circle-stroke-width': 2, 'circle-stroke-color': ['get', 'color'], 'circle-stroke-opacity': 1 } });
+					// Chokepoint layers - outlined cyan circles (maritime style)
+					map.addLayer({ id: 'chokepoints-glow', type: 'circle', source: 'chokepoints', paint: { 'circle-radius': ['get', 'glowSize'], 'circle-color': ['get', 'glowColor'], 'circle-opacity': ['get', 'glowOpacity'], 'circle-blur': 1 } });
+					map.addLayer({ id: 'chokepoints-layer', type: 'circle', source: 'chokepoints', paint: { 'circle-radius': ['get', 'size'], 'circle-color': 'rgba(6, 182, 212, 0.12)', 'circle-stroke-width': ['get', 'strokeWidth'], 'circle-stroke-color': ['get', 'strokeColor'], 'circle-stroke-opacity': ['get', 'strokeOpacity'] } });
 
-					// Nuclear layers
-					map.addLayer({ id: 'nuclear-glow', type: 'circle', source: 'nuclear', paint: { 'circle-radius': 18, 'circle-color': ['get', 'color'], 'circle-opacity': 0.2, 'circle-blur': 1 } });
-					map.addLayer({ id: 'nuclear-layer', type: 'circle', source: 'nuclear', paint: { 'circle-radius': ['get', 'size'], 'circle-color': ['get', 'color'], 'circle-opacity': 0.8, 'circle-stroke-width': 2, 'circle-stroke-color': '#fbbf24', 'circle-stroke-opacity': 0.9 } });
+					// Nuclear layers - orange with amber stroke (radiation warning)
+					map.addLayer({ id: 'nuclear-glow', type: 'circle', source: 'nuclear', paint: { 'circle-radius': ['get', 'glowSize'], 'circle-color': ['get', 'glowColor'], 'circle-opacity': ['get', 'glowOpacity'], 'circle-blur': 1 } });
+					map.addLayer({ id: 'nuclear-layer', type: 'circle', source: 'nuclear', paint: { 'circle-radius': ['get', 'size'], 'circle-color': ['get', 'color'], 'circle-opacity': ['get', 'opacity'], 'circle-stroke-width': ['get', 'strokeWidth'], 'circle-stroke-color': ['get', 'strokeColor'], 'circle-stroke-opacity': ['get', 'strokeOpacity'] } });
 
-					// Hotspot layers
-					map.addLayer({ id: 'hotspots-glow', type: 'circle', source: 'hotspots', paint: { 'circle-radius': ['*', ['get', 'size'], 2], 'circle-color': ['get', 'color'], 'circle-opacity': 0.25, 'circle-blur': 1 } });
-					map.addLayer({ id: 'hotspots-layer', type: 'circle', source: 'hotspots', paint: { 'circle-radius': ['get', 'size'], 'circle-color': ['get', 'color'], 'circle-opacity': 0.85, 'circle-stroke-width': 2, 'circle-stroke-color': ['get', 'color'], 'circle-stroke-opacity': 0.4 } });
-					map.addLayer({ id: 'hotspots-labels', type: 'symbol', source: 'hotspots', layout: { 'text-field': ['get', 'label'], 'text-size': 10, 'text-offset': [0, 1.5], 'text-anchor': 'top', 'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'] }, paint: { 'text-color': '#e2e8f0', 'text-halo-color': '#0f172a', 'text-halo-width': 1 } });
+					// Hotspot layers - threat-level colored with glow
+					map.addLayer({ id: 'hotspots-glow', type: 'circle', source: 'hotspots', paint: { 'circle-radius': ['get', 'glowSize'], 'circle-color': ['get', 'glowColor'], 'circle-opacity': ['get', 'glowOpacity'], 'circle-blur': 1 } });
+					map.addLayer({ id: 'hotspots-layer', type: 'circle', source: 'hotspots', paint: { 'circle-radius': ['get', 'size'], 'circle-color': ['get', 'color'], 'circle-opacity': ['get', 'opacity'], 'circle-stroke-width': ['get', 'strokeWidth'], 'circle-stroke-color': ['get', 'strokeColor'], 'circle-stroke-opacity': ['get', 'strokeOpacity'] } });
+					map.addLayer({ id: 'hotspots-labels', type: 'symbol', source: 'hotspots', layout: { 'text-field': ['get', 'label'], 'text-size': 10, 'text-offset': [0, 1.5], 'text-anchor': 'top', 'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'] }, paint: { 'text-color': '#e2e8f0', 'text-halo-color': '#0f172a', 'text-halo-width': 1.5 } });
 
-					// Monitor layers
-					map.addLayer({ id: 'monitors-glow', type: 'circle', source: 'monitors', paint: { 'circle-radius': 16, 'circle-color': ['get', 'color'], 'circle-opacity': 0.2, 'circle-blur': 1 } });
-					map.addLayer({ id: 'monitors-layer', type: 'circle', source: 'monitors', paint: { 'circle-radius': ['get', 'size'], 'circle-color': ['get', 'color'], 'circle-opacity': 0.8, 'circle-stroke-width': 2, 'circle-stroke-color': '#ffffff', 'circle-stroke-opacity': 0.6 } });
+					// Monitor layers - custom user markers
+					map.addLayer({ id: 'monitors-glow', type: 'circle', source: 'monitors', paint: { 'circle-radius': ['get', 'glowSize'], 'circle-color': ['get', 'glowColor'], 'circle-opacity': ['get', 'glowOpacity'], 'circle-blur': 1 } });
+					map.addLayer({ id: 'monitors-layer', type: 'circle', source: 'monitors', paint: { 'circle-radius': ['get', 'size'], 'circle-color': ['get', 'color'], 'circle-opacity': ['get', 'opacity'], 'circle-stroke-width': ['get', 'strokeWidth'], 'circle-stroke-color': ['get', 'strokeColor'], 'circle-stroke-opacity': ['get', 'strokeOpacity'] } });
 
-					// News event layers
-					map.addLayer({ id: 'news-glow', type: 'circle', source: 'news-events', paint: { 'circle-radius': ['*', ['get', 'size'], 1.8], 'circle-color': ['get', 'color'], 'circle-opacity': ['*', ['get', 'opacity'], 0.3], 'circle-blur': 1 } });
-					map.addLayer({ id: 'news-layer', type: 'circle', source: 'news-events', paint: { 'circle-radius': ['get', 'size'], 'circle-color': ['get', 'color'], 'circle-opacity': ['get', 'opacity'], 'circle-stroke-width': 1, 'circle-stroke-color': '#ffffff', 'circle-stroke-opacity': 0.5 } });
+					// News event layers - category-colored with fade based on age
+					map.addLayer({ id: 'news-glow', type: 'circle', source: 'news-events', paint: { 'circle-radius': ['get', 'glowSize'], 'circle-color': ['get', 'glowColor'], 'circle-opacity': ['get', 'glowOpacity'], 'circle-blur': 1 } });
+					map.addLayer({ id: 'news-layer', type: 'circle', source: 'news-events', paint: { 'circle-radius': ['get', 'size'], 'circle-color': ['get', 'color'], 'circle-opacity': ['get', 'opacity'], 'circle-stroke-width': ['get', 'strokeWidth'], 'circle-stroke-color': ['get', 'strokeColor'], 'circle-stroke-opacity': ['get', 'strokeOpacity'] } });
 
-					// Outage layers
-					map.addLayer({ id: 'outages-glow', type: 'circle', source: 'outages', paint: { 'circle-radius': ['*', ['get', 'size'], 1.5], 'circle-color': ['get', 'color'], 'circle-opacity': 0.3, 'circle-blur': 0.5 } });
-					map.addLayer({ id: 'outages-layer', type: 'circle', source: 'outages', paint: { 'circle-radius': ['get', 'size'], 'circle-color': ['get', 'color'], 'circle-opacity': 0.8, 'circle-stroke-width': 2, 'circle-stroke-color': '#1e1b4b', 'circle-stroke-opacity': 0.9 } });
+					// Outage layers - severity-based coloring
+					map.addLayer({ id: 'outages-glow', type: 'circle', source: 'outages', paint: { 'circle-radius': ['get', 'glowSize'], 'circle-color': ['get', 'glowColor'], 'circle-opacity': ['get', 'glowOpacity'], 'circle-blur': 0.5 } });
+					map.addLayer({ id: 'outages-layer', type: 'circle', source: 'outages', paint: { 'circle-radius': ['get', 'size'], 'circle-color': ['get', 'color'], 'circle-opacity': ['get', 'opacity'], 'circle-stroke-width': ['get', 'strokeWidth'], 'circle-stroke-color': ['get', 'strokeColor'], 'circle-stroke-opacity': ['get', 'strokeOpacity'] } });
 
-					// Aircraft layers
-					map.addLayer({ id: 'aircraft-layer', type: 'circle', source: 'aircraft', paint: { 'circle-radius': 4, 'circle-color': ['get', 'color'], 'circle-opacity': 0.9, 'circle-stroke-width': 1, 'circle-stroke-color': '#ffffff', 'circle-stroke-opacity': 0.5 } });
+					// Aircraft layers - altitude-colored, small markers
+					map.addLayer({ id: 'aircraft-layer', type: 'circle', source: 'aircraft', paint: { 'circle-radius': ['get', 'size'], 'circle-color': ['get', 'color'], 'circle-opacity': ['get', 'opacity'], 'circle-stroke-width': ['get', 'strokeWidth'], 'circle-stroke-color': ['get', 'strokeColor'], 'circle-stroke-opacity': ['get', 'strokeOpacity'] } });
 
-					// Volcano layers
-					map.addLayer({ id: 'volcanoes-glow', type: 'circle', source: 'volcanoes', paint: { 'circle-radius': ['*', ['get', 'size'], 1.5], 'circle-color': ['get', 'color'], 'circle-opacity': 0.3, 'circle-blur': 0.5 } });
-					map.addLayer({ id: 'volcanoes-layer', type: 'circle', source: 'volcanoes', paint: { 'circle-radius': ['get', 'size'], 'circle-color': ['get', 'color'], 'circle-opacity': 0.9, 'circle-stroke-width': 2, 'circle-stroke-color': '#ffffff', 'circle-stroke-opacity': 0.6 } });
+					// Volcano layers - alert-level colored
+					map.addLayer({ id: 'volcanoes-glow', type: 'circle', source: 'volcanoes', paint: { 'circle-radius': ['get', 'glowSize'], 'circle-color': ['get', 'glowColor'], 'circle-opacity': ['get', 'glowOpacity'], 'circle-blur': 0.5 } });
+					map.addLayer({ id: 'volcanoes-layer', type: 'circle', source: 'volcanoes', paint: { 'circle-radius': ['get', 'size'], 'circle-color': ['get', 'color'], 'circle-opacity': ['get', 'opacity'], 'circle-stroke-width': ['get', 'strokeWidth'], 'circle-stroke-color': ['get', 'strokeColor'], 'circle-stroke-opacity': ['get', 'strokeOpacity'] } });
 
-					// Vessel layers
-					map.addLayer({ id: 'vessels-layer', type: 'circle', source: 'vessels', paint: { 'circle-radius': ['get', 'size'], 'circle-color': ['get', 'color'], 'circle-opacity': 0.9, 'circle-stroke-width': 1, 'circle-stroke-color': '#ffffff', 'circle-stroke-opacity': 0.5 } });
+					// Vessel layers - ship-type colored
+					map.addLayer({ id: 'vessels-glow', type: 'circle', source: 'vessels', paint: { 'circle-radius': ['get', 'glowSize'], 'circle-color': ['get', 'glowColor'], 'circle-opacity': ['get', 'glowOpacity'], 'circle-blur': 0.5 } });
+					map.addLayer({ id: 'vessels-layer', type: 'circle', source: 'vessels', paint: { 'circle-radius': ['get', 'size'], 'circle-color': ['get', 'color'], 'circle-opacity': ['get', 'opacity'], 'circle-stroke-width': ['get', 'strokeWidth'], 'circle-stroke-color': ['get', 'strokeColor'], 'circle-stroke-opacity': ['get', 'strokeOpacity'] } });
 
-					// Radiation layers
-					map.addLayer({ id: 'radiation-glow', type: 'circle', source: 'radiation', paint: { 'circle-radius': ['*', ['get', 'size'], 1.5], 'circle-color': ['get', 'color'], 'circle-opacity': 0.3, 'circle-blur': 0.5 } });
-					map.addLayer({ id: 'radiation-layer', type: 'circle', source: 'radiation', paint: { 'circle-radius': ['get', 'size'], 'circle-color': ['get', 'color'], 'circle-opacity': 0.8, 'circle-stroke-width': 1, 'circle-stroke-color': '#ffffff', 'circle-stroke-opacity': 0.5 } });
+					// Radiation layers - level-based coloring
+					map.addLayer({ id: 'radiation-glow', type: 'circle', source: 'radiation', paint: { 'circle-radius': ['get', 'glowSize'], 'circle-color': ['get', 'glowColor'], 'circle-opacity': ['get', 'glowOpacity'], 'circle-blur': 0.5 } });
+					map.addLayer({ id: 'radiation-layer', type: 'circle', source: 'radiation', paint: { 'circle-radius': ['get', 'size'], 'circle-color': ['get', 'color'], 'circle-opacity': ['get', 'opacity'], 'circle-stroke-width': ['get', 'strokeWidth'], 'circle-stroke-color': ['get', 'strokeColor'], 'circle-stroke-opacity': ['get', 'strokeOpacity'] } });
 
-					// Disease layers
-					map.addLayer({ id: 'diseases-glow', type: 'circle', source: 'diseases', paint: { 'circle-radius': ['*', ['get', 'size'], 1.5], 'circle-color': ['get', 'color'], 'circle-opacity': 0.3, 'circle-blur': 0.5 } });
-					map.addLayer({ id: 'diseases-layer', type: 'circle', source: 'diseases', paint: { 'circle-radius': ['get', 'size'], 'circle-color': ['get', 'color'], 'circle-opacity': 0.8, 'circle-stroke-width': 1, 'circle-stroke-color': '#ffffff', 'circle-stroke-opacity': 0.5 } });
+					// Disease layers - severity-based coloring
+					map.addLayer({ id: 'diseases-glow', type: 'circle', source: 'diseases', paint: { 'circle-radius': ['get', 'glowSize'], 'circle-color': ['get', 'glowColor'], 'circle-opacity': ['get', 'glowOpacity'], 'circle-blur': 0.5 } });
+					map.addLayer({ id: 'diseases-layer', type: 'circle', source: 'diseases', paint: { 'circle-radius': ['get', 'size'], 'circle-color': ['get', 'color'], 'circle-opacity': ['get', 'opacity'], 'circle-stroke-width': ['get', 'strokeWidth'], 'circle-stroke-color': ['get', 'strokeColor'], 'circle-stroke-opacity': ['get', 'strokeOpacity'] } });
 
-					// Earthquake layers
-					map.addLayer({ id: 'earthquakes-glow', type: 'circle', source: 'earthquakes', paint: { 'circle-radius': ['*', ['get', 'size'], 2], 'circle-color': ['get', 'color'], 'circle-opacity': 0.25, 'circle-blur': 1 } });
-					map.addLayer({ id: 'earthquakes-layer', type: 'circle', source: 'earthquakes', paint: { 'circle-radius': ['get', 'size'], 'circle-color': ['get', 'color'], 'circle-opacity': 0.9, 'circle-stroke-width': 1, 'circle-stroke-color': '#ffffff', 'circle-stroke-opacity': 0.5 } });
+					// Earthquake layers - magnitude-based sizing and coloring
+					map.addLayer({ id: 'earthquakes-glow', type: 'circle', source: 'earthquakes', paint: { 'circle-radius': ['get', 'glowSize'], 'circle-color': ['get', 'glowColor'], 'circle-opacity': ['get', 'glowOpacity'], 'circle-blur': 1 } });
+					map.addLayer({ id: 'earthquakes-layer', type: 'circle', source: 'earthquakes', paint: { 'circle-radius': ['get', 'size'], 'circle-color': ['get', 'color'], 'circle-opacity': ['get', 'opacity'], 'circle-stroke-width': ['get', 'strokeWidth'], 'circle-stroke-color': ['get', 'strokeColor'], 'circle-stroke-opacity': ['get', 'strokeOpacity'] } });
 
-					// Pulsing rings for critical hotspots (use rgba instead of 'transparent')
-					map.addLayer({ id: 'pulsing-rings-outer', type: 'circle', source: 'pulsing-rings', paint: { 'circle-radius': 20, 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': '#ff0000', 'circle-stroke-width': 2, 'circle-stroke-opacity': 0.3 } });
-					map.addLayer({ id: 'pulsing-rings-inner', type: 'circle', source: 'pulsing-rings', paint: { 'circle-radius': 12, 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': '#ff0000', 'circle-stroke-width': 1.5, 'circle-stroke-opacity': 0.5 } });
+					// Pulsing rings for critical hotspots - animated attention rings
+					map.addLayer({ id: 'pulsing-rings-outer', type: 'circle', source: 'pulsing-rings', paint: { 'circle-radius': ['get', 'outerRadius'], 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': ['get', 'color'], 'circle-stroke-width': 2.5, 'circle-stroke-opacity': 0.25 } });
+					map.addLayer({ id: 'pulsing-rings-inner', type: 'circle', source: 'pulsing-rings', paint: { 'circle-radius': ['get', 'innerRadius'], 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': ['get', 'color'], 'circle-stroke-width': 1.5, 'circle-stroke-opacity': 0.45 } });
 
 					// VIEWS Conflict arcs (Smart Hotspots)
-					map.addLayer({ id: 'ucdp-arcs-glow', type: 'line', source: 'ucdp-arcs', paint: { 'line-color': ['get', 'color'], 'line-width': 8, 'line-opacity': 0.2, 'line-blur': 3 } });
-					map.addLayer({ id: 'ucdp-arcs-main', type: 'line', source: 'ucdp-arcs', paint: { 'line-color': ['get', 'color'], 'line-width': 2, 'line-opacity': 0.7 } });
+					map.addLayer({ id: 'ucdp-arcs-glow', type: 'line', source: 'ucdp-arcs', paint: { 'line-color': ['get', 'color'], 'line-width': ARC_STYLES.conflict.glowWidth, 'line-opacity': ARC_STYLES.conflict.glowOpacity, 'line-blur': 3 } });
+					map.addLayer({ id: 'ucdp-arcs-main', type: 'line', source: 'ucdp-arcs', paint: { 'line-color': ['get', 'color'], 'line-width': ARC_STYLES.conflict.width, 'line-opacity': ARC_STYLES.conflict.opacity } });
 
 					// VIEWS Conflict hotspots (Smart Hotspots)
-					map.addLayer({ id: 'ucdp-hotspots-glow', type: 'circle', source: 'ucdp-hotspots', paint: { 'circle-radius': ['*', ['get', 'size'], 1.6], 'circle-color': ['get', 'color'], 'circle-opacity': 0.3, 'circle-blur': 0.5 } });
-					map.addLayer({ id: 'ucdp-hotspots-layer', type: 'circle', source: 'ucdp-hotspots', paint: { 'circle-radius': ['get', 'size'], 'circle-color': ['get', 'color'], 'circle-opacity': 0.9, 'circle-stroke-width': 2, 'circle-stroke-color': '#ffffff', 'circle-stroke-opacity': 0.5 } });
+					map.addLayer({ id: 'ucdp-hotspots-glow', type: 'circle', source: 'ucdp-hotspots', paint: { 'circle-radius': ['get', 'glowSize'], 'circle-color': ['get', 'glowColor'], 'circle-opacity': ['get', 'glowOpacity'], 'circle-blur': 0.5 } });
+					map.addLayer({ id: 'ucdp-hotspots-layer', type: 'circle', source: 'ucdp-hotspots', paint: { 'circle-radius': ['get', 'size'], 'circle-color': ['get', 'color'], 'circle-opacity': ['get', 'opacity'], 'circle-stroke-width': ['get', 'strokeWidth'], 'circle-stroke-color': ['get', 'strokeColor'], 'circle-stroke-opacity': ['get', 'strokeOpacity'] } });
+
+					// Selected vessel track - cyan line with glow effect for tactical visibility
+					map.addLayer({ id: 'vessel-track-glow', type: 'line', source: 'vessel-track', paint: { 'line-color': '#06b6d4', 'line-width': 6, 'line-opacity': 0.3, 'line-blur': 3 } });
+					map.addLayer({ id: 'vessel-track-line', type: 'line', source: 'vessel-track', paint: { 'line-color': '#06b6d4', 'line-width': 2.5, 'line-opacity': 0.9 } });
+					// Vessel track direction markers - circles along the path
+					map.addLayer({ id: 'vessel-track-markers', type: 'circle', source: 'vessel-track-markers', paint: {
+						'circle-radius': ['case', ['get', 'isStart'], 6, ['get', 'isEnd'], 7, 4],
+						'circle-color': ['case', ['get', 'isStart'], '#10b981', ['get', 'isEnd'], '#f59e0b', '#06b6d4'],
+						'circle-opacity': 0.9,
+						'circle-stroke-width': 2,
+						'circle-stroke-color': '#0f172a',
+						'circle-stroke-opacity': 1
+					} });
 
 					console.log('[MapLibre] All layers added successfully');
 				} catch (e) {
@@ -1259,12 +1537,24 @@
 	onMount(() => {
 		console.log('[MapLibre] onMount called, scheduling initMap');
 		requestAnimationFrame(() => initMap());
+		// Subscribe to vessel track changes
+		vesselTrackUnsubscribe = selectedVesselTrack.subscribe((trackData) => {
+			currentVesselTrack = trackData;
+			// Update the map layers when track changes
+			if (map && isInitialized) {
+				const trackSource = map.getSource('vessel-track') as maplibregl.GeoJSONSource;
+				const markersSource = map.getSource('vessel-track-markers') as maplibregl.GeoJSONSource;
+				if (trackSource) trackSource.setData(getVesselTrackGeoJSON());
+				if (markersSource) markersSource.setData(getVesselTrackMarkersGeoJSON());
+			}
+		});
 	});
 
 	onDestroy(() => {
 		stopRotation();
 		stopVesselStream();
 		if (aircraftRefreshInterval) clearInterval(aircraftRefreshInterval);
+		if (vesselTrackUnsubscribe) vesselTrackUnsubscribe();
 		if (map) { map.remove(); map = null; }
 	});
 
@@ -1432,34 +1722,51 @@
 			{#if legendExpanded}
 				<div class="legend-content">
 					<div class="legend-section">
-						<span class="legend-section-title">THREAT LEVELS</span>
+						<span class="legend-section-title">{LEGEND_SECTIONS.threatLevels.title}</span>
 						<div class="legend-items">
-							<div class="legend-item"><span class="legend-dot critical"></span><span class="legend-label">Critical</span></div>
-							<div class="legend-item"><span class="legend-dot high"></span><span class="legend-label">High</span></div>
-							<div class="legend-item"><span class="legend-dot elevated"></span><span class="legend-label">Elevated</span></div>
-							<div class="legend-item"><span class="legend-dot low"></span><span class="legend-label">Low</span></div>
+							{#each LEGEND_SECTIONS.threatLevels.items as item}
+								<div class="legend-item">
+									<span class="legend-dot" style="background: {item.color}; box-shadow: 0 0 4px {item.color};"></span>
+									<span class="legend-label">{item.label}</span>
+								</div>
+							{/each}
 						</div>
 					</div>
 					<div class="legend-section">
-						<span class="legend-section-title">NEWS FEEDS</span>
+						<span class="legend-section-title">{LEGEND_SECTIONS.newsFeeds.title}</span>
 						<div class="legend-items">
-							<div class="legend-item"><span class="legend-marker" style="background: #ef4444;"></span><span class="legend-label">Politics</span></div>
-							<div class="legend-item"><span class="legend-marker" style="background: #8b5cf6;"></span><span class="legend-label">Tech</span></div>
-							<div class="legend-item"><span class="legend-marker" style="background: #10b981;"></span><span class="legend-label">Finance</span></div>
-							<div class="legend-item"><span class="legend-marker" style="background: #f59e0b;"></span><span class="legend-label">Government</span></div>
-							<div class="legend-item"><span class="legend-marker" style="background: #06b6d4;"></span><span class="legend-label">AI</span></div>
-							<div class="legend-item"><span class="legend-marker" style="background: #ec4899;"></span><span class="legend-label">Intel</span></div>
+							{#each LEGEND_SECTIONS.newsFeeds.items as item}
+								<div class="legend-item">
+									<span class="legend-marker" style="background: {item.color};"></span>
+									<span class="legend-label">{item.label}</span>
+								</div>
+							{/each}
 						</div>
 					</div>
 					<div class="legend-section">
-						<span class="legend-section-title">INFRASTRUCTURE</span>
+						<span class="legend-section-title">{LEGEND_SECTIONS.infrastructure.title}</span>
 						<div class="legend-items">
-							<div class="legend-item"><span class="legend-marker" style="background: #06b6d4;"></span><span class="legend-label">Chokepoint</span></div>
-							<div class="legend-item"><span class="legend-marker" style="background: #10b981;"></span><span class="legend-label">Cable Landing</span></div>
-							<div class="legend-item"><span class="legend-marker" style="background: #f97316;"></span><span class="legend-label">Nuclear Site</span></div>
-							<div class="legend-item"><span class="legend-marker" style="background: #3b82f6;"></span><span class="legend-label">Military Base</span></div>
+							{#each LEGEND_SECTIONS.infrastructure.items as item}
+								<div class="legend-item">
+									<span class="legend-marker" style="background: {item.color};"></span>
+									<span class="legend-label">{item.label}</span>
+								</div>
+							{/each}
 						</div>
 					</div>
+					{#if dataLayers.vessels.visible}
+						<div class="legend-section">
+							<span class="legend-section-title">{LEGEND_SECTIONS.vessels.title}</span>
+							<div class="legend-items">
+								{#each LEGEND_SECTIONS.vessels.items as item}
+									<div class="legend-item">
+										<span class="legend-marker" style="background: {item.color};"></span>
+										<span class="legend-label">{item.label}</span>
+									</div>
+								{/each}
+							</div>
+						</div>
+					{/if}
 					<div class="legend-hint">Click gear icon for data controls. Click markers for details.</div>
 				</div>
 			{/if}
@@ -1530,12 +1837,8 @@
 	.legend-section-title { font-size: 0.5rem; font-weight: 700; font-family: 'SF Mono', Monaco, monospace; color: rgb(100 116 139); letter-spacing: 0.1em; margin-bottom: 0.25rem; display: block; }
 	.legend-items { display: flex; flex-direction: column; gap: 0.25rem; }
 	.legend-item { display: flex; align-items: center; gap: 0.375rem; }
-	.legend-dot { width: 8px; height: 8px; border-radius: 50%; }
-	.legend-dot.critical { background: #ff0000; box-shadow: 0 0 4px #ff0000; }
-	.legend-dot.high { background: #ff4444; box-shadow: 0 0 4px #ff4444; }
-	.legend-dot.elevated { background: #ffcc00; box-shadow: 0 0 4px #ffcc00; }
-	.legend-dot.low { background: #00ff88; box-shadow: 0 0 4px #00ff88; }
-	.legend-marker { width: 8px; height: 8px; border-radius: 2px; }
+	.legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+	.legend-marker { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
 	.legend-label { font-size: 0.5625rem; color: rgb(148 163 184); }
 	.legend-hint { font-size: 0.5rem; color: rgb(100 116 139); margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid rgb(51 65 85 / 0.5); }
 

@@ -134,3 +134,24 @@ export {
 	weatherLoading,
 	selectedAlert
 } from './weather';
+
+// Vessel Track store (selected vessel visualization)
+export {
+	selectedVesselTrack,
+	hasSelectedTrack,
+	trackPointCount,
+	setSelectedVesselTrack,
+	clearSelectedVesselTrack,
+	type SelectedVesselTrack
+} from './vesselTrack';
+
+// Crisis Watch store
+export {
+	crisisWatch,
+	crisisWatchConfigs,
+	enabledCrisisWatches,
+	getDefaultConfig,
+	getConfigByPanelId,
+	type CrisisWatchConfig,
+	type CrisisWatchState
+} from './crisisWatch';

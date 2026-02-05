@@ -16,9 +16,10 @@
 		news?: NewsItem[];
 		loading?: boolean;
 		error?: string | null;
+		onEdit?: () => void;
 	}
 
-	let { panelId, config, news = [], loading = false, error = null }: Props = $props();
+	let { panelId, config, news = [], loading = false, error = null, onEdit }: Props = $props();
 
 	// Calculate threat level based on news
 	const threatLevel = $derived(calculateThreatLevel(news, config.criticalKeywords));
@@ -59,6 +60,16 @@
 	{loading}
 	{error}
 >
+	{#snippet actions()}
+		{#if onEdit}
+			<button class="edit-btn" onclick={onEdit} aria-label="Configure crisis watch" title="Configure">
+				<svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+					<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+					<path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+				</svg>
+			</button>
+		{/if}
+	{/snippet}
 	<div class="situation-container">
 		<div class="situation-header">
 			<div class="situation-title">{config.title}</div>
@@ -149,5 +160,26 @@
 		color: var(--text-muted);
 		margin-top: 0.125rem;
 		line-height: var(--lh-tight);
+	}
+
+	.edit-btn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 18px;
+		height: 18px;
+		background: rgb(15 23 42 / 0.8);
+		border: 1px solid rgb(51 65 85 / 0.5);
+		border-radius: 2px;
+		color: rgb(148 163 184);
+		cursor: pointer;
+		transition: all 0.15s ease;
+		flex-shrink: 0;
+	}
+
+	.edit-btn:hover {
+		color: rgb(34 211 238);
+		border-color: rgb(34 211 238 / 0.5);
+		background: rgb(34 211 238 / 0.1);
 	}
 </style>
